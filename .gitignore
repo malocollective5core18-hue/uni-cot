@@ -1,0 +1,44 @@
+# Database files - NEVER commit these!
+*.sqlite3
+db.sqlite3*
+*.db
+
+# Environment variables - Contains secrets!
+.env
+.env.local
+.env.production
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Django static/media during development
+staticfiles/
+media/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
