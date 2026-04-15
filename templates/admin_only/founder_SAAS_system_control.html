@@ -1,0 +1,449 @@
+{% extends "base.html" %}
+
+{% block title %}Founder SaaS Control{% endblock %}
+
+{% block extra_css %}
+<style>
+    .founder-theme .brand-mark,
+    .founder-theme .btn-primary {
+        background: linear-gradient(135deg, #8b5cf6, #0ea5e9);
+    }
+
+    .founder-theme .signal-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: var(--dash-gap);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="glass-dashboard founder-theme">
+    <div class="dashboard-shell">
+        <div class="dashboard-frame">
+            <aside class="dashboard-sidebar">
+                <div class="glass-card dashboard-panel dashboard-stack">
+                    <div class="sidebar-head">
+                        <div class="brand-mark">FC</div>
+                        <div class="sidebar-title">
+                            <h1>Founder Control</h1>
+                            <p class="panel-subtitle">Network-wide command view</p>
+                        </div>
+                    </div>
+
+                    <div class="soft-card">
+                        <div class="mini-label">Mission</div>
+                        <div class="mini-value">Guide payment, access, domains, and review signals from one compact operational surface.</div>
+                    </div>
+
+                    <nav class="sidebar-nav">
+                        <a class="sidebar-link" href="#overview" data-dashboard-target="overview" data-dashboard-default="true">
+                            <span class="sidebar-icon">O</span>
+                            <span class="sidebar-copy">
+                                <strong>Overview</strong>
+                                <span>System status and routine</span>
+                            </span>
+                        </a>
+                        <a class="sidebar-link" href="#tenants" data-dashboard-target="tenants">
+                            <span class="sidebar-icon">T</span>
+                            <span class="sidebar-copy">
+                                <strong>Tenants</strong>
+                                <span>{{ total_tenants }} total systems</span>
+                            </span>
+                        </a>
+                        <a class="sidebar-link" href="#reviews" data-dashboard-target="reviews">
+                            <span class="sidebar-icon">R</span>
+                            <span class="sidebar-copy">
+                                <strong>Reviews</strong>
+                                <span>{{ total_reviews }} feedback items</span>
+                            </span>
+                        </a>
+                        <a class="sidebar-link" href="#signals" data-dashboard-target="signals">
+                            <span class="sidebar-icon">S</span>
+                            <span class="sidebar-copy">
+                                <strong>Signals</strong>
+                                <span>Pattern monitoring</span>
+                            </span>
+                        </a>
+                        <a class="sidebar-link" href="/admin/">
+                            <span class="sidebar-icon">A</span>
+                            <span class="sidebar-copy">
+                                <strong>Admin</strong>
+                                <span>Open Django admin</span>
+                            </span>
+                        </a>
+                    </nav>
+                </div>
+            </aside>
+
+            <section class="dashboard-main">
+                <div class="dashboard-focus-group" data-dashboard-section="overview">
+                    <section class="glass-card dashboard-panel dashboard-stack">
+                        <span class="eyebrow">Founder control room</span>
+                        <div>
+                            <h1>Focus on payments, access, and live domains.</h1>
+                            <p class="panel-subtitle">This page now keeps only the operational signals a founder usually needs first.</p>
+                        </div>
+                        <div class="hero-spot">
+                            <div class="soft-card">
+                                <div class="mini-label">Total owners</div>
+                                <div class="mini-value">{{ total_tenants }}</div>
+                            </div>
+                            <div class="soft-card">
+                                <div class="mini-label">Need action</div>
+                                <div class="mini-value">{{ expired_tenants }} expired, {{ pending_reviews }} reviews pending.</div>
+                            </div>
+                            <div class="soft-card">
+                                <div class="mini-label">Working well</div>
+                                <div class="mini-value">{{ active_tenants }} active owners, {{ paid_tenants }} paid accounts.</div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <section id="tenants" class="glass-card dashboard-panel dashboard-focus-group" data-dashboard-section="tenants">
+                    <div class="section-head">
+                        <div>
+                            <div class="section-title">Owner and tenant control</div>
+                            <p class="panel-subtitle">Update access and activate domains without losing context.</p>
+                        </div>
+                    </div>
+                    <div data-dashboard-filter-root>
+                        <div class="filter-toolbar">
+                            <label class="field-label">
+                                Search tenants
+                                <input type="search" data-filter-role="search" placeholder="Program, owner, domain, subdomain">
+                            </label>
+                            <label class="field-label">
+                                Access status
+                                <select data-filter-role="status">
+                                    <option value="all">All statuses</option>
+                                    <option value="active">Active</option>
+                                    <option value="expired">Expired</option>
+                                    <option value="trial">Trial</option>
+                                </select>
+                            </label>
+                            <label class="field-label">
+                                Plan
+                                <select data-filter-role="plan">
+                                    <option value="all">All plans</option>
+                                    <option value="basic">Basic</option>
+                                    <option value="pro">Pro</option>
+                                    <option value="trial">Trial</option>
+                                </select>
+                            </label>
+                        </div>
+                    <div class="dashboard-stack">
+                        {% for tenant in tenants %}
+                        <article class="entity-card"
+                            data-filter-item
+                            data-search="{{ tenant.name }} {{ tenant.owner.email|default:'' }} {{ tenant.schema_name }} {{ tenant.subdomain }} {% for domain in tenant.all_domains %}{{ domain.domain }} {% endfor %}"
+                            data-status="{% if tenant.is_trial %}trial{% elif tenant.is_subscription_active %}active{% else %}expired{% endif %}"
+                            data-plan="{{ tenant.latest_subscription.plan|default:'basic' }} {% if tenant.is_trial %}trial{% endif %}">
+                            <div class="entity-top">
+                                <div class="entity-meta">
+                                    <span class="entity-title">{{ tenant.name }}</span>
+                                    <span class="meta-text">{{ tenant.owner.email|default:"No owner email" }}</span>
+                                    <span class="meta-text tier-secondary">Schema {{ tenant.schema_name }} · Subdomain {{ tenant.subdomain }}</span>
+                                </div>
+                                <div class="chip-row" style="justify-items: end;">
+                                    <span class="chip {% if tenant.is_subscription_active %}live{% else %}expired{% endif %}">
+                                        {% if tenant.is_subscription_active %}Access live{% else %}Access paused{% endif %}
+                                    </span>
+                                    {% if tenant.is_trial %}
+                                    <span class="chip pending">Trial</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <div class="micro-grid" style="margin: 14px 0;">
+                                <div class="mini-card">
+                                    <div class="mini-label">Paid until</div>
+                                    <div class="mini-value">{{ tenant.paid_until|default:"Not set" }}</div>
+                                </div>
+                                <div class="mini-card">
+                                    <div class="mini-label">Days remaining</div>
+                                    <div class="mini-value">{{ tenant.days_remaining }}</div>
+                                </div>
+                                <div class="mini-card tier-secondary">
+                                    <div class="mini-label">Members</div>
+                                    <div class="mini-value">{{ tenant.member_count }}</div>
+                                </div>
+                                <div class="mini-card tier-secondary">
+                                    <div class="mini-label">Reviews</div>
+                                    <div class="mini-value">{{ tenant.review_count }}</div>
+                                </div>
+                            </div>
+
+                            <div class="chip-row" style="margin-bottom: 14px;">
+                                {% for domain in tenant.all_domains %}
+                                <span class="chip domain">{{ domain.domain }}{% if domain.is_primary %} · primary{% endif %}</span>
+                                {% empty %}
+                                <span class="chip expired">No domains yet</span>
+                                {% endfor %}
+                            </div>
+
+                            <div class="action-grid">
+                                <form method="post" class="control-form soft-card">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="update_access">
+                                    <input type="hidden" name="tenant_id" value="{{ tenant.id }}">
+                                    <div class="section-title">Access control</div>
+                                    <div class="field-grid tight">
+                                        <label class="field-label">
+                                            Paid until
+                                            <input type="date" name="paid_until" value="{% if tenant.paid_until %}{{ tenant.paid_until|date:'Y-m-d' }}{% endif %}">
+                                        </label>
+                                        <label class="field-label">
+                                            Plan
+                                            <select name="plan">
+                                                <option value="trial" {% if tenant.latest_subscription and tenant.latest_subscription.plan == 'trial' %}selected{% endif %}>Trial</option>
+                                                <option value="basic" {% if tenant.latest_subscription and tenant.latest_subscription.plan == 'basic' %}selected{% endif %}>Basic</option>
+                                                <option value="pro" {% if tenant.latest_subscription and tenant.latest_subscription.plan == 'pro' %}selected{% endif %}>Pro</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                    <div class="checkbox-row">
+                                        <label class="field-label"><input type="checkbox" name="is_active" {% if tenant.is_active %}checked{% endif %}> Owner access enabled</label>
+                                        <label class="field-label"><input type="checkbox" name="is_trial" {% if tenant.is_trial %}checked{% endif %}> Trial mode</label>
+                                    </div>
+                                    <button class="btn-primary" type="submit">Save access settings</button>
+                                </form>
+
+                                <form method="post" class="control-form soft-card">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="activate_custom_domain">
+                                    <input type="hidden" name="tenant_id" value="{{ tenant.id }}">
+                                    <div class="section-title">Custom domain</div>
+                                    <label class="field-label">
+                                        Domain
+                                        <input type="text" name="custom_domain" placeholder="example.ownerdomain.com">
+                                    </label>
+                                    <div class="checkbox-row">
+                                        <label class="field-label"><input type="checkbox" name="make_primary" checked> Make primary</label>
+                                    </div>
+                                    <button class="btn-secondary" type="submit">Activate custom domain</button>
+                                </form>
+                            </div>
+                        </article>
+                        {% empty %}
+                        <div class="empty-text">No tenants found yet.</div>
+                        {% endfor %}
+                    </div>
+                        <div class="filter-results-note" data-filter-empty hidden>No tenants match the current search or filters.</div>
+                    </div>
+                </section>
+
+                <section class="glass-card dashboard-panel">
+                    <div class="section-head">
+                        <div>
+                            <div class="section-title">Owner subscription database</div>
+                            <p class="panel-subtitle">Production-style table of all owners, payment window, contact number, and quick activation controls.</p>
+                        </div>
+                    </div>
+                    <div data-dashboard-filter-root>
+                        <div class="filter-toolbar">
+                            <label class="field-label">
+                                Search owners
+                                <input type="search" data-filter-role="search" placeholder="Owner, email, phone, domain">
+                            </label>
+                            <label class="field-label">
+                                Status
+                                <select data-filter-role="status">
+                                    <option value="all">All statuses</option>
+                                    <option value="active">Paid active</option>
+                                    <option value="expired">Expired</option>
+                                    <option value="trial">Trial</option>
+                                </select>
+                            </label>
+                            <label class="field-label">
+                                Plan
+                                <select data-filter-role="plan">
+                                    <option value="all">All plans</option>
+                                    <option value="basic">Basic</option>
+                                    <option value="pro">Pro</option>
+                                    <option value="trial">Trial</option>
+                                </select>
+                            </label>
+                        </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Owner</th>
+                                    <th>Contact</th>
+                                    <th>Domain</th>
+                                    <th>Paid until</th>
+                                    <th>Time left</th>
+                                    <th>Status</th>
+                                    <th>Activation</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in owner_rows %}
+                                <tr
+                                    data-filter-item
+                                    data-search="{{ row.owner_name }} {{ row.owner_email }} {{ row.phone_number }} {{ row.domain_url }}"
+                                    data-status="{% if row.is_trial %}trial{% elif row.status == 'active' %}active{% else %}expired{% endif %}"
+                                    data-plan="{% if row.is_trial %}trial{% else %}{{ row.plan|default:'basic' }}{% endif %}">
+                                    <td>
+                                        <div class="table-cell">{{ row.owner_name }}</div>
+                                        <div class="meta-text">{{ row.owner_email }}</div>
+                                    </td>
+                                    <td>{{ row.phone_number|default:"Not submitted" }}</td>
+                                    <td class="tier-secondary">{{ row.domain_url }}</td>
+                                    <td>{{ row.paid_until|default:"Not set" }}</td>
+                                    <td>{{ row.days_remaining }} days</td>
+                                    <td>
+                                        <span class="chip {% if row.status == 'active' %}live{% else %}expired{% endif %}">
+                                            {{ row.status }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <form method="post" class="control-form">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="action" value="update_access">
+                                            <input type="hidden" name="tenant_id" value="{{ row.tenant_id }}">
+                                            <div class="field-grid tight">
+                                                <label class="field-label">
+                                                    End date
+                                                    <input type="date" name="paid_until" value="{% if row.paid_until %}{{ row.paid_until|date:'Y-m-d' }}{% endif %}">
+                                                </label>
+                                                <label class="field-label">
+                                                    Plan
+                                                    <select name="plan">
+                                                        <option value="basic">Basic</option>
+                                                        <option value="pro">Pro</option>
+                                                        <option value="trial" {% if row.is_trial %}selected{% endif %}>Trial</option>
+                                                    </select>
+                                                </label>
+                                            </div>
+                                            <div class="checkbox-row">
+                                                <label class="field-label"><input type="checkbox" name="is_active" {% if row.is_active %}checked{% endif %}> Active</label>
+                                                <label class="field-label"><input type="checkbox" name="is_trial" {% if row.is_trial %}checked{% endif %}> Trial</label>
+                                            </div>
+                                            <button class="btn-primary" type="submit">Activate / update</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="7" class="empty-text">No owners found yet.</td>
+                                </tr>
+                                {% endfor %}
+                                <tr data-filter-empty hidden>
+                                    <td colspan="7" class="empty-text">No owner records match the current search or filters.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    </div>
+                </section>
+
+                <section id="reviews" class="glass-card dashboard-panel dashboard-focus-group" data-dashboard-section="reviews">
+                    <div class="section-head">
+                        <div>
+                            <div class="section-title">Review stream</div>
+                            <p class="panel-subtitle">High-density review feed with responsive column priority.</p>
+                        </div>
+                    </div>
+                    <div data-dashboard-filter-root>
+                        <div class="filter-toolbar">
+                            <label class="field-label">
+                                Search reviews
+                                <input type="search" data-filter-role="search" placeholder="Owner, reviewer, review text">
+                            </label>
+                            <label class="field-label">
+                                Review status
+                                <select data-filter-role="status">
+                                    <option value="all">All statuses</option>
+                                    <option value="pending">Pending</option>
+                                    <option value="approved">Approved</option>
+                                    <option value="rejected">Rejected</option>
+                                </select>
+                            </label>
+                        </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Owner</th>
+                                    <th>Reviewer</th>
+                                    <th>Rating</th>
+                                    <th>Status</th>
+                                    <th class="tier-secondary">Review</th>
+                                    <th class="tier-tertiary">Created</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for review in reviews %}
+                                <tr
+                                    data-filter-item
+                                    data-search="{{ review.owner.program_name }} {{ review.owner.email }} {{ review.member.reg_number }} {{ review.member.program_name }} {{ review.content }}"
+                                    data-status="{{ review.status }}">
+                                    <td>
+                                        <div class="table-cell">{{ review.owner.program_name }}</div>
+                                        <div class="meta-text tier-secondary">{{ review.owner.email }}</div>
+                                    </td>
+                                    <td>
+                                        <div class="table-cell">{{ review.member.reg_number }}</div>
+                                        <div class="meta-text tier-secondary">{{ review.member.program_name }}</div>
+                                    </td>
+                                    <td>{{ review.rating }}/5</td>
+                                    <td><span class="chip {% if review.status == 'approved' %}live{% elif review.status == 'pending' %}pending{% else %}expired{% endif %}">{{ review.status }}</span></td>
+                                    <td class="tier-secondary">{{ review.content }}</td>
+                                    <td class="tier-tertiary">{{ review.created_at|date:"M d, Y H:i" }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="empty-text">No reviews have been posted yet.</td>
+                                </tr>
+                                {% endfor %}
+                                <tr data-filter-empty hidden>
+                                    <td colspan="6" class="empty-text">No reviews match the current search or filters.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    </div>
+                </section>
+
+                <section id="signals" class="signal-grid dashboard-focus-group" data-dashboard-section="signals">
+                    <div class="glass-card dashboard-panel dashboard-stack">
+                        <div class="section-title">Review signals</div>
+                        {% for signal in review_signals %}
+                        <div class="soft-card">
+                            <div class="entity-title">{{ signal.owner__program_name|default:"Unknown owner" }}</div>
+                            <div class="meta-text">Total {{ signal.total_reviews }} · Pending {{ signal.pending_reviews }}</div>
+                            <div class="mini-value">Average {% if signal.average_rating %}{{ signal.average_rating|floatformat:1 }}/5{% else %}No rating yet{% endif %}</div>
+                        </div>
+                        {% empty %}
+                        <div class="empty-text">Signals will appear as reviews accumulate.</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="glass-card dashboard-panel dashboard-stack">
+                        <div class="section-title">Founder playbook</div>
+                        <div class="soft-card">
+                            <div class="entity-title">1. Confirm payment</div>
+                            <div class="meta-text">Open tenant card, set paid date, select plan.</div>
+                        </div>
+                        <div class="soft-card">
+                            <div class="entity-title">2. Enable access</div>
+                            <div class="meta-text">Keep access enabled and switch off trial when required.</div>
+                        </div>
+                        <div class="soft-card">
+                            <div class="entity-title">3. Activate domain</div>
+                            <div class="meta-text">Assign live custom domain and keep fallback path if needed.</div>
+                        </div>
+                        <div class="soft-card">
+                            <div class="entity-title">4. Read signals</div>
+                            <div class="meta-text">Use repeated complaints and review spikes to guide product fixes.</div>
+                        </div>
+                    </div>
+                </section>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}
