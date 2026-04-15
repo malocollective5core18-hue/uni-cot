@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ tenant.name }} | Private System</title>
+    <style>
+        :root {
+            --bg: linear-gradient(135deg, #08111f, #111c38 45%, #1f1b4d);
+            --panel: rgba(255, 255, 255, 0.08);
+            --panel-strong: rgba(255, 255, 255, 0.12);
+            --border: rgba(255, 255, 255, 0.12);
+            --text: rgba(255, 255, 255, 0.92);
+            --muted: rgba(226, 232, 240, 0.72);
+            --primary: #38bdf8;
+            --accent: #8b5cf6;
+            --success: #34d399;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Poppins, Arial, sans-serif;
+            background:
+                radial-gradient(circle at top right, rgba(56, 189, 248, 0.18), transparent 24%),
+                radial-gradient(circle at bottom left, rgba(139, 92, 246, 0.18), transparent 28%),
+                var(--bg);
+            color: var(--text);
+            padding: clamp(16px, 3vw, 36px);
+        }
+
+        .shell {
+            width: min(980px, 100%);
+            margin: 0 auto;
+            display: grid;
+            gap: 18px;
+        }
+
+        .card {
+            background: var(--panel);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            padding: clamp(16px, 2vw, 28px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: rgba(56, 189, 248, 0.12);
+            border: 1px solid rgba(56, 189, 248, 0.22);
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-size: 0.78rem;
+        }
+
+        h1 {
+            margin: 14px 0 10px;
+            font-size: clamp(1.6rem, 4vw, 3rem);
+            line-height: 1;
+        }
+
+        p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+        }
+
+        .mini {
+            background: var(--panel-strong);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 18px;
+            padding: 16px;
+        }
+
+        .label {
+            color: var(--muted);
+            font-size: 0.78rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .value {
+            margin-top: 8px;
+            font-size: clamp(1rem, 2vw, 1.4rem);
+            font-weight: 700;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            border-radius: 999px;
+            padding: 12px 18px;
+            text-decoration: none;
+            color: white;
+            font-weight: 600;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--primary));
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .state {
+            border-left: 4px solid var(--success);
+            padding-left: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <section class="card">
+            <span class="eyebrow">Private Owner System</span>
+            <h1>{{ tenant.name }}</h1>
+            <p class="state">This is the owner's isolated workspace. It only uses this owner's members, comments, and domain setup. Demo sample data is not shown here.</p>
+            <div class="actions">
+                <a class="btn btn-primary" href="{% url 'service:owner_dashboard' %}">Open owner dashboard</a>
+                <a class="btn btn-secondary" href="{% url 'service:welcome' %}">Back to welcome</a>
+            </div>
+        </section>
+
+        <section class="card">
+            <div class="grid">
+                <div class="mini">
+                    <div class="label">Domain</div>
+                    <div class="value">{{ domain_url }}</div>
+                </div>
+                <div class="mini">
+                    <div class="label">Owner</div>
+                    <div class="value">{{ owner.email }}</div>
+                </div>
+                <div class="mini">
+                    <div class="label">Members</div>
+                    <div class="value">{{ member_count }}</div>
+                </div>
+                <div class="mini">
+                    <div class="label">Comments</div>
+                    <div class="value">{{ comment_count }}</div>
+                </div>
+                <div class="mini">
+                    <div class="label">Pending Reviews</div>
+                    <div class="value">{{ pending_comment_count }}</div>
+                </div>
+                <div class="mini">
+                    <div class="label">System State</div>
+                    <div class="value">{% if member_count or comment_count %}Live data present{% else %}Empty and ready{% endif %}</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <p>If this is a new owner, an empty state here is correct. The workspace becomes populated only after the owner adds members and the members start using the system.</p>
+        </section>
+    </div>
+</body>
+</html>
