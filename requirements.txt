@@ -1,0 +1,21 @@
+# Django Core
+Django==4.2.11
+
+# Multi-tenancy
+django-tenants==3.5.0
+
+# Database
+psycopg2-binary==2.9.9
+
+# Cloud Storage
+django-cloudinary-storage==0.3.0
+cloudinary==1.40.0
+
+# Production Server
+gunicorn==22.0.0
+whitenoise==6.7.0
+
+# Additional Utilities
+python-decouple==3.8
+python-dotenv==1.0.0
+Pillow==11.0.0
