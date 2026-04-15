@@ -1,0 +1,384 @@
+{% extends "base.html" %}
+
+{% block title %}Owner Dashboard - {{ owner.program_name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .owner-theme .brand-mark,
+    .owner-theme .btn-primary {
+        background: linear-gradient(135deg, #8b5cf6, #38bdf8);
+    }
+
+    .owner-theme .metric-value,
+    .owner-theme .section-title,
+    .owner-theme .entity-title {
+        color: #f8f6ff;
+    }
+    
+    .owner-theme .hero-spot {
+        display: grid;
+        gap: var(--dash-gap);
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="glass-dashboard owner-theme">
+    <div class="dashboard-shell">
+        <div class="dashboard-frame">
+            <aside class="dashboard-sidebar">
+                <div class="glass-card dashboard-panel dashboard-stack">
+                    <div class="sidebar-head">
+                        <div class="brand-mark">OD</div>
+                        <div class="sidebar-title">
+                            <h1>{{ owner.program_name }}</h1>
+                            <p class="panel-subtitle">Owner control hub</p>
+                        </div>
+                    </div>
+
+                    <div class="soft-card">
+                        <div class="mini-label">Owner identity</div>
+                        <div class="mini-value">{{ owner.email }}</div>
+                        <div class="muted-text tier-secondary">Manage members, review flow, and community domain access from one compact panel.</div>
+                    </div>
+
+                    <nav class="sidebar-nav">
+                        <a class="sidebar-link" href="#overview" data-dashboard-target="overview" data-dashboard-default="true">
+                            <span class="sidebar-icon">O</span>
+                            <span class="sidebar-copy">
+                                <strong>Overview</strong>
+                                <span>Core status and onboarding</span>
+                            </span>
+                        </a>
+                        <a class="sidebar-link" href="#register-member" data-dashboard-target="register-member">
+                            <span class="sidebar-icon">+</span>
+                            <span class="sidebar-copy">
+                                <strong>Add member</strong>
+                                <span>Issue credentials fast</span>
+                            </span>
+                        </a>
+                        <a class="sidebar-link" href="#members" data-dashboard-target="members">
+                            <span class="sidebar-icon">M</span>
+                            <span class="sidebar-copy">
+                                <strong>Members</strong>
+                                <span>{{ member_count }} active records</span>
+                            </span>
+                        </a>
+                        <a class="sidebar-link" href="#reviews" data-dashboard-target="reviews">
+                            <span class="sidebar-icon">R</span>
+                            <span class="sidebar-copy">
+                                <strong>Reviews</strong>
+                                <span>{{ comments.count }} moderation items</span>
+                            </span>
+                        </a>
+                    </nav>
+                </div>
+            </aside>
+
+            <section class="dashboard-main">
+                <div class="dashboard-focus-group" data-dashboard-section="overview">
+                    <section class="glass-card dashboard-panel dashboard-stack">
+                        <span class="eyebrow">Owner dashboard</span>
+                        <div>
+                            <h1>Keep member access, domain setup, and reviews simple.</h1>
+                            <p class="panel-subtitle">This page now shows only the main actions an owner needs first.</p>
+                        </div>
+
+                        <div class="hero-spot">
+                            <div class="soft-card">
+                                <div class="mini-label">System status</div>
+                                <div class="mini-value">{% if subscription_active %}Active and ready{% else %}Waiting for founder update{% endif %}</div>
+                            </div>
+                            <div class="soft-card">
+                                <div class="mini-label">Tenant link</div>
+                                <div class="mini-value">{{ system_url|default:"Not assigned yet" }}</div>
+                            </div>
+                            <div class="soft-card">
+                                <div class="mini-label">What matters now</div>
+                                <div class="mini-value">{{ member_count }} members, {{ pending_comments.count }} pending reviews.</div>
+                            </div>
+                        </div>
+
+                        <div class="hero-spot">
+                            <div class="soft-card">
+                                <div class="mini-label">Open product system</div>
+                                {% if system_url %}
+                                <a class="inline-link" href="{{ system_url }}" target="_blank" rel="noopener noreferrer">
+                                    <span class="table-cell">{{ system_url }}</span>
+                                </a>
+                                <button class="btn-secondary copy-link-btn" type="button" data-copy-url="{{ system_url }}" style="margin-top: 10px;">Copy system link</button>
+                                {% elif tenant and tenant.subdomain %}
+                                <div class="muted-text">Tenant link will appear here after a real tenant domain is assigned.</div>
+                                {% else %}
+                                <div class="muted-text">Product system URL not assigned yet.</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="glass-card dashboard-panel">
+                        <div class="section-head">
+                            <div>
+                                <div class="section-title">Production onboarding</div>
+                                <p class="panel-subtitle">Add the owner contact number used by founder to complete custom domain assignment and payment follow-up.</p>
+                            </div>
+                            <div class="chip-row">
+                                {% if needs_contact_number %}
+                                <span class="chip pending">Contact number missing</span>
+                                {% else %}
+                                <span class="chip live">Contact number saved</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <form method="post" action="{{ tenant_base_path }}/owner-dashboard/" class="dashboard-form" data-loading-text="Saving contact number...">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="save_contact_number">
+                            <div class="field-grid">
+                                <label class="field-label">
+                                    Owner contact number
+                                    <input type="text" name="phone_number" value="{{ owner.phone_number }}" placeholder="+255..." required>
+                                </label>
+                                <div class="soft-card">
+                                    <div class="mini-label">Why this matters</div>
+                                    <div class="mini-value">Founder uses this number to verify payment, coordinate setup, and assign your customized live domain.</div>
+                                </div>
+                            </div>
+                            <div class="action-row">
+                                <button class="btn-primary" type="submit" data-loading-text="Saving contact number...">{% if needs_contact_number %}Save contact number{% else %}Update contact number{% endif %}</button>
+                            </div>
+                        </form>
+                    </section>
+                </div>
+
+                <section id="register-member" class="glass-card dashboard-panel dashboard-focus-group" data-dashboard-section="register-member">
+                    <div class="section-head">
+                        <div>
+                            <div class="section-title">Register new member</div>
+                            <p class="panel-subtitle">Tight entry flow, no extra navigation.</p>
+                        </div>
+                    </div>
+                    <form method="post" action="{{ tenant_base_path }}/register-member/" class="dashboard-form" data-loading-text="Registering member...">
+                        {% csrf_token %}
+                        <div class="field-grid">
+                            <label class="field-label">
+                                Registration number
+                                <input type="text" name="reg_number" placeholder="Registration Number" required>
+                            </label>
+                            <label class="field-label">
+                                Program
+                                <input type="text" name="program_name" value="{{ owner.program_name }}" readonly>
+                            </label>
+                            <label class="field-label">
+                                Password
+                                <input type="password" name="password" placeholder="Password" required>
+                            </label>
+                            <label class="field-label">
+                                Confirm password
+                                <input type="password" name="confirm_password" placeholder="Confirm Password" required>
+                            </label>
+                        </div>
+                        <div class="action-row">
+                            <button class="btn-primary" type="submit" data-loading-text="Registering member...">Register member</button>
+                        </div>
+                    </form>
+                </section>
+
+                <section id="members" class="glass-card dashboard-panel dashboard-focus-group" data-dashboard-section="members">
+                    <div class="section-head">
+                        <div>
+                            <div class="section-title">Member registry</div>
+                            <p class="panel-subtitle">Compact member cards that stay readable on thin screens.</p>
+                        </div>
+                    </div>
+                    <div data-dashboard-filter-root>
+                        <div class="filter-toolbar">
+                            <label class="field-label">
+                                Search members
+                                <input type="search" data-filter-role="search" placeholder="Registration number or program">
+                            </label>
+                            <label class="field-label">
+                                Member status
+                                <select data-filter-role="status">
+                                    <option value="all">All members</option>
+                                    <option value="active">Active</option>
+                                    <option value="inactive">Inactive</option>
+                                </select>
+                            </label>
+                        </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Registration</th>
+                                    <th>Program</th>
+                                    <th>Status</th>
+                                    <th>Joined</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for member in members %}
+                                <tr
+                                    data-filter-item
+                                    data-search="{{ member.reg_number }} {{ member.program_name }}"
+                                    data-status="{% if member.is_active %}active{% else %}inactive{% endif %}">
+                                    <td>
+                                        <div class="table-cell">{{ member.reg_number }}</div>
+                                    </td>
+                                    <td class="tier-secondary">{{ member.program_name }}</td>
+                                    <td>
+                                        <span class="chip {% if member.is_active %}live{% else %}expired{% endif %}">
+                                            {% if member.is_active %}Active{% else %}Inactive{% endif %}
+                                        </span>
+                                    </td>
+                                    <td>{{ member.created_at|date:"M d, Y" }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="4" class="empty-text">No members yet.</td>
+                                </tr>
+                                {% endfor %}
+                                <tr data-filter-empty hidden>
+                                    <td colspan="4" class="empty-text">No members match the current search or filters.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    </div>
+                </section>
+
+                <section id="reviews" class="glass-card dashboard-panel dashboard-focus-group" data-dashboard-section="reviews">
+                    <div class="section-head">
+                        <div>
+                            <div class="section-title">Review moderation</div>
+                            <p class="panel-subtitle">Primary actions stay visible. Secondary labels fade on smaller screens.</p>
+                        </div>
+                        <div class="chip-row">
+                            <span class="chip domain">All {{ comments.count }}</span>
+                            <span class="chip pending">Pending {{ pending_comments.count }}</span>
+                            <span class="chip live">Approved {{ approved_comments.count }}</span>
+                            <span class="chip expired">Rejected {{ rejected_comments.count }}</span>
+                        </div>
+                    </div>
+                    <div data-dashboard-filter-root>
+                        <div class="filter-toolbar">
+                            <label class="field-label">
+                                Search reviews
+                                <input type="search" data-filter-role="search" placeholder="Member, program, review text">
+                            </label>
+                            <label class="field-label">
+                                Review status
+                                <select data-filter-role="status">
+                                    <option value="all">All reviews</option>
+                                    <option value="pending">Pending</option>
+                                    <option value="approved">Approved</option>
+                                    <option value="rejected">Rejected</option>
+                                </select>
+                            </label>
+                        </div>
+                    <div class="table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Member</th>
+                                    <th>Program</th>
+                                    <th>Review</th>
+                                    <th>Status</th>
+                                    <th>Submitted</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for comment in comments %}
+                                <tr
+                                    data-filter-item
+                                    data-search="{{ comment.member.reg_number }} {{ comment.member.program_name }} {{ comment.content }}"
+                                    data-status="{{ comment.status }}">
+                                    <td>{{ comment.member.reg_number }}</td>
+                                    <td class="tier-secondary">{{ comment.member.program_name }}</td>
+                                    <td class="review-body">{{ comment.content }}</td>
+                                    <td>
+                                        <span class="chip {% if comment.status == 'approved' %}live{% elif comment.status == 'pending' %}pending{% else %}expired{% endif %}">
+                                            {{ comment.status }}
+                                        </span>
+                                    </td>
+                                    <td class="tier-secondary">{{ comment.created_at|date:"M d, Y H:i" }}</td>
+                                    <td>
+                                        <div class="action-row">
+                                            {% if comment.status == 'pending' %}
+                                            <form method="post" action="{{ tenant_base_path }}/moderate-comment/{{ comment.id }}/approve/" data-loading-text="Approving review...">
+                                                {% csrf_token %}
+                                                <button class="btn-secondary" type="submit" data-loading-text="Approving review...">Approve</button>
+                                            </form>
+                                            <form method="post" action="{{ tenant_base_path }}/moderate-comment/{{ comment.id }}/reject/" data-loading-text="Rejecting review...">
+                                                {% csrf_token %}
+                                                <button class="btn-danger" type="submit" data-loading-text="Rejecting review...">Reject</button>
+                                            </form>
+                                            {% endif %}
+                                            <form method="post" action="{{ tenant_base_path }}/moderate-comment/{{ comment.id }}/delete/" data-loading-text="Deleting review...">
+                                                {% csrf_token %}
+                                                <button class="btn-ghost" type="submit" data-loading-text="Deleting review...">Delete</button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="empty-text">No comments yet.</td>
+                                </tr>
+                                {% endfor %}
+                                <tr data-filter-empty hidden>
+                                    <td colspan="6" class="empty-text">No reviews match the current search or filters.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    </div>
+                </section>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function copyOwnerSystemLink(button) {
+    const url = button.getAttribute('data-copy-url');
+    if (!url) return;
+
+    const setSuccess = () => {
+      const original = button.textContent;
+      button.textContent = 'Copied';
+      setTimeout(() => {
+        button.textContent = original;
+      }, 2000);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(setSuccess).catch(() => {
+        const tempInput = document.createElement('input');
+        tempInput.value = url;
+        document.body.appendChild(tempInput);
+        tempInput.select();
+        document.execCommand('copy');
+        document.body.removeChild(tempInput);
+        setSuccess();
+      });
+      return;
+    }
+
+    const fallbackInput = document.createElement('input');
+    fallbackInput.value = url;
+    document.body.appendChild(fallbackInput);
+    fallbackInput.select();
+    document.execCommand('copy');
+    document.body.removeChild(fallbackInput);
+    setSuccess();
+  }
+
+  document.querySelectorAll('.copy-link-btn').forEach((button) => {
+    button.addEventListener('click', () => copyOwnerSystemLink(button));
+  });
+</script>
+{% endblock %}
