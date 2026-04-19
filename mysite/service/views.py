@@ -5,7 +5,6 @@ Includes tenant-aware views and API endpoints.
 
 import json
 import logging
-import uuid
 from functools import wraps
 from time import time
 
@@ -14,18 +13,17 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.db.models import Avg, Count
 from django.db import transaction
 from django.http import JsonResponse
+from django.middleware.csrf import get_token
 from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
 from .models import OwnerUser, Member, Comment
-from core.models import User as CoreUser
-from customers.models import create_owner_tenant, get_base_domain
+from customers.models import create_owner_tenant, CRTenant
 
 
 logger = logging.getLogger(__name__)
-WELCOME_PAGE_COMMENT_LIMIT = 5
 
 
 def _json_error(message, status=400):
@@ -48,7 +46,12 @@ def _tenant_route_kwargs(request=None, tenant=None):
         if session_tenant_id:
             tenant = getattr(request, 'tenant', None)
 
-    if tenant and getattr(tenant, 'id', None) and getattr(tenant, 'subdomain', None) and getattr(tenant, 'tenant_key', None):
+    if (
+        tenant
+        and getattr(tenant, 'id', None)
+        and getattr(tenant, 'subdomain', None)
+        and getattr(tenant, 'tenant_key', None)
+    ):
         return {
             'tenant_slug': tenant.subdomain,
             'tenant_id': tenant.id,
@@ -73,18 +76,11 @@ def _tenant_redirect(request, view_name, tenant=None, **kwargs):
 def _tenant_base_path(request=None, tenant=None):
     route_kwargs = _tenant_route_kwargs(request=request, tenant=tenant)
     if route_kwargs:
-        return f"/t/{route_kwargs['tenant_slug']}/{route_kwargs['tenant_id']}/{route_kwargs['tenant_key']}"
+        tenant_key = route_kwargs.get('tenant_key')
+        if tenant_key:
+            return f"/t/{route_kwargs['tenant_slug']}/{route_kwargs['tenant_id']}/{tenant_key}"
+        return f"/t/{route_kwargs['tenant_slug']}/{route_kwargs['tenant_id']}"
     return "/service"
-
-
-def _get_owner_core_user(owner, reg_number):
-    if not owner or not reg_number:
-        return None
-    return CoreUser.objects.filter(
-        created_by=owner.id,
-        registration_number=reg_number,
-        is_active=True,
-    ).first()
 
 
 def _parse_json_body(request):
@@ -153,7 +149,7 @@ def service_login_required(view_func):
     def wrapper(request, *args, **kwargs):
         if not request.session.get('service_user'):
             messages.error(request, 'Please log in to continue.')
-            return _tenant_redirect(request, 'service:welcome')
+            return redirect('service:welcome')
         return view_func(request, *args, **kwargs)
     return wrapper
 
@@ -165,7 +161,7 @@ def service_role_required(required_role):
             user = request.session.get('service_user')
             if not user or user.get('user_type') != required_role:
                 messages.error(request, 'Access denied.')
-                return _tenant_redirect(request, 'service:welcome')
+                return redirect('service:welcome')
             return view_func(request, *args, **kwargs)
         return wrapper
     return decorator
@@ -176,16 +172,8 @@ def _get_tenant_from_request(request):
     # Check request.tenant (set by middleware)
     tenant = getattr(request, 'tenant', None)
     
-    if not tenant and request.session.get('tenant_id'):
-        try:
-            tenant_id = int(request.session.get('tenant_id'))
-            from customers.models import CRTenant
-
-            tenant = CRTenant.objects.filter(id=tenant_id, is_active=True).first()
-        except (TypeError, ValueError):
-            tenant = None
-
     if not tenant and request.session.get('service_user'):
+        # Fallback to session
         user = request.session.get('service_user')
         if user.get('user_type') == 'owner':
             try:
@@ -193,16 +181,11 @@ def _get_tenant_from_request(request):
                 tenant = getattr(owner, 'tenant', None)
             except OwnerUser.DoesNotExist:
                 pass
-        elif user.get('user_type') == 'member':
-            try:
-                member = Member.objects.select_related('owner__tenant').get(id=user.get('member_id'))
-                tenant = getattr(member.owner, 'tenant', None)
-            except Member.DoesNotExist:
-                pass
     
     return tenant
 
 
+@ensure_csrf_cookie
 def welcome(request, *args, **kwargs):
     """Welcome page - dynamic based on user type and tenant"""
     user = request.session.get('service_user')
@@ -242,15 +225,15 @@ def welcome(request, *args, **kwargs):
                     member_count = Member.objects.filter(owner=owner).count()
                     comment_count = Comment.objects.filter(owner=owner).count()
                     pending_comments = Comment.objects.filter(owner=owner, status='pending').count()
-                    approved_comments = Comment.objects.filter(owner=owner, status='approved').prefetch_related('replies', 'member')
-                    comments = approved_comments[:WELCOME_PAGE_COMMENT_LIMIT]
+                    approved_comments = Comment.objects.filter(owner=owner, status='approved').prefetch_related('replies')
+                    comments = approved_comments[:10]
                 else:
                     # Fallback for non-tenant owners
                     member_count = Member.objects.filter(owner=owner).count()
                     comment_count = Comment.objects.filter(owner=owner).count()
                     pending_comments = Comment.objects.filter(owner=owner, status='pending').count()
-                    approved_comments = Comment.objects.filter(owner=owner, status='approved').prefetch_related('replies', 'member')
-                    comments = approved_comments[:WELCOME_PAGE_COMMENT_LIMIT]
+                    approved_comments = Comment.objects.filter(owner=owner, status='approved').prefetch_related('replies')
+                    comments = approved_comments[:10]
             except OwnerUser.DoesNotExist:
                 pass
         elif user_type == 'member':
@@ -259,8 +242,8 @@ def welcome(request, *args, **kwargs):
                 program_name = member.program_name
                 owner = member.owner
                 tenant = getattr(owner, 'tenant', None)
-                approved_comments = Comment.objects.filter(owner=owner, status='approved').prefetch_related('replies', 'member')
-                comments = approved_comments[:WELCOME_PAGE_COMMENT_LIMIT]
+                approved_comments = Comment.objects.filter(owner=owner, status='approved').prefetch_related('replies')
+                comments = approved_comments[:10]
             except Member.DoesNotExist:
                 pass
     else:
@@ -269,28 +252,28 @@ def welcome(request, *args, **kwargs):
             # Tenant-specific comments
             owner = getattr(tenant, 'owner', None)
             if owner:
-                approved_comments = Comment.objects.filter(owner=owner, status='approved').prefetch_related('replies', 'member')
-                comments = approved_comments[:WELCOME_PAGE_COMMENT_LIMIT]
+                approved_comments = Comment.objects.filter(owner=owner, status='approved').prefetch_related('replies')
+                comments = approved_comments[:10]
         else:
             # Public demo - do not leak owner data
             comments = []
-            approved_comments = Comment.objects.none()
-
+    
     review_summary = _build_review_summary(approved_comments)
     
+    get_token(request)
     return render(request, 'index.html', {
         'program_name': program_name,
         'user': user,
         'comments': comments,
+        'review_summary': review_summary,
         'member_count': member_count,
         'comment_count': comment_count,
         'pending_comments': pending_comments,
-        'review_summary': review_summary,
         'tenant': tenant,
-        'tenant_base_path': _tenant_base_path(request=request, tenant=tenant),
     })
 
 
+@ensure_csrf_cookie
 def service_welcome(request, *args, **kwargs):
     """
     Dedicated service welcome page with full tenant integration.
@@ -317,7 +300,7 @@ def service_welcome(request, *args, **kwargs):
                 'owner': owner,
                 'tenant': tenant,
                 'program_name': tenant.name if tenant else owner.program_name,
-                'domain_url': tenant.primary_domain_url if tenant else None,
+                'domain_url': tenant.domain_url if tenant else None,
                 'paid_until': tenant.paid_until if tenant else None,
                 'days_remaining': tenant.days_remaining if tenant else 0,
                 'is_subscription_active': tenant.is_subscription_active if tenant else False,
@@ -338,28 +321,35 @@ def service_welcome(request, *args, **kwargs):
     
     # Get comments based on tenant
     if tenant and tenant.owner:
-        approved_comments = Comment.objects.filter(
+        comments = Comment.objects.filter(
             owner=tenant.owner, 
             status='approved'
-        ).prefetch_related('replies', 'member')
-        comments = approved_comments[:WELCOME_PAGE_COMMENT_LIMIT]
+        ).prefetch_related('replies', 'member')[:10]
     else:
-        approved_comments = Comment.objects.none()
         comments = []
     
     context['comments'] = comments
-    context['review_summary'] = _build_review_summary(approved_comments)
-    context['tenant_base_path'] = _tenant_base_path(request=request, tenant=tenant)
     
+    get_token(request)
     return render(request, 'service/welcome.html', context)
 
 
+@ensure_csrf_cookie
 def system_demo(request, *args, **kwargs):
     """Serve the actual product shell; data isolation is handled by tenant-scoped APIs."""
-    tenant = _get_tenant_from_request(request)
+    tenant = getattr(request, 'tenant', None)
+    if not tenant:
+        tenant_slug = kwargs.get('tenant_slug')
+        if tenant_slug:
+            try:
+                from customers.models import CRTenant
+                tenant = CRTenant.objects.get(subdomain=tenant_slug, is_active=True)
+            except CRTenant.DoesNotExist:
+                tenant = None
+    get_token(request)
     return render(request, 'system_index.html', {
-        'tenant': tenant,
         'tenant_base_path': _tenant_base_path(request=request, tenant=tenant),
+        'tenant_slug': tenant.subdomain if tenant else '',
     })
 
 
@@ -368,20 +358,22 @@ def login_view(request, *args, **kwargs):
     if request.method == 'POST':
         if _rate_limit(request, 'login', limit=5, window_seconds=60):
             messages.error(request, 'Too many login attempts. Please wait a minute and try again.')
-            return _tenant_redirect(request, 'service:welcome')
-        
+            return redirect('service:welcome')
+        tenant = _get_tenant_from_request(request)
         login_identifier = request.POST.get('login_identifier', '').strip()
         password = request.POST.get('password', '')
         
         if '@' in login_identifier:
-            # Owner login - allow from any domain/device
+            # Owner login
             owner = OwnerUser.objects.filter(email=login_identifier, is_active=True).first()
+            if owner:
+                owner_tenant = getattr(owner, 'tenant', None)
+                if owner_tenant and tenant and owner_tenant.id != tenant.id:
+                    messages.error(request, 'This owner account belongs to a different domain.')
+                    return redirect('service:welcome')
             if owner and check_password(password, owner.password):
-                # Clear session and start fresh
                 request.session.flush()
                 request.session.cycle_key()
-                
-                # Set owner session data
                 request.session['service_user'] = {
                     'user_type': 'owner',
                     'owner_id': owner.id,
@@ -390,48 +382,32 @@ def login_view(request, *args, **kwargs):
                 }
                 request.session['program_name'] = owner.program_name
                 
-                # Link owner's tenant to session (if they have one)
-                owner_tenant = getattr(owner, 'tenant', None)
-                if owner_tenant:
-                    request.session['tenant_id'] = owner_tenant.id
-                    request.session['tenant_subdomain'] = owner_tenant.subdomain
-                    request.session['tenant_key'] = owner_tenant.tenant_key
-                
-                # Mark session as successfully authenticated
-                request.session.modified = True
-                request.session.set_expiry(60 * 60 * 24 * 7)  # 1 week
+                # Link tenant to session if exists
+                tenant = getattr(owner, 'tenant', None)
+                if tenant:
+                    request.session['tenant_id'] = tenant.id
+                    request.session['tenant_subdomain'] = tenant.subdomain
+                    request.session['tenant_key'] = getattr(tenant, 'tenant_key', None)
                 
                 messages.success(request, f'Welcome back, {owner.email}!')
-                return _tenant_redirect(request, 'service:owner_dashboard', tenant=owner_tenant)
+                return _tenant_redirect(request, 'service:owner_dashboard', tenant=tenant)
             else:
                 messages.error(request, 'Invalid email or password.')
         else:
-            # Member login - check tenant context
-            tenant = _get_tenant_from_request(request)
+            # Member login
             if not tenant:
-                messages.error(request, 'Members must log in from their owner domain.')
-                return _tenant_redirect(request, 'service:welcome')
-            
+                messages.error(request, 'Please log in from your owner domain.')
+                return redirect('service:welcome')
             reg_number = login_identifier
             member = Member.objects.filter(reg_number=reg_number, is_active=True).first()
-            
-            if member and check_password(password, member.password):
-                # Verify member belongs to correct tenant
+            if member:
                 member_tenant = getattr(member.owner, 'tenant', None)
                 if member_tenant and tenant and member_tenant.id != tenant.id:
                     messages.error(request, 'This member account belongs to a different domain.')
-                    return _tenant_redirect(request, 'service:welcome')
-                
-                # Verify member exists in owner system
-                if not _get_owner_core_user(member.owner, reg_number):
-                    messages.error(request, 'This member must first exist in the owner system records.')
-                    return _tenant_redirect(request, 'service:welcome')
-                
-                # Clear session and start fresh
+                    return redirect('service:welcome')
+            if member and check_password(password, member.password):
                 request.session.flush()
                 request.session.cycle_key()
-                
-                # Set member session data
                 request.session['service_user'] = {
                     'user_type': 'member',
                     'member_id': member.id,
@@ -442,21 +418,18 @@ def login_view(request, *args, **kwargs):
                 request.session['program_name'] = member.program_name
                 
                 # Link tenant to session
-                if member_tenant:
-                    request.session['tenant_id'] = member_tenant.id
-                    request.session['tenant_subdomain'] = member_tenant.subdomain
-                    request.session['tenant_key'] = member_tenant.tenant_key
-                
-                # Mark session as successfully authenticated
-                request.session.modified = True
-                request.session.set_expiry(60 * 60 * 24 * 7)  # 1 week
+                tenant = getattr(member.owner, 'tenant', None)
+                if tenant:
+                    request.session['tenant_id'] = tenant.id
+                    request.session['tenant_subdomain'] = tenant.subdomain
+                    request.session['tenant_key'] = getattr(tenant, 'tenant_key', None)
                 
                 messages.success(request, f'Welcome back, {member.reg_number}!')
-                return _tenant_redirect(request, 'service:member_dashboard', tenant=member_tenant)
+                return _tenant_redirect(request, 'service:member_dashboard', tenant=tenant)
             else:
                 messages.error(request, 'Invalid registration number or password.')
     
-    return _tenant_redirect(request, 'service:welcome')
+    return redirect('service:welcome')
 
 
 def register_view(request, *args, **kwargs):
@@ -464,7 +437,7 @@ def register_view(request, *args, **kwargs):
     if request.method == 'POST':
         if _rate_limit(request, 'register', limit=5, window_seconds=300):
             messages.error(request, 'Too many registration attempts. Please wait a few minutes and try again.')
-            return _tenant_redirect(request, 'service:welcome')
+            return redirect('service:welcome')
         program_name = request.POST.get('program_name', '').strip()
         email = request.POST.get('email', '').strip()
         password = request.POST.get('password', '')
@@ -472,15 +445,15 @@ def register_view(request, *args, **kwargs):
         
         if not program_name or not email or not password:
             messages.error(request, 'All fields are required.')
-            return _tenant_redirect(request, 'service:welcome')
+            return redirect('service:welcome')
         
         if password != confirm_password:
             messages.error(request, 'Passwords do not match.')
-            return _tenant_redirect(request, 'service:welcome')
+            return redirect('service:welcome')
         
         if OwnerUser.objects.filter(email=email).exists():
             messages.error(request, 'Email already registered.')
-            return _tenant_redirect(request, 'service:welcome')
+            return redirect('service:welcome')
 
         try:
             with transaction.atomic():
@@ -494,18 +467,15 @@ def register_view(request, *args, **kwargs):
 
                 tenant = create_owner_tenant(owner)
         except Exception:
-            error_ref = uuid.uuid4().hex[:8]
             logger.exception(
-                "Owner signup failed during tenant creation [ref=%s email=%s program_name=%s]",
-                error_ref,
-                email,
-                program_name,
+                "Owner signup failed during tenant creation",
+                extra={"email": email, "program_name": program_name},
             )
             messages.error(
                 request,
-                f'Registration could not be completed right now. Please try again in a moment. Ref: {error_ref}',
+                'Registration could not be completed right now. Please try again in a moment.',
             )
-            return _tenant_redirect(request, 'service:welcome')
+            return redirect('service:welcome')
         
         # Set session
         request.session.flush()
@@ -519,22 +489,19 @@ def register_view(request, *args, **kwargs):
         request.session['program_name'] = owner.program_name
         request.session['tenant_id'] = tenant.id
         request.session['tenant_subdomain'] = tenant.subdomain
-        request.session['tenant_key'] = tenant.tenant_key
+        request.session['tenant_key'] = getattr(tenant, 'tenant_key', None)
         
-        messages.success(
-            request,
-            f'Registration successful! Your tenant link is ready.',
-        )
+        messages.success(request, 'Registration successful! Your tenant space is ready.')
         return _tenant_redirect(request, 'service:owner_dashboard', tenant=tenant)
     
-    return _tenant_redirect(request, 'service:welcome')
+    return redirect('service:welcome')
 
 
 def logout_view(request, *args, **kwargs):
     """Logout view"""
     request.session.flush()
     messages.success(request, 'You have been logged out.')
-    return _tenant_redirect(request, 'service:welcome')
+    return redirect('service:welcome')
 
 
 @service_login_required
@@ -546,7 +513,7 @@ def owner_dashboard(request, *args, **kwargs):
     try:
         owner = OwnerUser.objects.select_related('tenant').get(id=user.get('owner_id'))
     except OwnerUser.DoesNotExist:
-        return _tenant_redirect(request, 'service:welcome')
+        return redirect('service:welcome')
     
     # Get tenant info
     tenant = getattr(owner, 'tenant', None)
@@ -561,7 +528,7 @@ def owner_dashboard(request, *args, **kwargs):
                 owner.phone_number = phone_number
                 owner.save(update_fields=['phone_number', 'updated_at'])
                 messages.success(request, 'Contact number saved. Founder can now complete your custom domain setup.')
-            return _tenant_redirect(request, 'service:owner_dashboard', tenant=tenant)
+            return redirect('service:owner_dashboard')
     
     members = Member.objects.filter(owner=owner)
     comments = Comment.objects.filter(owner=owner).order_by('-created_at')
@@ -573,15 +540,11 @@ def owner_dashboard(request, *args, **kwargs):
     days_remaining = 0
     subscription_active = False
     domain_url = None
-    system_url = None
     
     if tenant:
         days_remaining = tenant.days_remaining
         subscription_active = tenant.is_subscription_active
-        domain_url = _build_access_domain(tenant.primary_domain_url)
-        system_url = request.build_absolute_uri(
-            _tenant_url('service:system_demo', request=request, tenant=tenant)
-        )
+        domain_url = _build_access_domain(tenant.domain_url)
     
     return render(request, 'owner_dashboard.html', {
         'owner': owner,
@@ -593,8 +556,6 @@ def owner_dashboard(request, *args, **kwargs):
         'member_count': members.count(),
         'tenant': tenant,
         'domain_url': domain_url,
-        'system_url': system_url,
-        'tenant_base_path': _tenant_base_path(request=request, tenant=tenant),
         'days_remaining': days_remaining,
         'subscription_active': subscription_active,
         'needs_contact_number': not bool(owner.phone_number.strip()),
@@ -610,14 +571,13 @@ def member_dashboard(request, *args, **kwargs):
     try:
         member = Member.objects.select_related('owner__tenant').get(id=user.get('member_id'))
     except Member.DoesNotExist:
-        return _tenant_redirect(request, 'service:welcome')
+        return redirect('service:welcome')
     
     comments = Comment.objects.filter(owner=member.owner, status='approved')
     
     return render(request, 'member_dashboard.html', {
         'member': member,
         'comments': comments,
-        'tenant_base_path': _tenant_base_path(request=request, tenant=getattr(member.owner, 'tenant', None)),
     })
 
 
@@ -627,21 +587,21 @@ def add_comment(request, *args, **kwargs):
     user = request.session.get('service_user')
     if not user or user.get('user_type') != 'member':
         messages.error(request, 'Only members can post comments.')
-        return _tenant_redirect(request, 'service:welcome')
+        return redirect('service:welcome')
     
     content = request.POST.get('content', '').strip()
     rating = request.POST.get('rating', 5)
     
     if not content:
         messages.error(request, 'Comment cannot be empty.')
-        return _tenant_redirect(request, 'service:welcome')
+        return redirect('service:welcome')
     
     try:
         member = Member.objects.get(id=user.get('member_id'))
         rating_value = min(max(int(rating), 1), 5)
     except (Member.DoesNotExist, TypeError, ValueError):
         messages.error(request, 'Invalid comment submission.')
-        return _tenant_redirect(request, 'service:welcome')
+        return redirect('service:welcome')
     
     Comment.objects.create(
         member=member,
@@ -652,102 +612,7 @@ def add_comment(request, *args, **kwargs):
     )
     
     messages.success(request, 'Comment submitted for moderation.')
-    return _tenant_redirect(request, 'service:welcome')
-
-
-def _get_scoped_comment(request, comment_id):
-    tenant = _get_tenant_from_request(request)
-    comment = Comment.objects.select_related('owner', 'member').prefetch_related('replies__member').filter(
-        id=comment_id,
-        status='approved',
-    ).first()
-    if not comment:
-        return None
-    if tenant and getattr(tenant, 'owner', None) and tenant.owner_id != comment.owner_id:
-        return None
-    return comment
-
-
-@require_http_methods(["POST"])
-def react_comment(request, comment_id, reaction, *args, **kwargs):
-    """Persist likes/dislikes so counts stay consistent across devices."""
-    user = request.session.get('service_user')
-    if not user:
-        return _json_error('Please log in to react to reviews.', status=401)
-
-    if reaction not in {'like', 'dislike'}:
-        return _json_error('Invalid reaction.')
-
-    comment = _get_scoped_comment(request, comment_id)
-    if not comment:
-        return _json_error('Review not found.', status=404)
-
-    reaction_state = request.session.get('comment_reactions', {})
-    comment_key = str(comment.id)
-    previous_reaction = reaction_state.get(comment_key)
-
-    if previous_reaction == reaction:
-        return JsonResponse({
-            'success': True,
-            'likes': comment.likes,
-            'dislikes': comment.dislikes,
-            'reaction': previous_reaction,
-        })
-
-    if previous_reaction == 'like' and comment.likes > 0:
-        comment.likes -= 1
-    elif previous_reaction == 'dislike' and comment.dislikes > 0:
-        comment.dislikes -= 1
-
-    if reaction == 'like':
-        comment.likes += 1
-    else:
-        comment.dislikes += 1
-
-    comment.save(update_fields=['likes', 'dislikes', 'updated_at'])
-    reaction_state[comment_key] = reaction
-    request.session['comment_reactions'] = reaction_state
-
-    return JsonResponse({
-        'success': True,
-        'likes': comment.likes,
-        'dislikes': comment.dislikes,
-        'reaction': reaction,
-    })
-
-
-@require_http_methods(["POST"])
-def reply_comment(request, comment_id, *args, **kwargs):
-    """Persist member replies so they are visible to everyone on the tenant."""
-    user = request.session.get('service_user')
-    if not user or user.get('user_type') != 'member':
-        return _json_error('Only logged-in members can reply.', status=401)
-
-    member = Member.objects.filter(id=user.get('member_id'), is_active=True).first()
-    if not member:
-        return _json_error('Member account not found.', status=404)
-
-    comment = _get_scoped_comment(request, comment_id)
-    if not comment:
-        return _json_error('Review not found.', status=404)
-
-    if comment.owner_id != member.owner_id:
-        return _json_error('This review belongs to a different tenant.', status=403)
-
-    content = request.POST.get('content', '').strip()
-    if not content:
-        return _json_error('Reply content is required.')
-
-    reply = comment.replies.create(member=member, content=content)
-    return JsonResponse({
-        'success': True,
-        'reply': {
-            'id': reply.id,
-            'member_name': member.reg_number,
-            'content': reply.content,
-            'created_at': reply.created_at.strftime('%b %d, %Y'),
-        }
-    })
+    return redirect('service:welcome')
 
 
 @require_http_methods(["POST"])
@@ -756,11 +621,11 @@ def register_member(request, *args, **kwargs):
     user = request.session.get('service_user')
     if not user or user.get('user_type') != 'owner':
         messages.error(request, 'Only owners can register members.')
-        return _tenant_redirect(request, 'service:welcome')
+        return redirect('service:welcome')
     
     owner = OwnerUser.objects.filter(id=user.get('owner_id')).first()
     if not owner:
-        return _tenant_redirect(request, 'service:welcome')
+        return redirect('service:welcome')
     
     reg_number = request.POST.get('reg_number', '').strip()
     program_name = request.POST.get('program_name', '').strip()
@@ -769,21 +634,16 @@ def register_member(request, *args, **kwargs):
     
     if not reg_number or not program_name or not password:
         messages.error(request, 'All fields are required.')
-        return _tenant_redirect(request, 'service:owner_dashboard')
+        return redirect('service:owner_dashboard')
     
     if password != confirm_password:
         messages.error(request, 'Passwords do not match.')
-        return _tenant_redirect(request, 'service:owner_dashboard')
+        return redirect('service:owner_dashboard')
     
     if Member.objects.filter(reg_number=reg_number).exists():
         messages.error(request, 'Registration number already exists.')
-        return _tenant_redirect(request, 'service:owner_dashboard')
-
-    core_user = _get_owner_core_user(owner, reg_number)
-    if not core_user:
-        messages.error(request, 'This registration number must already exist in your main system records.')
-        return _tenant_redirect(request, 'service:owner_dashboard')
-
+        return redirect('service:owner_dashboard')
+    
     Member.objects.create(
         owner=owner,
         reg_number=reg_number,
@@ -793,7 +653,7 @@ def register_member(request, *args, **kwargs):
     )
     
     messages.success(request, f'Member {reg_number} registered successfully.')
-    return _tenant_redirect(request, 'service:owner_dashboard')
+    return redirect('service:owner_dashboard')
 
 
 @require_http_methods(["POST"])
@@ -802,18 +662,18 @@ def moderate_comment(request, comment_id, action, *args, **kwargs):
     user = request.session.get('service_user')
     if not user or user.get('user_type') != 'owner':
         messages.error(request, 'Access denied.')
-        return _tenant_redirect(request, 'service:welcome')
+        return redirect('service:welcome')
     
     comment = Comment.objects.filter(id=comment_id).first()
     if not comment:
         messages.error(request, 'Comment not found.')
-        return _tenant_redirect(request, 'service:owner_dashboard')
+        return redirect('service:owner_dashboard')
     
     # Verify comment belongs to owner's tenant
     owner = OwnerUser.objects.get(id=user.get('owner_id'))
     if comment.owner != owner:
         messages.error(request, 'Access denied.')
-        return _tenant_redirect(request, 'service:owner_dashboard')
+        return redirect('service:owner_dashboard')
     
     if action == 'approve':
         comment.status = 'approved'
@@ -827,7 +687,7 @@ def moderate_comment(request, comment_id, action, *args, **kwargs):
         comment.delete()
         messages.success(request, 'Comment deleted.')
     
-    return _tenant_redirect(request, 'service:owner_dashboard')
+    return redirect('service:owner_dashboard')
 
 
 # API Endpoints for multi-tenancy
@@ -863,14 +723,11 @@ def api_create_tenant(request, *args, **kwargs):
 
             tenant = create_owner_tenant(owner)
     except Exception:
-        error_ref = uuid.uuid4().hex[:8]
         logger.exception(
-            "API tenant creation failed [ref=%s email=%s program_name=%s]",
-            error_ref,
-            email,
-            program_name,
+            "API tenant creation failed",
+            extra={"email": email, "program_name": program_name},
         )
-        return _json_error(f'Tenant registration failed. Please try again later. Ref: {error_ref}', status=500)
+        return _json_error('Tenant registration failed. Please try again later.', status=500)
     
     return JsonResponse({
         'success': True,
@@ -878,9 +735,7 @@ def api_create_tenant(request, *args, **kwargs):
             'id': tenant.id,
             'name': tenant.name,
             'subdomain': tenant.subdomain,
-            'domain': tenant.primary_domain_url,
-            'path_url': _tenant_url('service:welcome', tenant=tenant),
-            'system_url': _tenant_url('service:system_demo', tenant=tenant),
+            'domain': tenant.domain_url,
             'paid_until': str(tenant.paid_until),
             'is_trial': tenant.is_trial,
         },
@@ -891,12 +746,9 @@ def api_create_tenant(request, *args, **kwargs):
     })
 
 
-@csrf_exempt
 @require_http_methods(["POST"])
 def api_owner_admin_login(request, *args, **kwargs):
-    """Verify owner credentials for tenant-scoped admin access.
-    Only allows login using the credentials of the tenant owner for that specific tenant.
-    """
+    """Verify owner credentials for tenant-scoped admin access."""
     if _rate_limit(request, 'owner_admin_login', limit=8, window_seconds=60):
         return _json_error('Too many attempts. Please wait a minute and try again.', status=429)
     data = _parse_json_body(request)
@@ -910,41 +762,35 @@ def api_owner_admin_login(request, *args, **kwargs):
     if not email or not password:
         return _json_error('Email and password are required')
 
-    if not tenant_slug:
-        return _json_error('Tenant slug is required')
+    # Try to get tenant: from provided slug first, then from request context
+    tenant = None
+    if tenant_slug:
+        try:
+            tenant = CRTenant.objects.get(subdomain=tenant_slug, is_active=True)
+        except CRTenant.DoesNotExist:
+            return _json_error('Invalid tenant', status=404)
+    else:
+        tenant = _get_tenant_from_request(request)
 
-    # Step 1: Verify owner exists in database
-    try:
-        owner = OwnerUser.objects.get(email__iexact=email, is_active=True)
-    except OwnerUser.DoesNotExist:
-        return _json_error('Invalid email or password. Please try again.', status=401)
+    if not tenant or not getattr(tenant, 'owner', None):
+        return _json_error('Admin login is only available on your owner domain', status=403)
 
-    # Step 2: Verify password
+    owner = tenant.owner
+    if not owner.is_active:
+        return _json_error('Owner account is not active', status=403)
+
+    if owner.email.lower() != email.lower():
+        return _json_error('This email does not belong to this domain', status=403)
+
     if not check_password(password, owner.password):
-        return _json_error('Invalid email or password. Please try again.', status=401)
+        return _json_error('Invalid email or password', status=401)
 
-    # Step 3: Check if specified tenant exists (case-insensitive for usability)
-    from customers.models import CRTenant
-    tenant = CRTenant.objects.filter(subdomain__iexact=tenant_slug, is_active=True).first()
-    if not tenant:
-        return _json_error('Invalid tenant. Please check your tenant slug and try again.', status=400)
-
-    # Step 4: Verify owner owns this specific tenant
-    if tenant.owner != owner:
-        return _json_error('This is not your tenant. Please log in to your own tenant.', status=403)
-
-    # Step 5: Success - owner owns this tenant
     return JsonResponse({
         'success': True,
-        'message': f'Successfully logged in to admin for tenant: {tenant.name}',
         'owner': {
             'id': owner.id,
             'email': owner.email,
-            'tenant': {
-                'id': tenant.id,
-                'name': tenant.name,
-                'subdomain': tenant.subdomain,
-            }
+            'program_name': owner.program_name,
         }
     })
 
@@ -988,6 +834,22 @@ def api_create_member(request, *args, **kwargs):
             'reg_number': member.reg_number,
             'program_name': member.program_name,
         }
+    })
+
+
+def system_demo(request, *args, **kwargs):
+    """Serve the actual product shell; data isolation is handled by tenant-scoped APIs."""
+    tenant = getattr(request, 'tenant', None)
+    if not tenant:
+        tenant_slug = kwargs.get('tenant_slug')
+        if tenant_slug:
+            try:
+                tenant = CRTenant.objects.get(subdomain=tenant_slug, is_active=True)
+            except CRTenant.DoesNotExist:
+                tenant = None
+    return render(request, 'system_index.html', {
+        'tenant_base_path': _tenant_base_path(request=request, tenant=tenant),
+        'tenant_slug': tenant.subdomain if tenant else '',
     })
 
 
