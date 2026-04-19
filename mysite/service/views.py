@@ -646,6 +646,35 @@ def reply_comment(request, comment_id, *args, **kwargs):
 
 
 @require_http_methods(["POST"])
+def react_comment(request, comment_id, reaction, *args, **kwargs):
+    """React to an approved comment with like or dislike."""
+    user = request.session.get('service_user')
+    if not user or user.get('user_type') != 'member':
+        messages.error(request, 'Only members can react to comments.')
+        return redirect('service:welcome')
+
+    if reaction not in {'like', 'dislike'}:
+        messages.error(request, 'Invalid reaction.')
+        return redirect('service:welcome')
+
+    try:
+        member = Member.objects.get(id=user.get('member_id'))
+        comment = Comment.objects.get(id=comment_id, owner=member.owner, status='approved')
+    except (Member.DoesNotExist, Comment.DoesNotExist):
+        messages.error(request, 'Comment not found.')
+        return redirect('service:welcome')
+
+    if reaction == 'like':
+        comment.likes = max(0, (comment.likes or 0) + 1)
+    else:
+        comment.dislikes = max(0, (comment.dislikes or 0) + 1)
+    comment.save(update_fields=['likes', 'dislikes', 'updated_at'])
+
+    messages.success(request, 'Reaction saved.')
+    return redirect('service:welcome')
+
+
+@require_http_methods(["POST"])
 def register_member(request, *args, **kwargs):
     """Register a new member - only owners can do this"""
     user = request.session.get('service_user')
