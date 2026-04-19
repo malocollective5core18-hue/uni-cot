@@ -19,7 +19,7 @@ from django.urls import reverse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
-from .models import OwnerUser, Member, Comment
+from .models import OwnerUser, Member, Comment, Reply
 from customers.models import create_owner_tenant, CRTenant
 
 
@@ -612,6 +612,36 @@ def add_comment(request, *args, **kwargs):
     )
     
     messages.success(request, 'Comment submitted for moderation.')
+    return redirect('service:welcome')
+
+
+@require_http_methods(["POST"])
+def reply_comment(request, comment_id, *args, **kwargs):
+    """Add a reply to an approved comment."""
+    user = request.session.get('service_user')
+    if not user or user.get('user_type') != 'member':
+        messages.error(request, 'Only members can reply to comments.')
+        return redirect('service:welcome')
+
+    content = request.POST.get('content', '').strip()
+    if not content:
+        messages.error(request, 'Reply cannot be empty.')
+        return redirect('service:welcome')
+
+    try:
+        member = Member.objects.get(id=user.get('member_id'))
+        comment = Comment.objects.get(id=comment_id, owner=member.owner, status='approved')
+    except (Member.DoesNotExist, Comment.DoesNotExist):
+        messages.error(request, 'Comment not found.')
+        return redirect('service:welcome')
+
+    Reply.objects.create(
+        comment=comment,
+        member=member,
+        content=content,
+    )
+
+    messages.success(request, 'Reply posted successfully.')
     return redirect('service:welcome')
 
 
