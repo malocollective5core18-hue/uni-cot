@@ -226,3 +226,43 @@ class ReplyCommentTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(comment.replies.filter(content="Thank you", member=member).exists())
+
+    def test_member_can_like_approved_comment(self):
+        owner = OwnerUser.objects.create(
+            email="owner2@example.com",
+            program_name="BCIT",
+            password=make_password("secret123"),
+            is_owner=True,
+            is_active=True,
+        )
+        member = Member.objects.create(
+            owner=owner,
+            reg_number="BCIT-002",
+            program_name="BCIT",
+            password=make_password("member123"),
+            is_active=True,
+        )
+        comment = Comment.objects.create(
+            member=member,
+            owner=owner,
+            content="Great service",
+            rating=5,
+            status="approved",
+        )
+
+        session = self.client.session
+        session["service_user"] = {
+            "user_type": "member",
+            "member_id": member.id,
+            "owner_id": owner.id,
+        }
+        session.save()
+
+        response = self.client.post(
+            reverse("service:react_comment", args=[comment.id, "like"]),
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        comment.refresh_from_db()
+        self.assertEqual(comment.likes, 1)
