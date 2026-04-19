@@ -5,7 +5,7 @@ from django.urls import reverse
 from django.contrib.auth.hashers import make_password
 
 from customers.models import get_public_tenant_domain
-from service.models import OwnerUser, Member
+from service.models import OwnerUser, Member, Comment
 
 
 @override_settings(
@@ -180,3 +180,49 @@ class CsrfApiFlowTests(TestCase):
                 "reason": response.json()["reason"],
             },
         )
+
+
+@override_settings(
+    PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
+    SESSION_ENGINE="django.contrib.sessions.backends.db",
+)
+class ReplyCommentTests(TestCase):
+    def test_member_can_reply_to_approved_comment(self):
+        owner = OwnerUser.objects.create(
+            email="owner@example.com",
+            program_name="BCIT",
+            password=make_password("secret123"),
+            is_owner=True,
+            is_active=True,
+        )
+        member = Member.objects.create(
+            owner=owner,
+            reg_number="BCIT-001",
+            program_name="BCIT",
+            password=make_password("member123"),
+            is_active=True,
+        )
+        comment = Comment.objects.create(
+            member=member,
+            owner=owner,
+            content="Great service",
+            rating=5,
+            status="approved",
+        )
+
+        session = self.client.session
+        session["service_user"] = {
+            "user_type": "member",
+            "member_id": member.id,
+            "owner_id": owner.id,
+        }
+        session.save()
+
+        response = self.client.post(
+            reverse("service:reply_comment", args=[comment.id]),
+            {"content": "Thank you"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(comment.replies.filter(content="Thank you", member=member).exists())
