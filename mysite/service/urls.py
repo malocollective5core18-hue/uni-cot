@@ -19,6 +19,7 @@ urlpatterns = [
     path('register-member/', views.register_member, name='register_member'),
     path('moderate-comment/<int:comment_id>/<str:action>/', views.moderate_comment, name='moderate_comment'),
     path('subscription-expired/', views.subscription_expired, name='subscription_expired'),
+
     
     # API Endpoints
     path('api/create-tenant/', views.api_create_tenant, name='api_create_tenant'),
