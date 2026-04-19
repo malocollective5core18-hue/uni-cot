@@ -1,4 +1,5 @@
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
@@ -266,3 +267,44 @@ class ReplyCommentTests(TestCase):
         self.assertEqual(response.status_code, 200)
         comment.refresh_from_db()
         self.assertEqual(comment.likes, 1)
+
+
+@override_settings(
+    PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
+    SESSION_ENGINE="django.contrib.sessions.backends.db",
+)
+class OwnerAdminLoginTests(TestCase):
+    @patch("service.views._get_tenant_from_request")
+    def test_owner_admin_login_uses_current_tenant_context(self, mocked_get_tenant):
+        owner = OwnerUser.objects.create(
+            email="tenant-owner@example.com",
+            program_name="NIT",
+            password=make_password("secret123"),
+            is_owner=True,
+            is_active=True,
+        )
+        mocked_get_tenant.return_value = SimpleNamespace(
+            id=3,
+            subdomain="nit",
+            owner=owner,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            reverse("service:api_owner_admin_login"),
+            data='{"email":"tenant-owner@example.com","password":"secret123","tenant_slug":"nit","tenant_id":"3"}',
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(
+            response.content,
+            {
+                "success": True,
+                "owner": {
+                    "id": owner.id,
+                    "email": owner.email,
+                    "program_name": owner.program_name,
+                },
+            },
+        )
