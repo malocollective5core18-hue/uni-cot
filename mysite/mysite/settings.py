@@ -37,7 +37,7 @@ DEBUG = env_bool('DJANGO_DEBUG', default=True)
 
 ALLOWED_HOSTS = env_list(
     'DJANGO_ALLOWED_HOSTS',
-    'localhost,.localhost,127.0.0.1,testserver,ring0.com,.ring0.com',
+    'localhost,.localhost,127.0.0.1,testserver,ring0.com,.ring0.com,.onrender.com',
 )
 for local_host in ('localhost', '.localhost', '127.0.0.1', 'testserver'):
     if local_host not in ALLOWED_HOSTS:
@@ -45,7 +45,7 @@ for local_host in ('localhost', '.localhost', '127.0.0.1', 'testserver'):
 
 CSRF_TRUSTED_ORIGINS = env_list(
     'DJANGO_CSRF_TRUSTED_ORIGINS',
-    'http://localhost:8000,http://*.localhost:8000,https://ring0.com,https://*.ring0.com',
+    'http://localhost:8000,http://*.localhost:8000,https://ring0.com,https://*.ring0.com,https://*.onrender.com',
 )
 
 POSTGRES_SETTINGS = {
@@ -85,16 +85,16 @@ COMMON_APPS = [
 # SHARED APPS - These live in the public schema
 SHARED_APPS = [
     'django_tenants',
-    *COMMON_APPS,
+    *[app for app in COMMON_APPS if app != 'service'],
 ]
 
-# TENANT APPS - django-tenants requires this to be non-empty.
+# TENANT APPS - These get replicated to each tenant schema
 TENANT_APPS = [
     'service',
 ]
 
 if USE_TENANT_INFRA:
-    INSTALLED_APPS = SHARED_APPS
+    INSTALLED_APPS = SHARED_APPS + TENANT_APPS
 else:
     INSTALLED_APPS = COMMON_APPS
 
@@ -112,9 +112,6 @@ cloudinary.config(
     api_key=os.getenv('CLOUDINARY_API_KEY'),
     api_secret=os.getenv('CLOUDINARY_API_SECRET'),
 )
-
-# Use Cloudinary for media files (images)
-DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
 # Cloudinary storage settings for static files
 CLOUDINARY_STORAGE = {
@@ -275,11 +272,24 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 STATICFILES_DIRS = [
     BASE_DIR / 'static',
 ]
+
+STATICFILES_FINDERS = [
+    'django.contrib.staticfiles.finders.FileSystemFinder',
+    'django.contrib.staticfiles.finders.AppDirectoriesFinder',
+]
+
+STORAGES = {
+    'default': {
+        'BACKEND': 'cloudinary_storage.storage.MediaCloudinaryStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
 
 
 # Default primary key field type
@@ -308,9 +318,10 @@ SESSION_COOKIE_SAMESITE = 'Lax'
 
 # CSRF settings
 CSRF_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_HTTPONLY = True
-CSRF_USE_SESSIONS = True
+CSRF_COOKIE_HTTPONLY = False
+CSRF_USE_SESSIONS = False
 CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_FAILURE_VIEW = 'mysite.csrf.csrf_failure'
 
 
 # Security settings
@@ -322,43 +333,4 @@ SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL_REDIRECT', default=not DEBUG)
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SECURE_HSTS_SECONDS = int(os.getenv('DJANGO_SECURE_HSTS_SECONDS', '31536000' if not DEBUG else '0'))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS', default=not DEBUG)
-SECURE_HSTS_PRELOAD = env_bool('DJANGO_SECURE_HSTS_PRELOAD', default=False)
-
-
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'standard': {
-            'format': '%(asctime)s %(levelname)s %(name)s %(message)s',
-        },
-    },
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'standard',
-        },
-    },
-    'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
-    },
-    'loggers': {
-        'django': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'service': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'mysite': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-    },
-}
 SECURE_HSTS_PRELOAD = env_bool('DJANGO_SECURE_HSTS_PRELOAD', default=False)
