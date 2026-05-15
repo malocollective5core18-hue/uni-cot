@@ -1,0 +1,2178 @@
+{% extends "base.html" %}
+{% block title %}Founder Control — Mission Command{% endblock %}
+
+{% block extra_css %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;1,9..144,300&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════
+   TOKENS — identical to Owner Dashboard
+═══════════════════════════════════════════ */
+:root {
+  --c-void: #040810;
+  --c-abyss: #070e1c;
+  --c-deep: #0a1628;
+  --c-surface: #0d1e35;
+  --c-raise: #102440;
+  --c-lift: #162d4d;
+  --c-edge: rgba(255,255,255,0.06);
+  --c-rim: rgba(255,255,255,0.1);
+  --c-text: #f0f4ff;
+  --c-muted: rgba(180,200,240,0.6);
+  --c-ghost: rgba(140,170,220,0.35);
+  --c-accent: #4f8ef7;
+  --c-glow: #22d3ee;
+  --c-violet: #8b5cf6;
+  --c-emerald: #10d483;
+  --c-amber: #f59e0b;
+  --c-rose: #f43f5e;
+  --c-info: #38bdf8;
+  --grad-hero: linear-gradient(135deg,#0a1628 0%,#0f1f3d 50%,#091530 100%);
+  --grad-card: linear-gradient(180deg,rgba(255,255,255,0.035) 0%,rgba(255,255,255,0) 100%);
+  --grad-accent: linear-gradient(135deg,#4f8ef7,#22d3ee);
+  --grad-violet: linear-gradient(135deg,#8b5cf6,#4f8ef7);
+  --grad-warm: linear-gradient(135deg,#8b5cf6,#ec4899);
+  --glow-blue: 0 0 40px rgba(79,142,247,0.15),0 0 80px rgba(34,211,238,0.07);
+  --glow-card: 0 8px 32px rgba(0,0,0,0.4),0 1px 0 rgba(255,255,255,0.05) inset;
+  --radius: 16px;
+  --radius-sm: 10px;
+  --radius-pill: 999px;
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body: 'Outfit', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --sidebar-w: 280px;
+  --header-h: 72px;
+  --t-fast: 160ms cubic-bezier(0.4,0,0.2,1);
+  --t-base: 240ms cubic-bezier(0.4,0,0.2,1);
+  --t-slow: 400ms cubic-bezier(0.4,0,0.2,1);
+}
+
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+html,body { height:100%; overflow:hidden; }
+
+body.fc-active {
+  background: var(--c-void);
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--c-text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ═══════════════════════════════════════════
+   SHELL
+═══════════════════════════════════════════ */
+.fc-root {
+  position: relative;
+  min-height: 100vh;
+  background: var(--c-void);
+  overflow-x: hidden;
+}
+.fc-root::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 60% 50% at 20% 0%,rgba(79,142,247,0.12) 0%,transparent 60%),
+    radial-gradient(ellipse 50% 40% at 80% 0%,rgba(139,92,246,0.1) 0%,transparent 55%),
+    radial-gradient(ellipse 40% 60% at 50% 100%,rgba(34,211,238,0.06) 0%,transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.fc-frame {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-rows: var(--header-h) 1fr;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+/* ═══════════════════════════════════════════
+   TOPBAR
+═══════════════════════════════════════════ */
+.fc-topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: rgba(7,14,28,0.85);
+  border-bottom: 1px solid var(--c-edge);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  position: relative;
+  z-index: 100;
+}
+.fc-topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.fc-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--grad-accent);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+.fc-brand-text strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+.fc-brand-text span {
+  display: block;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--c-ghost);
+  letter-spacing: 0.05em;
+}
+.fc-topbar-center {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fc-nav-pill {
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--c-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all var(--t-fast);
+  white-space: nowrap;
+}
+.fc-nav-pill:hover,
+.fc-nav-pill.is-active {
+  color: var(--c-text);
+  background: rgba(255,255,255,0.06);
+  border-color: var(--c-edge);
+}
+.fc-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fc-pulse {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--c-emerald);
+  box-shadow: 0 0 8px rgba(16,212,131,0.6);
+  animation: fc-pulse 2.5s ease infinite;
+}
+@keyframes fc-pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.85); }
+}
+.fc-topbar-stat {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--c-ghost);
+  padding: 5px 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+.fc-topbar-stat strong { color: var(--c-text); }
+.fc-topbar-section-label {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-muted);
+  padding: 0 10px;
+  border-left: 1px solid var(--c-edge);
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+.fc-topbar-section-label span { color: var(--c-text); }
+
+/* ═══════════════════════════════════════════
+   SIDEBAR
+═══════════════════════════════════════════ */
+.fc-sidebar {
+  grid-column: 1;
+  grid-row: 2;
+  background: rgba(10,22,40,0.6);
+  border-right: 1px solid var(--c-edge);
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  overflow: hidden;
+  position: relative;
+  z-index: 10;
+}
+.fc-sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-edge) transparent;
+}
+.fc-sidebar-scroll::-webkit-scrollbar { width: 4px; }
+.fc-sidebar-scroll::-webkit-scrollbar-thumb { background: var(--c-edge); border-radius: 2px; }
+
+.fc-sidebar-section { display: flex; flex-direction: column; gap: 4px; }
+.fc-sidebar-label {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-ghost);
+  padding: 0 12px;
+  margin-bottom: 4px;
+}
+.fc-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  color: var(--c-muted);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--t-fast);
+  position: relative;
+  overflow: hidden;
+}
+.fc-nav-item::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 0;
+  background: var(--grad-accent);
+  border-radius: 1px;
+  transition: height var(--t-fast);
+}
+.fc-nav-item:hover,
+.fc-nav-item.active {
+  color: var(--c-text);
+  background: rgba(255,255,255,0.05);
+  border-color: var(--c-edge);
+}
+.fc-nav-item.active::before { height: 60%; }
+.fc-nav-item.active { color: #7cb9ff; }
+.fc-nav-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.05);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-size: 14px;
+  font-family: var(--font-mono);
+  color: var(--c-ghost);
+  transition: all var(--t-fast);
+}
+.fc-nav-item.active .fc-nav-icon,
+.fc-nav-item:hover .fc-nav-icon {
+  background: rgba(79,142,247,0.15);
+  color: var(--c-accent);
+}
+.fc-nav-text { min-width: 0; flex: 1; }
+.fc-nav-text strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-nav-text small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--c-ghost);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fc-nav-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: rgba(79,142,247,0.15);
+  color: var(--c-accent);
+  border: 1px solid rgba(79,142,247,0.2);
+}
+
+.fc-sidebar-mini {
+  margin-top: auto;
+  padding: 16px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius);
+}
+.fc-sidebar-mini .fc-mini-label {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--c-ghost);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+}
+.fc-health-row {
+  display: flex;
+  gap: 10px;
+}
+.fc-health-dot {
+  flex: 1;
+  text-align: center;
+  padding: 8px 6px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
+  border: 1px solid var(--c-edge);
+}
+.fc-health-dot .val {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--c-text);
+  line-height: 1;
+}
+.fc-health-dot .lbl {
+  display: block;
+  font-size: 9px;
+  color: var(--c-ghost);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 3px;
+}
+
+/* ═══════════════════════════════════════════
+   PAGE VIEWPORT
+═══════════════════════════════════════════ */
+.fc-viewport {
+  grid-column: 2;
+  grid-row: 2;
+  position: relative;
+  overflow: hidden;
+  z-index: 1;
+}
+
+/* ═══════════════════════════════════════════
+   INDEPENDENT PAGES — like Owner Dashboard
+═══════════════════════════════════════════ */
+.fc-page {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-edge) transparent;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(14px);
+  transition: opacity var(--t-slow), transform var(--t-slow);
+}
+.fc-page::-webkit-scrollbar { width: 4px; }
+.fc-page::-webkit-scrollbar-thumb { background: var(--c-edge); border-radius: 2px; }
+.fc-page.active {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.fc-page.exit {
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: opacity var(--t-fast), transform var(--t-fast);
+}
+
+/* ═══════════════════════════════════════════
+   SHARED COMPONENTS (all existing styles preserved)
+═══════════════════════════════════════════ */
+/* ── GLASS CARD ── */
+.gc {
+  background: var(--grad-card), var(--c-surface);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius);
+  box-shadow: var(--glow-card);
+  overflow: hidden;
+}
+.gc-pad { padding: 24px; }
+.gc-pad-lg { padding: 32px; }
+
+/* ── PAGE HERO ── */
+.fc-hero {
+  position: relative;
+  background: var(--grad-hero);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius);
+  padding: 40px;
+  overflow: hidden;
+}
+.fc-hero::after {
+  content: '';
+  position: absolute;
+  right: -60px; top: -60px;
+  width: 320px; height: 320px;
+  border-radius: 50%;
+  background: radial-gradient(circle,rgba(79,142,247,0.1) 0%,transparent 70%);
+  pointer-events: none;
+}
+.fc-hero-grid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 32px;
+  align-items: start;
+}
+.fc-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-accent);
+  margin-bottom: 14px;
+}
+.fc-eyebrow::before {
+  content: '';
+  width: 16px; height: 2px;
+  background: var(--grad-accent);
+  border-radius: 1px;
+}
+.fc-headline {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 3vw, 3.2rem);
+  font-weight: 300;
+  line-height: 1.05;
+  color: var(--c-text);
+  letter-spacing: -0.02em;
+  margin-bottom: 14px;
+}
+.fc-headline em {
+  font-style: italic;
+  background: var(--grad-accent);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.fc-subtext {
+  font-size: 14px;
+  color: var(--c-muted);
+  line-height: 1.65;
+  max-width: 520px;
+  margin-bottom: 24px;
+}
+.fc-btn-row { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* ── BUTTONS ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 20px;
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: all var(--t-fast);
+  position: relative;
+  overflow: hidden;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary {
+  background: var(--grad-accent);
+  color: #fff;
+  box-shadow: 0 0 20px rgba(79,142,247,0.3);
+}
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 0 30px rgba(79,142,247,0.45);
+  transform: translateY(-1px);
+}
+.btn-ghost {
+  background: rgba(255,255,255,0.05);
+  border-color: var(--c-rim);
+  color: var(--c-text);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: rgba(255,255,255,0.09);
+  transform: translateY(-1px);
+}
+.btn-outline {
+  background: transparent;
+  border-color: rgba(79,142,247,0.3);
+  color: var(--c-accent);
+}
+.btn-outline:hover:not(:disabled) {
+  background: rgba(79,142,247,0.08);
+  border-color: rgba(79,142,247,0.5);
+}
+.btn-danger {
+  background: rgba(244,63,94,0.1);
+  border-color: rgba(244,63,94,0.25);
+  color: #ffa0b4;
+}
+.btn-danger:hover:not(:disabled) {
+  background: rgba(244,63,94,0.18);
+}
+.btn.is-loading::after {
+  content: '';
+  width: 12px; height: 12px;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── PRIORITY BOX ── */
+.fc-priority-box {
+  background: rgba(245,158,11,0.05);
+  border: 1px solid rgba(245,158,11,0.15);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.fc-pbox-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.fc-pbox-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-amber);
+}
+.fc-pstep {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.fc-pstep:last-child { border-bottom: none; padding-bottom: 0; }
+.fc-pstep-num {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: rgba(79,142,247,0.1);
+  border: 1px solid rgba(79,142,247,0.2);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--c-accent);
+  flex-shrink: 0;
+}
+.fc-pstep-head {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text);
+  margin-bottom: 2px;
+}
+.fc-pstep-body {
+  font-size: 12px;
+  color: var(--c-muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* ── METRICS GRID ── */
+.fc-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 16px;
+}
+.fc-metric {
+  position: relative;
+  background: var(--grad-card), var(--c-surface);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius);
+  padding: 20px;
+  overflow: hidden;
+  transition: all var(--t-fast);
+}
+.fc-metric:hover {
+  border-color: var(--c-rim);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+}
+.fc-metric-glow {
+  position: absolute;
+  right: -20px; top: -20px;
+  width: 80px; height: 80px;
+  border-radius: 50%;
+  opacity: 0.4;
+}
+.fc-metric-label {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-ghost);
+  margin-bottom: 10px;
+}
+.fc-metric-value {
+  font-size: clamp(2rem, 3vw, 2.8rem);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--c-text);
+  line-height: 1;
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
+}
+.fc-metric-sub {
+  font-size: 12px;
+  color: var(--c-ghost);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.fc-metric-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  margin-top: 8px;
+}
+.trend-up { background: rgba(16,212,131,0.1); color: var(--c-emerald); border: 1px solid rgba(16,212,131,0.2); }
+.trend-warn { background: rgba(245,158,11,0.1); color: var(--c-amber); border: 1px solid rgba(245,158,11,0.2); }
+.trend-down { background: rgba(244,63,94,0.1); color: var(--c-rose); border: 1px solid rgba(244,63,94,0.2); }
+
+/* ── STATUS CHIPS ── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  border: 1px solid;
+  white-space: nowrap;
+}
+.chip::before {
+  content: '';
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.chip-live { color: var(--c-emerald); border-color: rgba(16,212,131,0.2); background: rgba(16,212,131,0.08); }
+.chip-warn { color: var(--c-amber); border-color: rgba(245,158,11,0.22); background: rgba(245,158,11,0.08); }
+.chip-dead { color: var(--c-rose); border-color: rgba(244,63,94,0.22); background: rgba(244,63,94,0.08); }
+.chip-info { color: var(--c-info); border-color: rgba(56,189,248,0.22); background: rgba(56,189,248,0.08); }
+.chip-violet { color: #b794ff; border-color: rgba(139,92,246,0.25); background: rgba(139,92,246,0.08); }
+.chip-ghost { color: var(--c-ghost); border-color: var(--c-edge); background: rgba(255,255,255,0.03); }
+
+/* ── SECTION HEADER ── */
+.fc-sec-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.fc-sec-label {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--c-accent);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.fc-sec-title {
+  font-size: clamp(1.2rem, 2vw, 1.6rem);
+  font-weight: 600;
+  color: var(--c-text);
+  overflow-wrap: anywhere;
+}
+.fc-sec-sub {
+  font-size: 13px;
+  color: var(--c-muted);
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+/* ── FILTER BAR ── */
+.fc-filter-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius-sm);
+}
+.fc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.fc-field label {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--c-ghost);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.fc-field input,
+.fc-field select {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius-sm);
+  color: var(--c-text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  transition: all var(--t-fast);
+  -webkit-appearance: none;
+}
+.fc-field select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(140,170,220,0.4)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+  cursor: pointer;
+}
+.fc-field select option { background: var(--c-deep); color: var(--c-text); }
+.fc-field input::placeholder { color: var(--c-ghost); }
+.fc-field input:focus,
+.fc-field select:focus {
+  outline: none;
+  border-color: rgba(79,142,247,0.4);
+  box-shadow: 0 0 0 3px rgba(79,142,247,0.1);
+  background: rgba(79,142,247,0.04);
+}
+.fc-field-inner { min-height: 34px; padding: 0 10px; font-size: 13px; }
+
+/* ── TENANT GRID ── */
+.fc-tenant-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+  gap: 16px;
+}
+.fc-tenant-card {
+  background: var(--grad-card), var(--c-surface);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transition: all var(--t-fast);
+}
+.fc-tenant-card:hover {
+  border-color: var(--c-rim);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+.fc-tenant-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.fc-tenant-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--c-text);
+  overflow-wrap: anywhere;
+}
+.fc-tenant-meta {
+  font-size: 12px;
+  color: var(--c-ghost);
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+.fc-mini-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 80px), 1fr));
+  gap: 8px;
+}
+.fc-mini-stat {
+  padding: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--c-edge);
+  border-radius: 8px;
+  text-align: center;
+}
+.fc-mini-stat-val {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--c-text);
+}
+.fc-mini-stat-lbl {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--c-ghost);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+}
+.fc-domain-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fc-domain-chip {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: rgba(56,189,248,0.07);
+  border: 1px solid rgba(56,189,248,0.15);
+  color: var(--c-info);
+  overflow-wrap: anywhere;
+}
+
+/* ── CONTROL FORMS ── */
+.fc-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
+}
+.fc-control-form {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.fc-form-title {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-ghost);
+  margin-bottom: 4px;
+}
+.fc-form-subtitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text);
+  overflow-wrap: anywhere;
+}
+.fc-field-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr));
+  gap: 8px;
+}
+.fc-check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fc-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--c-muted);
+  cursor: pointer;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--c-edge);
+  border-radius: 6px;
+  transition: all var(--t-fast);
+}
+.fc-checkbox-label:hover { border-color: var(--c-rim); color: var(--c-text); }
+.fc-checkbox-label input[type=checkbox] {
+  width: 14px; height: 14px;
+  accent-color: var(--c-accent);
+  flex-shrink: 0;
+}
+
+/* ── TABLE ── */
+.fc-table-wrap {
+  border-radius: var(--radius);
+  border: 1px solid var(--c-edge);
+  overflow: hidden;
+}
+.fc-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.fc-table thead th {
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.025);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-ghost);
+  text-align: left;
+  border-bottom: 1px solid var(--c-edge);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fc-table tbody tr {
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  transition: background var(--t-fast);
+}
+.fc-table tbody tr:last-child { border-bottom: none; }
+.fc-table tbody tr:hover { background: rgba(79,142,247,0.04); }
+.fc-table td {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--c-text);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.fc-cell-primary { font-weight: 600; }
+.fc-cell-sub { font-size: 11px; color: var(--c-ghost); margin-top: 2px; overflow-wrap: anywhere; }
+
+/* ── INSIGHT PANELS ── */
+.fc-insight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+}
+.fc-insight-panel {
+  background: var(--grad-card), var(--c-surface);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.fc-step-list { display: flex; flex-direction: column; gap: 12px; }
+.fc-step {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+.fc-step-num {
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  background: rgba(79,142,247,0.08);
+  border: 1px solid rgba(79,142,247,0.15);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--c-accent);
+  flex-shrink: 0;
+}
+.fc-step-head { font-size: 13px; font-weight: 600; color: var(--c-text); }
+.fc-step-body { font-size: 12px; color: var(--c-muted); line-height: 1.5; overflow-wrap: anywhere; }
+
+/* ── STATUS BAR ── */
+.fc-status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius-sm);
+}
+.fc-status-block { min-width: 0; }
+.fc-status-label {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--c-ghost);
+  margin-bottom: 3px;
+}
+.fc-status-val {
+  font-size: 22px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--c-text);
+  overflow-wrap: anywhere;
+}
+
+/* ── REVIEW CARD ── */
+.fc-review-card {
+  background: var(--grad-card), var(--c-surface);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: all var(--t-fast);
+}
+.fc-review-card:hover { border-color: var(--c-rim); }
+.fc-review-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.fc-rating {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--c-text);
+}
+.fc-review-text {
+  font-size: 13px;
+  color: var(--c-muted);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.fc-review-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.fc-review-date { font-size: 11px; font-family: var(--font-mono); color: var(--c-ghost); }
+
+/* ── SIGNAL CARD ── */
+.fc-signal-card {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  transition: all var(--t-fast);
+}
+.fc-signal-card:hover { border-color: var(--c-rim); background: rgba(255,255,255,0.035); }
+.fc-signal-head {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text);
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+.fc-signal-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+}
+.fc-signal-stat { min-width: 0; }
+.fc-signal-stat .sv {
+  font-size: 20px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--c-text);
+}
+.fc-signal-stat .sl {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--c-ghost);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── LOADING OVERLAY ── */
+.fc-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4,8,16,0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transition: all var(--t-base);
+}
+.fc-overlay.active { opacity: 1; visibility: visible; }
+.fc-overlay-box {
+  background: var(--c-surface);
+  border: 1px solid var(--c-rim);
+  border-radius: var(--radius);
+  padding: 40px;
+  text-align: center;
+  width: min(90%, 360px);
+  box-shadow: var(--glow-blue);
+}
+.fc-spinner {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.08);
+  border-top-color: var(--c-accent);
+  border-right-color: var(--c-glow);
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 16px;
+}
+
+/* ── MOBILE MENU TOGGLE ── */
+.fc-menu-btn {
+  display: none;
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--c-edge);
+  color: var(--c-text);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+/* ── EMPTY STATES ── */
+.fc-empty {
+  text-align: center;
+  padding: 32px;
+  color: var(--c-ghost);
+  font-size: 13px;
+}
+.fc-empty strong { display: block; color: var(--c-muted); font-size: 15px; margin-bottom: 6px; }
+
+/* ── DIVIDER ── */
+.fc-divider {
+  height: 1px;
+  background: var(--c-edge);
+  border: none;
+}
+
+/* ── HIDDEN ── */
+[hidden] { display: none !important; }
+[data-filter-item][hidden] { display: none !important; }
+
+/* ═══════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════ */
+@media (max-width: 1100px) {
+  :root { --sidebar-w: 240px; }
+  .fc-hero-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 820px) {
+  .fc-frame {
+    grid-template-columns: 1fr;
+    grid-template-rows: var(--header-h) 1fr;
+  }
+  .fc-sidebar {
+    grid-column: 1;
+    grid-row: auto;
+    position: fixed;
+    top: var(--header-h);
+    left: 0;
+    width: 280px;
+    height: calc(100vh - var(--header-h));
+    transform: translateX(-100%);
+    transition: transform var(--t-base);
+    z-index: 80;
+    border-right: 1px solid var(--c-rim);
+    background: rgba(7,14,28,0.97);
+    backdrop-filter: blur(20px);
+  }
+  .fc-sidebar.is-open { transform: translateX(0); }
+  .fc-viewport { grid-column: 1; }
+  .fc-topbar-center { display: none; }
+  .fc-menu-btn { display: flex; }
+  .fc-page { padding: 16px; }
+}
+
+@media (max-width: 600px) {
+  .fc-topbar { padding: 0 14px; }
+  .fc-topbar-stat { display: none; }
+  .fc-hero { padding: 24px; }
+  .fc-headline { font-size: 1.8rem; }
+  .fc-filter-bar { padding: 12px; gap: 8px; }
+  .fc-tenant-grid { grid-template-columns: 1fr; }
+  .fc-insight-grid { grid-template-columns: 1fr; }
+  .fc-metrics { grid-template-columns: repeat(2, 1fr); }
+  .fc-table-wrap { border-radius: var(--radius-sm); }
+  .fc-table thead { display: none; }
+  .fc-table tbody tr { display: block; padding: 10px; border-bottom: 1px solid var(--c-edge); }
+  .fc-table td {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 8px;
+    padding: 5px 0;
+    border: none;
+    font-size: 12px;
+  }
+  .fc-table td::before {
+    content: attr(data-label);
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--c-ghost);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding-top: 2px;
+  }
+  .fc-table td[data-label="Actions"] { grid-template-columns: 1fr; }
+  .fc-table td[data-label="Actions"]::before { margin-bottom: 6px; }
+  .btn { min-height: 38px; padding: 0 16px; font-size: 12px; }
+}
+
+@media (max-width: 380px) {
+  .fc-metrics { grid-template-columns: 1fr; }
+  .fc-mini-stats { grid-template-columns: repeat(2, 1fr); }
+  .fc-health-row { gap: 6px; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- OVERLAY -->
+<div class="fc-overlay" id="fc-overlay" aria-hidden="true">
+  <div class="fc-overlay-box">
+    <div class="fc-spinner"></div>
+    <div style="font-size:15px;font-weight:600;color:var(--c-text);margin-bottom:6px;">Applying command</div>
+    <div style="font-size:13px;color:var(--c-muted);">Saving state and refreshing the control surface.</div>
+  </div>
+</div>
+
+<div class="fc-root">
+  <div class="fc-frame">
+
+    <!-- ════ TOPBAR ════ -->
+    <header class="fc-topbar">
+      <div class="fc-topbar-brand">
+        <button class="fc-menu-btn" id="fc-menu-btn" aria-label="Toggle navigation">☰</button>
+        <div class="fc-logo">FC</div>
+        <div class="fc-brand-text">
+          <strong>Founder Control</strong>
+          <span>Mission Command</span>
+        </div>
+      </div>
+      <div class="fc-topbar-section-label">
+        <span id="fc-page-label">Overview</span>
+      </div>
+      <div class="fc-topbar-right">
+        <div class="fc-topbar-stat"><strong>{{ total_tenants }}</strong> tenants</div>
+        <div class="fc-topbar-stat"><strong>{{ pending_reviews }}</strong> pending</div>
+        <div class="fc-pulse" title="System operational"></div>
+      </div>
+    </header>
+
+    <!-- ════ SIDEBAR ════ -->
+    <aside class="fc-sidebar" id="fc-sidebar">
+      <div class="fc-sidebar-scroll">
+        <div class="fc-sidebar-section">
+          <div class="fc-sidebar-label">Navigation</div>
+          <a class="fc-nav-item active" data-page="overview" href="#overview">
+            <span class="fc-nav-icon">01</span>
+            <span class="fc-nav-text">
+              <strong>Overview</strong>
+              <small>System health &amp; priorities</small>
+            </span>
+          </a>
+          <a class="fc-nav-item" data-page="tenants" href="#tenants">
+            <span class="fc-nav-icon">02</span>
+            <span class="fc-nav-text">
+              <strong>Tenants</strong>
+              <small>Owner environments</small>
+            </span>
+            <span class="fc-nav-badge">{{ total_tenants }}</span>
+          </a>
+          <a class="fc-nav-item" data-page="subscriptions" href="#subscriptions">
+            <span class="fc-nav-icon">03</span>
+            <span class="fc-nav-text">
+              <strong>Subscriptions</strong>
+              <small>Payments &amp; plans</small>
+            </span>
+          </a>
+          <a class="fc-nav-item" data-page="reviews" href="#reviews">
+            <span class="fc-nav-icon">04</span>
+            <span class="fc-nav-text">
+              <strong>Reviews</strong>
+              <small>Moderation queue</small>
+            </span>
+            {% if pending_reviews > 0 %}
+            <span class="fc-nav-badge" style="background:rgba(244,63,94,0.12);color:var(--c-rose);">{{ pending_reviews }}</span>
+            {% endif %}
+          </a>
+          <a class="fc-nav-item" data-page="signals" href="#signals">
+            <span class="fc-nav-icon">05</span>
+            <span class="fc-nav-text">
+              <strong>Signals</strong>
+              <small>Pattern intelligence</small>
+            </span>
+          </a>
+        </div>
+
+        <div class="fc-sidebar-section">
+          <div class="fc-sidebar-label">External</div>
+          <a class="fc-nav-item" href="/admin/">
+            <span class="fc-nav-icon">AD</span>
+            <span class="fc-nav-text">
+              <strong>Django Admin</strong>
+              <small>Open admin workspace</small>
+            </span>
+          </a>
+        </div>
+      </div>
+
+      <div class="fc-sidebar-mini">
+        <div class="fc-mini-label">Platform Health</div>
+        <div class="fc-health-row">
+          <div class="fc-health-dot">
+            <span class="val">{{ active_tenants }}</span>
+            <span class="lbl">Active</span>
+          </div>
+          <div class="fc-health-dot">
+            <span class="val">{{ paid_tenants }}</span>
+            <span class="lbl">Paid</span>
+          </div>
+          <div class="fc-health-dot">
+            <span class="val" style="{% if expired_tenants > 0 %}color:var(--c-rose){% endif %}">{{ expired_tenants }}</span>
+            <span class="lbl">Expired</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ════ PAGE VIEWPORT — INDEPENDENT PAGES ════ -->
+    <div class="fc-viewport">
+
+      <!-- ▸▸ PAGE: OVERVIEW -->
+      <div class="fc-page active" id="page-overview" data-label="Overview">
+        <!-- Hero -->
+        <div class="fc-hero">
+          <div class="fc-hero-grid">
+            <div>
+              <div class="fc-eyebrow">Founder Operations Center</div>
+              <h1 class="fc-headline">Operate with<br><em>clarity and speed.</em></h1>
+              <p class="fc-subtext">One integrated surface for subscriptions, domain provisioning, owner access, and review triage — responsive from 4K workstations to mobile phones.</p>
+              <div class="fc-btn-row">
+                <button class="btn btn-primary" data-goto="tenants">Inspect tenants</button>
+                <button class="btn btn-ghost" data-goto="reviews">Triage reviews</button>
+                <a class="btn btn-outline" href="/admin/">Admin workspace</a>
+              </div>
+            </div>
+            <div class="fc-priority-box">
+              <div class="fc-pbox-header">
+                <span class="chip chip-warn">⚡ Priority snapshot</span>
+                <span class="fc-pbox-title">Founder pulse</span>
+              </div>
+              <div class="fc-pstep">
+                <div class="fc-pstep-num">A1</div>
+                <div>
+                  <div class="fc-pstep-head">Stabilize paid access</div>
+                  <div class="fc-pstep-body">{{ expired_tenants }} access windows need renewal. Resolve expired tenants first.</div>
+                </div>
+              </div>
+              <div class="fc-pstep">
+                <div class="fc-pstep-num">A2</div>
+                <div>
+                  <div class="fc-pstep-head">Clear review backlog</div>
+                  <div class="fc-pstep-body">{{ pending_reviews }} reviews awaiting triage. Pending signals erode trust velocity.</div>
+                </div>
+              </div>
+              <div class="fc-pstep">
+                <div class="fc-pstep-num">A3</div>
+                <div>
+                  <div class="fc-pstep-head">Protect active domains</div>
+                  <div class="fc-pstep-body">Promote production domains only after payment and ownership verification.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Metrics -->
+        <div class="fc-metrics">
+          <div class="fc-metric">
+            <div class="fc-metric-glow" style="background:radial-gradient(circle,rgba(79,142,247,0.4),transparent)"></div>
+            <div class="fc-metric-label">Total Tenants</div>
+            <div class="fc-metric-value">{{ total_tenants }}</div>
+            <div class="fc-metric-sub">Complete owner environments visible to founder ops</div>
+            <div class="fc-metric-trend trend-up">↑ All environments</div>
+          </div>
+          <div class="fc-metric">
+            <div class="fc-metric-glow" style="background:radial-gradient(circle,rgba(16,212,131,0.35),transparent)"></div>
+            <div class="fc-metric-label">Active Access</div>
+            <div class="fc-metric-value" style="color:var(--c-emerald)">{{ active_tenants }}</div>
+            <div class="fc-metric-sub">{{ paid_tenants }} paid, currently supporting the live base</div>
+            <div class="fc-metric-trend trend-up">↑ Live environments</div>
+          </div>
+          <div class="fc-metric">
+            <div class="fc-metric-glow" style="background:radial-gradient(circle,rgba(245,158,11,0.35),transparent)"></div>
+            <div class="fc-metric-label">Expired Attention</div>
+            <div class="fc-metric-value" style="{% if expired_tenants > 0 %}color:var(--c-amber){% endif %}">{{ expired_tenants }}</div>
+            <div class="fc-metric-sub">Accounts requiring renewal or access review</div>
+            {% if expired_tenants > 0 %}
+            <div class="fc-metric-trend trend-warn">⚠ Needs attention</div>
+            {% else %}
+            <div class="fc-metric-trend trend-up">✓ Clear</div>
+            {% endif %}
+          </div>
+          <div class="fc-metric">
+            <div class="fc-metric-glow" style="background:radial-gradient(circle,rgba(244,63,94,0.3),transparent)"></div>
+            <div class="fc-metric-label">Review Backlog</div>
+            <div class="fc-metric-value" style="{% if pending_reviews > 0 %}color:var(--c-rose){% endif %}">{{ pending_reviews }}</div>
+            <div class="fc-metric-sub">{{ total_reviews }} total reviews contributing to network reputation</div>
+            {% if pending_reviews > 0 %}
+            <div class="fc-metric-trend trend-down">! Pending action</div>
+            {% else %}
+            <div class="fc-metric-trend trend-up">✓ Queue clear</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Insight panels -->
+        <div class="fc-insight-grid">
+          <div class="fc-insight-panel">
+            <div>
+              <div class="fc-sec-label">Operations Flow</div>
+              <div class="fc-sec-title" style="font-size:1.1rem">Daily command rhythm</div>
+              <div class="fc-sec-sub">A fast founder loop keeping billing, access, and domains aligned.</div>
+            </div>
+            <div class="fc-step-list">
+              <div class="fc-step">
+                <div class="fc-step-num">01</div>
+                <div>
+                  <div class="fc-step-head">Revenue continuity check</div>
+                  <div class="fc-step-body">Scan subscription table for end dates before access drops.</div>
+                </div>
+              </div>
+              <div class="fc-step">
+                <div class="fc-step-num">02</div>
+                <div>
+                  <div class="fc-step-head">Adjust plans &amp; trial state</div>
+                  <div class="fc-step-body">Keep trial and paid logic accurate so owners see the right experience.</div>
+                </div>
+              </div>
+              <div class="fc-step">
+                <div class="fc-step-num">03</div>
+                <div>
+                  <div class="fc-step-head">Domain activation</div>
+                  <div class="fc-step-body">Promote correct custom domain with fallback routing preserved.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="fc-insight-panel">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+              <div>
+                <div class="fc-sec-label">Founder Awareness</div>
+                <div class="fc-sec-title" style="font-size:1.1rem">Current pressure points</div>
+              </div>
+              <span class="chip {% if expired_tenants > 0 or pending_reviews > 0 %}chip-warn{% else %}chip-live{% endif %}">
+                {% if expired_tenants > 0 or pending_reviews > 0 %}Action needed{% else %}Platform stable{% endif %}
+              </span>
+            </div>
+            <div class="fc-status-bar">
+              <div class="fc-status-block">
+                <div class="fc-status-label">Paid tenants</div>
+                <div class="fc-status-val">{{ paid_tenants }}</div>
+              </div>
+              <div class="fc-status-block">
+                <div class="fc-status-label">Active</div>
+                <div class="fc-status-val">{{ active_tenants }}</div>
+              </div>
+              <div class="fc-status-block">
+                <div class="fc-status-label">Pending reviews</div>
+                <div class="fc-status-val" style="{% if pending_reviews > 0 %}color:var(--c-rose){% endif %}">{{ pending_reviews }}</div>
+              </div>
+            </div>
+            <div style="padding:14px;background:rgba(79,142,247,0.04);border:1px solid rgba(79,142,247,0.1);border-radius:var(--radius-sm);">
+              <div style="font-size:10px;font-family:var(--font-mono);color:var(--c-accent);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:7px;">Founder principle</div>
+              <p style="font-size:13px;color:var(--c-muted);line-height:1.6;overflow-wrap:anywhere;">The healthiest posture: keep access current, close review backlog quickly, and promote domains only after payment and owner state are verified.</p>
+            </div>
+          </div>
+        </div>
+      </div><!-- /page-overview -->
+
+      <!-- ▸▸ PAGE: TENANTS -->
+      <div class="fc-page" id="page-tenants" data-label="Tenants">
+        <div class="fc-sec-head">
+          <div>
+            <div class="fc-sec-label">Tenant Control</div>
+            <h2 class="fc-sec-title">Owner environments</h2>
+            <p class="fc-sec-sub">Search, inspect, and update each environment without risk of layout breakage on smaller screens.</p>
+          </div>
+          <span class="chip chip-info">{{ total_tenants }} environments</span>
+        </div>
+
+        <div data-dashboard-filter-root>
+          <div class="fc-filter-bar">
+            <div class="fc-field">
+              <label>Search tenants</label>
+              <input class="fc-field-inner" type="search" data-filter-role="search" placeholder="Program, owner, domain…">
+            </div>
+            <div class="fc-field">
+              <label>Access status</label>
+              <select class="fc-field-inner" data-filter-role="status">
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="expired">Expired</option>
+                <option value="trial">Trial</option>
+              </select>
+            </div>
+            <div class="fc-field">
+              <label>Plan</label>
+              <select class="fc-field-inner" data-filter-role="plan">
+                <option value="all">All plans</option>
+                <option value="basic">Basic</option>
+                <option value="pro">Pro</option>
+                <option value="trial">Trial</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="fc-tenant-grid">
+            {% for tenant in tenants %}
+            <article class="fc-tenant-card"
+              data-filter-item
+              data-search="{{ tenant.name }} {{ tenant.owner.email|default:'' }} {{ tenant.schema_name }} {{ tenant.subdomain }} {% for domain in tenant.all_domains %}{{ domain.domain }} {% endfor %}"
+              data-status="{% if tenant.is_trial %}trial{% elif tenant.is_subscription_active %}active{% else %}expired{% endif %}"
+              data-plan="{% if tenant.is_trial %}trial{% else %}{{ tenant.latest_subscription.plan|default:'basic' }}{% endif %}">
+
+              <div class="fc-tenant-top">
+                <div>
+                  <div style="font-size:10px;font-family:var(--font-mono);color:var(--c-ghost);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:4px;">Environment</div>
+                  <div class="fc-tenant-name">{{ tenant.name }}</div>
+                  <div class="fc-tenant-meta">{{ tenant.owner.email|default:"No owner email" }}</div>
+                  <div class="fc-tenant-meta">Schema: {{ tenant.schema_name }} · Sub: {{ tenant.subdomain }}</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;flex-shrink:0;">
+                  <span class="chip {% if tenant.is_subscription_active %}chip-live{% else %}chip-dead{% endif %}">
+                    {% if tenant.is_subscription_active %}Access live{% else %}Access paused{% endif %}
+                  </span>
+                  {% if tenant.is_trial %}<span class="chip chip-warn">Trial</span>{% endif %}
+                </div>
+              </div>
+
+              <div class="fc-mini-stats">
+                <div class="fc-mini-stat">
+                  <div class="fc-mini-stat-val">{{ tenant.paid_until|default:"—" }}</div>
+                  <div class="fc-mini-stat-lbl">Paid until</div>
+                </div>
+                <div class="fc-mini-stat">
+                  <div class="fc-mini-stat-val">{{ tenant.days_remaining }}</div>
+                  <div class="fc-mini-stat-lbl">Days left</div>
+                </div>
+                <div class="fc-mini-stat">
+                  <div class="fc-mini-stat-val">{{ tenant.member_count }}</div>
+                  <div class="fc-mini-stat-lbl">Members</div>
+                </div>
+                <div class="fc-mini-stat">
+                  <div class="fc-mini-stat-val">{{ tenant.review_count }}</div>
+                  <div class="fc-mini-stat-lbl">Reviews</div>
+                </div>
+              </div>
+
+              <div class="fc-domain-row">
+                {% for domain in tenant.all_domains %}
+                <span class="fc-domain-chip">{{ domain.domain }}{% if domain.is_primary %} · primary{% endif %}</span>
+                {% empty %}
+                <span class="chip chip-dead">No domains yet</span>
+                {% endfor %}
+              </div>
+
+              <div class="fc-action-grid">
+                <form method="post" class="fc-control-form" data-ov>
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="update_access">
+                  <input type="hidden" name="tenant_id" value="{{ tenant.id }}">
+                  <div>
+                    <div class="fc-form-title">Access control</div>
+                    <div class="fc-form-subtitle">Update payment window &amp; plan</div>
+                  </div>
+                  <div class="fc-field-group">
+                    <div class="fc-field">
+                      <label>Paid until</label>
+                      <input class="fc-field-inner" type="date" name="paid_until" value="{% if tenant.paid_until %}{{ tenant.paid_until|date:'Y-m-d' }}{% endif %}">
+                    </div>
+                    <div class="fc-field">
+                      <label>Plan</label>
+                      <select class="fc-field-inner" name="plan">
+                        <option value="trial" {% if tenant.latest_subscription and tenant.latest_subscription.plan == 'trial' %}selected{% endif %}>Trial</option>
+                        <option value="basic" {% if tenant.latest_subscription and tenant.latest_subscription.plan == 'basic' %}selected{% endif %}>Basic</option>
+                        <option value="pro" {% if tenant.latest_subscription and tenant.latest_subscription.plan == 'pro' %}selected{% endif %}>Pro</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="fc-check-row">
+                    <label class="fc-checkbox-label">
+                      <input type="checkbox" name="is_active" {% if tenant.is_active %}checked{% endif %}> Owner access
+                    </label>
+                    <label class="fc-checkbox-label">
+                      <input type="checkbox" name="is_trial" {% if tenant.is_trial %}checked{% endif %}> Trial mode
+                    </label>
+                  </div>
+                  <button class="btn btn-primary" type="submit" style="width:100%">Save access settings</button>
+                </form>
+
+                <form method="post" class="fc-control-form" data-ov>
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="activate_custom_domain">
+                  <input type="hidden" name="tenant_id" value="{{ tenant.id }}">
+                  <div>
+                    <div class="fc-form-title">Domain activation</div>
+                    <div class="fc-form-subtitle">Assign a custom domain</div>
+                  </div>
+                  <div class="fc-field">
+                    <label>Domain</label>
+                    <input class="fc-field-inner" type="text" name="custom_domain" placeholder="example.ownerdomain.com">
+                  </div>
+                  <div class="fc-check-row">
+                    <label class="fc-checkbox-label">
+                      <input type="checkbox" name="make_primary" checked> Make primary
+                    </label>
+                  </div>
+                  <button class="btn btn-outline" type="submit" style="width:100%">Activate custom domain</button>
+                </form>
+              </div>
+            </article>
+            {% empty %}
+            <div class="fc-empty" style="grid-column:1/-1">
+              <strong>No tenants yet</strong>
+              New owner environments will appear here as soon as they're created.
+            </div>
+            {% endfor %}
+          </div>
+
+          <div data-filter-empty hidden>
+            <div class="fc-empty">
+              <strong>No match found</strong>
+              No tenants match the current search or selected filters. Try broadening your criteria.
+            </div>
+          </div>
+        </div>
+      </div><!-- /page-tenants -->
+
+      <!-- ▸▸ PAGE: SUBSCRIPTIONS -->
+      <div class="fc-page" id="page-subscriptions" data-label="Subscriptions">
+        <div class="fc-sec-head">
+          <div>
+            <div class="fc-sec-label">Revenue Operations</div>
+            <h2 class="fc-sec-title">Subscription database</h2>
+            <p class="fc-sec-sub">Production ledger for payments, plans, contact details, and quick activation control.</p>
+          </div>
+          <span class="chip chip-live">{{ paid_tenants }} paid</span>
+        </div>
+
+        <div class="fc-metrics" style="grid-template-columns:repeat(3,1fr)">
+          <div class="fc-metric">
+            <div class="fc-metric-label">Paid access base</div>
+            <div class="fc-metric-value">{{ paid_tenants }}</div>
+            <div class="fc-metric-sub">Tenants with paid subscriptions</div>
+          </div>
+          <div class="fc-metric">
+            <div class="fc-metric-label">Expired risk</div>
+            <div class="fc-metric-value" style="{% if expired_tenants > 0 %}color:var(--c-amber){% endif %}">{{ expired_tenants }}</div>
+            <div class="fc-metric-sub">Requiring direct founder intervention</div>
+          </div>
+          <div class="fc-metric">
+            <div class="fc-metric-label">Live access</div>
+            <div class="fc-metric-value" style="color:var(--c-emerald)">{{ active_tenants }}</div>
+            <div class="fc-metric-sub">Owner environments currently active</div>
+          </div>
+        </div>
+
+        <div data-dashboard-filter-root>
+          <div class="fc-filter-bar">
+            <div class="fc-field">
+              <label>Search owners</label>
+              <input class="fc-field-inner" type="search" data-filter-role="search" placeholder="Owner, email, phone, domain…">
+            </div>
+            <div class="fc-field">
+              <label>Status</label>
+              <select class="fc-field-inner" data-filter-role="status">
+                <option value="all">All statuses</option>
+                <option value="active">Paid active</option>
+                <option value="expired">Expired</option>
+                <option value="trial">Trial</option>
+              </select>
+            </div>
+            <div class="fc-field">
+              <label>Plan</label>
+              <select class="fc-field-inner" data-filter-role="plan">
+                <option value="all">All plans</option>
+                <option value="basic">Basic</option>
+                <option value="pro">Pro</option>
+                <option value="trial">Trial</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="fc-table-wrap">
+            <table class="fc-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">Owner</th>
+                  <th style="width:14%">Contact</th>
+                  <th style="width:16%">Domain</th>
+                  <th style="width:11%">Paid until</th>
+                  <th style="width:9%">Time left</th>
+                  <th style="width:9%">Status</th>
+                  <th style="width:23%">Activation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in owner_rows %}
+                <tr
+                  data-filter-item
+                  data-search="{{ row.owner_name }} {{ row.owner_email }} {{ row.phone_number }} {{ row.domain_url }}"
+                  data-status="{% if row.is_trial %}trial{% elif row.status == 'active' %}active{% else %}expired{% endif %}"
+                  data-plan="{% if row.is_trial %}trial{% else %}{{ row.plan|default:'basic' }}{% endif %}">
+                  <td data-label="Owner">
+                    <div class="fc-cell-primary">{{ row.owner_name }}</div>
+                    <div class="fc-cell-sub">{{ row.owner_email }}</div>
+                  </td>
+                  <td data-label="Contact">{{ row.phone_number|default:"—" }}</td>
+                  <td data-label="Domain" style="word-break:break-all">{{ row.domain_url|default:"—" }}</td>
+                  <td data-label="Paid until">{{ row.paid_until|default:"—" }}</td>
+                  <td data-label="Time left">
+                    <span style="font-family:var(--font-mono);font-size:12px;{% if row.days_remaining < 7 %}color:var(--c-rose){% elif row.days_remaining < 30 %}color:var(--c-amber){% endif %}">
+                      {{ row.days_remaining }}d
+                    </span>
+                  </td>
+                  <td data-label="Status">
+                    <span class="chip {% if row.status == 'active' %}chip-live{% else %}chip-dead{% endif %}">{{ row.status }}</span>
+                  </td>
+                  <td data-label="Actions">
+                    <form method="post" data-ov>
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="update_access">
+                      <input type="hidden" name="tenant_id" value="{{ row.tenant_id }}">
+                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
+                        <input type="date" name="paid_until" value="{% if row.paid_until %}{{ row.paid_until|date:'Y-m-d' }}{% endif %}" style="padding:6px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid var(--c-edge);color:var(--c-text);">
+                        <select name="plan" style="padding:6px;border-radius:6px;background:rgba(255,255,255,0.04);border:1px solid var(--c-edge);color:var(--c-text);">
+                          <option value="basic" {% if row.plan == 'basic' %}selected{% endif %}>Basic</option>
+                          <option value="pro" {% if row.plan == 'pro' %}selected{% endif %}>Pro</option>
+                          <option value="trial" {% if row.is_trial %}selected{% endif %}>Trial</option>
+                        </select>
+                      </div>
+                      <div class="fc-check-row" style="margin-bottom:8px;">
+                        <label class="fc-checkbox-label">
+                          <input type="checkbox" name="is_active" {% if row.is_active %}checked{% endif %}> Active
+                        </label>
+                        <label class="fc-checkbox-label">
+                          <input type="checkbox" name="is_trial" {% if row.is_trial %}checked{% endif %}> Trial
+                        </label>
+                      </div>
+                      <button class="btn btn-primary" type="submit" style="width:100%;min-height:32px;font-size:11px;">Update</button>
+                    </form>
+                  </td>
+                </tr>
+                {% empty %}
+                <tr>
+                  <td colspan="7">
+                    <div class="fc-empty">
+                      <strong>No owners yet</strong> Owner records appear here once created.
+                    </div>
+                  </td>
+                </tr>
+                {% endfor %}
+                <tr data-filter-empty hidden>
+                  <td colspan="7">
+                    <div class="fc-empty">No owner records match the current search or filters.</div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div><!-- /page-subscriptions -->
+
+      <!-- ▸▸ PAGE: REVIEWS -->
+      <div class="fc-page" id="page-reviews" data-label="Reviews">
+        <div class="fc-sec-head">
+          <div>
+            <div class="fc-sec-label">Feedback Command</div>
+            <h2 class="fc-sec-title">Review stream</h2>
+            <p class="fc-sec-sub">Moderation and quality monitoring for the network review feed.</p>
+          </div>
+          <span class="chip {% if pending_reviews > 0 %}chip-warn{% else %}chip-live{% endif %}">
+            {{ pending_reviews }} pending
+          </span>
+        </div>
+
+        <div class="fc-insight-grid">
+          <div class="fc-insight-panel">
+            <div>
+              <div class="fc-sec-label">Moderation Status</div>
+              <div style="font-size:14px;font-weight:600;color:var(--c-text);">Queue snapshot</div>
+            </div>
+            <div class="fc-status-bar">
+              <div class="fc-status-block">
+                <div class="fc-status-label">Total reviews</div>
+                <div class="fc-status-val">{{ total_reviews }}</div>
+              </div>
+              <div class="fc-status-block">
+                <div class="fc-status-label">Pending</div>
+                <div class="fc-status-val" style="{% if pending_reviews > 0 %}color:var(--c-rose){% endif %}">{{ pending_reviews }}</div>
+              </div>
+            </div>
+            <p style="font-size:13px;color:var(--c-muted);line-height:1.6">Use the review table to scan, and the compact feed below for reading nuance.</p>
+          </div>
+          <div class="fc-insight-panel">
+            <div>
+              <div class="fc-sec-label">Signal interpretation</div>
+              <div style="font-size:14px;font-weight:600;color:var(--c-text);">What to watch</div>
+            </div>
+            <div class="fc-step-list">
+              <div class="fc-step">
+                <div class="fc-step-num">S1</div>
+                <div>
+                  <div class="fc-step-head">Pending spikes</div>
+                  <div class="fc-step-body">A rising queue usually means moderation speed is falling behind demand.</div>
+                </div>
+              </div>
+              <div class="fc-step">
+                <div class="fc-step-num">S2</div>
+                <div>
+                  <div class="fc-step-head">Low-rating clusters</div>
+                  <div class="fc-step-body">Repeated low scores from the same owner base often indicate product friction.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div data-dashboard-filter-root>
+          <div class="fc-filter-bar">
+            <div class="fc-field">
+              <label>Search reviews</label>
+              <input class="fc-field-inner" type="search" data-filter-role="search" placeholder="Owner, reviewer, review text…">
+            </div>
+            <div class="fc-field">
+              <label>Review status</label>
+              <select class="fc-field-inner" data-filter-role="status">
+                <option value="all">All statuses</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="fc-table-wrap" style="margin-bottom:20px">
+            <table class="fc-table">
+              <thead>
+                <tr>
+                  <th style="width:18%">Owner</th>
+                  <th style="width:16%">Reviewer</th>
+                  <th style="width:8%">Rating</th>
+                  <th style="width:10%">Status</th>
+                  <th style="width:36%">Review</th>
+                  <th style="width:12%">Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for review in reviews %}
+                <tr
+                  data-filter-item
+                  data-search="{{ review.owner.program_name }} {{ review.owner.email }} {{ review.member.reg_number }} {{ review.member.program_name }} {{ review.content }}"
+                  data-status="{{ review.status }}">
+                  <td data-label="Owner">
+                    <div class="fc-cell-primary">{{ review.owner.program_name }}</div>
+                    <div class="fc-cell-sub">{{ review.owner.email }}</div>
+                  </td>
+                  <td data-label="Reviewer">
+                    <div class="fc-cell-primary">{{ review.member.reg_number }}</div>
+                    <div class="fc-cell-sub">{{ review.member.program_name }}</div>
+                  </tr>
+                  <td data-label="Rating">
+                    <span style="font-family:var(--font-mono);font-size:13px;font-weight:600;">{{ review.rating }}/5</span>
+                  </td>
+                  <td data-label="Status">
+                    <span class="chip {% if review.status == 'approved' %}chip-live{% elif review.status == 'pending' %}chip-warn{% else %}chip-dead{% endif %}">{{ review.status }}</span>
+                  </td>
+                  <td data-label="Review" style="font-size:12px;color:var(--c-muted);">{{ review.content }}</td>
+                  <td data-label="Created" style="font-family:var(--font-mono);font-size:11px;color:var(--c-ghost)">{{ review.created_at|date:"M d, Y H:i" }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="6"><div class="fc-empty"><strong>No reviews yet</strong> Reviews appear as feedback flows in.</div></td></tr>
+                {% endfor %}
+                <tr data-filter-empty hidden>
+                  <td colspan="6"><div class="fc-empty">No reviews match the current search or filters.</div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Review feed cards -->
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          {% for review in reviews|slice:":3" %}
+          <div class="fc-review-card">
+            <div class="fc-review-top">
+              <div>
+                <span class="chip chip-info" style="margin-bottom:6px">{{ review.owner.program_name }}</span>
+                <div class="fc-cell-primary" style="margin-top:4px">{{ review.member.reg_number }}</div>
+                <div class="fc-cell-sub">{{ review.member.program_name }}</div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+                <div class="fc-rating">{{ review.rating }}/5</div>
+                <span class="chip {% if review.status == 'approved' %}chip-live{% elif review.status == 'pending' %}chip-warn{% else %}chip-dead{% endif %}">{{ review.status }}</span>
+              </div>
+            </div>
+            <p class="fc-review-text">{{ review.content }}</p>
+            <div class="fc-review-footer">
+              <div class="fc-review-date">{{ review.created_at|date:"M d, Y H:i" }}</div>
+            </div>
+          </div>
+          {% empty %}
+          <div class="fc-empty"><strong>No review cards yet</strong> Cards appear once feedback starts flowing across owners.</div>
+          {% endfor %}
+        </div>
+      </div><!-- /page-reviews -->
+
+      <!-- ▸▸ PAGE: SIGNALS -->
+      <div class="fc-page" id="page-signals" data-label="Signals">
+        <div class="fc-sec-head">
+          <div>
+            <div class="fc-sec-label">Signal Intelligence</div>
+            <h2 class="fc-sec-title">Pattern board</h2>
+            <p class="fc-sec-sub">Owner-level signal panel and response playbook for spotting and addressing rising friction.</p>
+          </div>
+        </div>
+
+        <div class="fc-insight-grid">
+          <div class="fc-insight-panel" style="gap:14px">
+            <div>
+              <div class="fc-sec-label">Review signals</div>
+              <div style="font-size:14px;font-weight:600;color:var(--c-text);">Owner signal cards</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              {% for signal in review_signals %}
+              <div class="fc-signal-card">
+                <div class="fc-signal-head">{{ signal.owner__program_name|default:"Unknown owner" }}</div>
+                <div style="font-size:12px;color:var(--c-ghost)">Total {{ signal.total_reviews }} · Pending {{ signal.pending_reviews }}</div>
+                <div class="fc-signal-row">
+                  <div class="fc-signal-stat">
+                    <div class="sv">{% if signal.average_rating %}{{ signal.average_rating|floatformat:1 }}/5{% else %}—{% endif %}</div>
+                    <div class="sl">Avg rating</div>
+                  </div>
+                  <div class="fc-signal-stat">
+                    <div class="sv" style="{% if signal.pending_reviews > 0 %}color:var(--c-amber){% endif %}">{{ signal.pending_reviews }}</div>
+                    <div class="sl">Pending</div>
+                  </div>
+                </div>
+              </div>
+              {% empty %}
+              <div class="fc-empty">Signal cards populate as review activity grows.</div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="fc-insight-panel">
+            <div>
+              <div class="fc-sec-label">Founder Playbook</div>
+              <div style="font-size:14px;font-weight:600;color:var(--c-text);">Response guidance</div>
+            </div>
+            <div class="fc-step-list">
+              <div class="fc-step">
+                <div class="fc-step-num">01</div>
+                <div>
+                  <div class="fc-step-head">Confirm payment state</div>
+                  <div class="fc-step-body">Start with subscription dates and plan accuracy before touching access or domains.</div>
+                </div>
+              </div>
+              <div class="fc-step">
+                <div class="fc-step-num">02</div>
+                <div>
+                  <div class="fc-step-head">Enable access deliberately</div>
+                  <div class="fc-step-body">Use active and trial toggles to reflect actual customer state with no ambiguity.</div>
+                </div>
+              </div>
+              <div class="fc-step">
+                <div class="fc-step-num">03</div>
+                <div>
+                  <div class="fc-step-head">Promote domains safely</div>
+                  <div class="fc-step-body">Assign custom domain only after billing and ownership are verified.</div>
+                </div>
+              </div>
+              <div class="fc-step">
+                <div class="fc-step-num">04</div>
+                <div>
+                  <div class="fc-step-head">Read complaints as input</div>
+                  <div class="fc-step-body">Clusters of low ratings or similar complaints are roadmap signals, not noise.</div>
+                </div>
+              </div>
+            </div>
+            <div style="padding:14px;background:rgba(16,212,131,0.04);border:1px solid rgba(16,212,131,0.12);border-radius:var(--radius-sm);">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <div style="width:6px;height:6px;border-radius:50%;background:var(--c-emerald);box-shadow:0 0 8px rgba(16,212,131,0.5)"></div>
+                <span style="font-size:10px;font-family:var(--font-mono);color:var(--c-emerald);text-transform:uppercase;letter-spacing:0.07em">System operational</span>
+              </div>
+              <p style="font-size:12px;color:var(--c-muted);line-height:1.6">All founder systems active. Access Django Admin for deeper database operations.</p>
+            </div>
+          </div>
+        </div>
+      </div><!-- /page-signals -->
+
+    </div><!-- /fc-viewport -->
+  </div><!-- /fc-frame -->
+</div><!-- /fc-root -->
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  "use strict";
+
+  // ── Loading overlay on form submit ──
+  var overlay = document.getElementById("fc-overlay");
+  document.querySelectorAll("form[data-ov]").forEach(function(form) {
+    form.addEventListener("submit", function() {
+      var btn = form.querySelector('button[type="submit"]');
+      if (btn) { btn.disabled = true; btn.classList.add("is-loading"); }
+      if (overlay) { overlay.classList.add("active"); overlay.setAttribute("aria-hidden","false"); }
+    });
+  });
+
+  // ── Page switcher (identical to Owner Dashboard) ──
+  var pages = Array.from(document.querySelectorAll(".fc-page"));
+  var navItems = Array.from(document.querySelectorAll(".fc-nav-item[data-page]"));
+  var topLabel = document.getElementById("fc-page-label");
+  var current = "overview";
+
+  function switchTo(pageId) {
+    if (pageId === current) return;
+    
+    var leaving = document.getElementById("page-" + current);
+    var arriving = document.getElementById("page-" + pageId);
+    if (!arriving) return;
+
+    if (leaving) {
+      leaving.classList.add("exit");
+      setTimeout(function() {
+        leaving.classList.remove("active", "exit");
+        if (leaving.scrollTo) leaving.scrollTo(0, 0);
+      }, 150);
+    }
+
+    arriving.classList.add("active");
+    current = pageId;
+
+    navItems.forEach(function(item) {
+      item.classList.toggle("active", item.dataset.page === pageId);
+    });
+
+    if (topLabel) topLabel.textContent = arriving.dataset.label || pageId;
+
+    if (window.location.hash !== "#" + pageId) {
+      window.location.hash = pageId;
+    }
+
+    var sidebar = document.getElementById("fc-sidebar");
+    if (sidebar) sidebar.classList.remove("is-open");
+  }
+
+  navItems.forEach(function(item) {
+    item.addEventListener("click", function(e) {
+      e.preventDefault();
+      switchTo(item.dataset.page);
+    });
+  });
+
+  document.querySelectorAll("[data-goto]").forEach(function(btn) {
+    btn.addEventListener("click", function() {
+      switchTo(btn.dataset.goto);
+    });
+  });
+
+  // ── Mobile sidebar toggle ──
+  var menuBtn = document.getElementById("fc-menu-btn");
+  var sidebar = document.getElementById("fc-sidebar");
+  if (menuBtn && sidebar) {
+    menuBtn.addEventListener("click", function() {
+      sidebar.classList.toggle("is-open");
+    });
+    document.addEventListener("click", function(e) {
+      if (sidebar.classList.contains("is-open") && !sidebar.contains(e.target) && e.target !== menuBtn) {
+        sidebar.classList.remove("is-open");
+      }
+    });
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "Escape" && sidebar.classList.contains("is-open")) {
+        sidebar.classList.remove("is-open");
+      }
+    });
+  }
+
+  // ── Filter system (preserved from original) ──
+  document.querySelectorAll("[data-dashboard-filter-root]").forEach(function(root) {
+    var searchInput = root.querySelector("[data-filter-role='search']");
+    var statusSelect = root.querySelector("[data-filter-role='status']");
+    var planSelect = root.querySelector("[data-filter-role='plan']");
+    var items = Array.from(root.querySelectorAll("[data-filter-item]"));
+    var emptyEls = Array.from(root.querySelectorAll("[data-filter-empty]"));
+
+    function filter() {
+      var query = searchInput ? searchInput.value.toLowerCase().trim() : "";
+      var status = statusSelect ? statusSelect.value : "all";
+      var plan = planSelect ? planSelect.value : "all";
+
+      var visible = 0;
+      items.forEach(function(item) {
+        var searchText = (item.dataset.search || "").toLowerCase();
+        var itemStatus = item.dataset.status || "";
+        var itemPlan = item.dataset.plan || "";
+
+        var matchSearch = !query || searchText.includes(query);
+        var matchStatus = status === "all" || itemStatus === status;
+        var matchPlan = plan === "all" || itemPlan === plan;
+
+        var show = matchSearch && matchStatus && matchPlan;
+        item.hidden = !show;
+        if (show) visible++;
+      });
+
+      emptyEls.forEach(function(el) { el.hidden = visible > 0; });
+    }
+
+    if (searchInput) searchInput.addEventListener("input", filter);
+    if (statusSelect) statusSelect.addEventListener("change", filter);
+    if (planSelect) planSelect.addEventListener("change", filter);
+    filter();
+  });
+
+  // ── Initial hash handling ──
+  var initial = (window.location.hash || "").replace("#", "");
+  if (initial && document.getElementById("page-" + initial)) {
+    switchTo(initial);
+  }
+
+  window.addEventListener("hashchange", function() {
+    var id = (window.location.hash || "").replace("#", "");
+    if (id && document.getElementById("page-" + id) && id !== current) {
+      switchTo(id);
+    }
+  });
+})();
+</script>
+{% endblock %}
