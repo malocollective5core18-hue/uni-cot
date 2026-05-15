@@ -1,0 +1,1494 @@
+{% extends "base.html" %}
+{% block title %}Founder Control{% endblock %}
+
+{% block extra_css %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════
+   TOKENS
+═══════════════════════════════════════════ */
+:root {
+  --void: #050912;
+  --deep: #080f1f;
+  --base: #0b1527;
+  --surf: #0e1c34;
+  --raise: #111f3a;
+  --lift: #162743;
+  --rim0: rgba(255,255,255,0.045);
+  --rim1: rgba(255,255,255,0.08);
+  --rim2: rgba(255,255,255,0.14);
+  --text: #eef2ff;
+  --mute: rgba(180,198,240,0.58);
+  --ghost: rgba(130,160,215,0.38);
+  --a: #4f8ef7;
+  --glow: #22d3ee;
+  --violet: #8b5cf6;
+  --emerald: #10d483;
+  --amber: #f59e0b;
+  --rose: #f43f5e;
+  --info: #38bdf8;
+  --ga: linear-gradient(135deg,#4f8ef7,#22d3ee);
+  --gv: linear-gradient(135deg,#8b5cf6,#4f8ef7);
+  --gw: linear-gradient(135deg,#8b5cf6,#ec4899);
+  --gc: linear-gradient(180deg,rgba(255,255,255,0.04) 0%,rgba(255,255,255,0) 100%);
+  --s: var(--surf);
+  --r: 14px;
+  --rsm: 9px;
+  --rpill: 999px;
+  --fn: 'DM Sans',system-ui,sans-serif;
+  --fd: 'Syne',system-ui,sans-serif;
+  --fm: 'IBM Plex Mono','Fira Code',monospace;
+  --sidebar: 260px;
+  --topbar: 60px;
+  --tf: 150ms cubic-bezier(.4,0,.2,1);
+  --tb: 220ms cubic-bezier(.4,0,.2,1);
+  --ts: 380ms cubic-bezier(.4,0,.2,1);
+}
+
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+html,body { height:100%; overflow:hidden; }
+
+body {
+  font-family:var(--fn);
+  font-size:14px;
+  color:var(--text);
+  background:var(--void);
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ═══════════════════════════════════════════
+   APP SHELL — fixed, full-viewport
+═══════════════════════════════════════════ */
+.shell {
+  display:grid;
+  grid-template-columns:var(--sidebar) 1fr;
+  grid-template-rows:var(--topbar) 1fr;
+  height:100vh;
+  width:100vw;
+  overflow:hidden;
+  position:relative;
+}
+
+/* ambient BG */
+.shell::before {
+  content:'';
+  position:fixed;
+  inset:0;
+  background:
+    radial-gradient(ellipse 55% 45% at 15% -5%,rgba(79,142,247,.13) 0%,transparent 55%),
+    radial-gradient(ellipse 45% 40% at 85% -5%,rgba(139,92,246,.11) 0%,transparent 50%),
+    radial-gradient(ellipse 35% 55% at 50% 105%,rgba(34,211,238,.07) 0%,transparent 55%);
+  pointer-events:none;
+  z-index:0;
+}
+
+/* ═══════════════════════════════════════════
+   TOPBAR
+═══════════════════════════════════════════ */
+.topbar {
+  grid-column:1/-1;
+  grid-row:1;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 20px 0 0;
+  background:rgba(5,9,18,.88);
+  border-bottom:1px solid var(--rim0);
+  backdrop-filter:blur(24px);
+  -webkit-backdrop-filter:blur(24px);
+  position:relative;
+  z-index:50;
+}
+.topbar-brand {
+  width:var(--sidebar);
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:0 18px;
+  border-right:1px solid var(--rim0);
+  height:100%;
+  flex-shrink:0;
+}
+.brand-gem {
+  width:32px; height:32px;
+  border-radius:9px;
+  background:var(--ga);
+  display:grid;
+  place-items:center;
+  font-family:var(--fm);
+  font-size:11px;
+  font-weight:500;
+  color:#fff;
+  flex-shrink:0;
+}
+.brand-name { font-family:var(--fd); font-size:15px; font-weight:700; color:var(--text); }
+.brand-sub { font-size:10px; font-family:var(--fm); color:var(--ghost); letter-spacing:.04em; }
+.topbar-right {
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.topbar-pill {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:5px 12px;
+  background:var(--rim0);
+  border:1px solid var(--rim1);
+  border-radius:var(--rpill);
+  font-size:11px;
+  font-family:var(--fm);
+  color:var(--ghost);
+}
+.topbar-pill strong { color:var(--text); }
+.dot-live {
+  width:7px; height:7px;
+  border-radius:50%;
+  background:var(--emerald);
+  box-shadow:0 0 8px rgba(16,212,131,.6);
+  animation:pulse 2.5s ease infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.55;transform:scale(.8)} }
+.topbar-section-label {
+  font-family:var(--fd);
+  font-size:13px;
+  font-weight:600;
+  color:var(--mute);
+  padding:0 10px;
+  border-left:1px solid var(--rim0);
+  height:100%;
+  display:flex;
+  align-items:center;
+}
+.topbar-section-label span { color:var(--text); }
+
+/* mobile menu */
+.menu-btn {
+  display:none;
+  width:34px;height:34px;
+  border-radius:8px;
+  background:var(--rim0);
+  border:1px solid var(--rim1);
+  color:var(--text);
+  cursor:pointer;
+  font-size:16px;
+  align-items:center;
+  justify-content:center;
+  margin-left:10px;
+  flex-shrink:0;
+}
+
+/* ═══════════════════════════════════════════
+   SIDEBAR
+═══════════════════════════════════════════ */
+.sidebar {
+  grid-column:1;
+  grid-row:2;
+  background:rgba(8,15,31,.7);
+  border-right:1px solid var(--rim0);
+  display:flex;
+  flex-direction:column;
+  gap:0;
+  overflow:hidden;
+  position:relative;
+  z-index:10;
+}
+.sidebar-scroll {
+  flex:1;
+  overflow-y:auto;
+  padding:16px 12px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  scrollbar-width:none;
+}
+.sidebar-scroll::-webkit-scrollbar { display:none; }
+
+.nav-group-label {
+  font-size:9px;
+  font-family:var(--fm);
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--ghost);
+  padding:10px 10px 6px;
+}
+.nav-item {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:9px 10px;
+  border-radius:10px;
+  border:1px solid transparent;
+  color:var(--mute);
+  cursor:pointer;
+  transition:all var(--tf);
+  position:relative;
+  text-decoration:none;
+  user-select:none;
+}
+.nav-item:hover { color:var(--text); background:var(--rim0); }
+.nav-item.active {
+  color:var(--text);
+  background:rgba(79,142,247,.1);
+  border-color:rgba(79,142,247,.18);
+}
+.nav-item.active::before {
+  content:'';
+  position:absolute;
+  left:0; top:20%; bottom:20%;
+  width:2px;
+  background:var(--ga);
+  border-radius:1px;
+}
+.nav-icon {
+  width:30px;height:30px;
+  border-radius:7px;
+  background:var(--rim0);
+  display:grid;
+  place-items:center;
+  font-family:var(--fm);
+  font-size:10px;
+  color:var(--ghost);
+  flex-shrink:0;
+  transition:all var(--tf);
+}
+.nav-item.active .nav-icon { background:rgba(79,142,247,.15); color:var(--a); }
+.nav-item:hover .nav-icon { color:var(--mute); }
+.nav-copy { flex:1; min-width:0; }
+.nav-copy strong { display:block; font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nav-copy small { display:block; font-size:10px; color:var(--ghost); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nav-badge {
+  flex-shrink:0;
+  font-size:10px;
+  font-family:var(--fm);
+  padding:2px 7px;
+  border-radius:var(--rpill);
+  background:rgba(79,142,247,.12);
+  color:var(--a);
+  border:1px solid rgba(79,142,247,.18);
+}
+.nav-badge.warn { background:rgba(244,63,94,.1); color:var(--rose); border-color:rgba(244,63,94,.2); }
+
+.sidebar-footer {
+  padding:14px 12px;
+  border-top:1px solid var(--rim0);
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.health-strip {
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:6px;
+}
+.health-cell {
+  padding:8px 6px;
+  background:var(--rim0);
+  border:1px solid var(--rim0);
+  border-radius:8px;
+  text-align:center;
+}
+.health-cell .hv {
+  font-family:var(--fm);
+  font-size:17px;
+  font-weight:500;
+  color:var(--text);
+  line-height:1;
+}
+.health-cell .hl {
+  font-size:8px;
+  font-family:var(--fm);
+  color:var(--ghost);
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  margin-top:3px;
+}
+
+/* ═══════════════════════════════════════════
+   PAGE VIEWPORT — where sections live
+═══════════════════════════════════════════ */
+.page-viewport {
+  grid-column:2;
+  grid-row:2;
+  position:relative;
+  overflow:hidden;
+  z-index:1;
+}
+
+/* ═══════════════════════════════════════════
+   PAGE SECTIONS — independent views
+═══════════════════════════════════════════ */
+.page {
+  position:absolute;
+  inset:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding:28px;
+  display:flex;
+  flex-direction:column;
+  gap:22px;
+  scrollbar-width:thin;
+  scrollbar-color:var(--rim1) transparent;
+
+  /* hidden state */
+  opacity:0;
+  pointer-events:none;
+  transform:translateY(14px);
+  transition:opacity var(--ts), transform var(--ts);
+}
+.page::-webkit-scrollbar { width:4px; }
+.page::-webkit-scrollbar-thumb { background:var(--rim1); border-radius:2px; }
+.page.active {
+  opacity:1;
+  pointer-events:auto;
+  transform:translateY(0);
+}
+/* exiting pages slide up */
+.page.exit {
+  opacity:0;
+  transform:translateY(-10px);
+  transition:opacity var(--tf), transform var(--tf);
+}
+
+/* ═══════════════════════════════════════════
+   SHARED COMPONENTS
+═══════════════════════════════════════════ */
+
+/* Page header */
+.page-head {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+  flex-wrap:wrap;
+}
+.page-eyebrow {
+  font-size:10px;
+  font-family:var(--fm);
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--a);
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-bottom:6px;
+}
+.page-eyebrow::before { content:''; width:18px;height:2px; background:var(--ga); border-radius:1px; }
+.page-title {
+  font-family:var(--fd);
+  font-size:clamp(1.5rem,2.5vw,2.2rem);
+  font-weight:700;
+  color:var(--text);
+  line-height:1.08;
+  letter-spacing:-.02em;
+  overflow-wrap:anywhere;
+}
+.page-sub { font-size:13px; color:var(--mute); margin-top:5px; line-height:1.6; overflow-wrap:anywhere; }
+
+/* Glass card */
+.card {
+  background:var(--gc),var(--surf);
+  border:1px solid var(--rim0);
+  border-radius:var(--r);
+  overflow:hidden;
+}
+.card-p { padding:20px; }
+.card-p-lg { padding:28px; }
+
+/* Metric strip */
+.metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,140px),1fr)); gap:14px; }
+.metric {
+  position:relative;
+  background:var(--gc),var(--surf);
+  border:1px solid var(--rim0);
+  border-radius:var(--r);
+  padding:18px;
+  overflow:hidden;
+  transition:border-color var(--tf),transform var(--tf);
+}
+.metric:hover { border-color:var(--rim1); transform:translateY(-1px); }
+.metric-glow {
+  position:absolute;
+  right:-20px;top:-20px;
+  width:70px;height:70px;
+  border-radius:50%;
+  opacity:.5;
+  pointer-events:none;
+}
+.metric-lbl { font-size:9px;font-family:var(--fm);letter-spacing:.08em;text-transform:uppercase;color:var(--ghost);margin-bottom:8px; }
+.metric-val {
+  font-family:var(--fm);
+  font-size:clamp(1.8rem,3vw,2.6rem);
+  font-weight:500;
+  color:var(--text);
+  line-height:1;
+  margin-bottom:6px;
+  overflow-wrap:anywhere;
+}
+.metric-foot { font-size:11px;color:var(--ghost);line-height:1.5;overflow-wrap:anywhere; }
+.metric-tag {
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  font-size:10px;
+  font-weight:600;
+  padding:2px 8px;
+  border-radius:var(--rpill);
+  margin-top:8px;
+}
+.tag-up { background:rgba(16,212,131,.1);color:var(--emerald);border:1px solid rgba(16,212,131,.18); }
+.tag-warn { background:rgba(245,158,11,.1);color:var(--amber);border:1px solid rgba(245,158,11,.2); }
+.tag-down { background:rgba(244,63,94,.1);color:var(--rose);border:1px solid rgba(244,63,94,.18); }
+
+/* Chips */
+.chip {
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding:3px 9px;
+  border-radius:var(--rpill);
+  font-size:10px;
+  font-family:var(--fm);
+  font-weight:500;
+  letter-spacing:.03em;
+  border:1px solid;
+  white-space:nowrap;
+}
+.chip::before { content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0; }
+.c-live { color:var(--emerald);border-color:rgba(16,212,131,.2);background:rgba(16,212,131,.07); }
+.c-warn { color:var(--amber);border-color:rgba(245,158,11,.22);background:rgba(245,158,11,.07); }
+.c-dead { color:var(--rose);border-color:rgba(244,63,94,.22);background:rgba(244,63,94,.07); }
+.c-info { color:var(--info);border-color:rgba(56,189,248,.2);background:rgba(56,189,248,.07); }
+.c-v { color:#b794ff;border-color:rgba(139,92,246,.22);background:rgba(139,92,246,.07); }
+.c-ghost { color:var(--ghost);border-color:var(--rim0);background:rgba(255,255,255,.02); }
+.chip.no-dot::before { display:none; }
+
+/* Buttons */
+.btn {
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  min-height:38px;padding:0 18px;
+  border-radius:var(--rpill);border:1px solid transparent;
+  font-family:var(--fn);font-size:12px;font-weight:600;
+  cursor:pointer;text-decoration:none;white-space:nowrap;
+  transition:all var(--tf);
+}
+.btn:disabled { opacity:.5;cursor:not-allowed; }
+.btn-p { background:var(--ga);color:#fff;box-shadow:0 0 18px rgba(79,142,247,.28); }
+.btn-p:hover:not(:disabled) { box-shadow:0 0 28px rgba(79,142,247,.42);transform:translateY(-1px); }
+.btn-g { background:var(--rim0);border-color:var(--rim1);color:var(--text); }
+.btn-g:hover:not(:disabled) { background:var(--rim1);transform:translateY(-1px); }
+.btn-o { background:transparent;border-color:rgba(79,142,247,.3);color:var(--a); }
+.btn-o:hover:not(:disabled) { background:rgba(79,142,247,.08);border-color:rgba(79,142,247,.5); }
+.btn.is-loading::after { content:'';width:11px;height:11px;border:2px solid rgba(255,255,255,.18);border-top-color:currentColor;border-radius:50%;animation:spin .7s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg)} }
+
+/* Section subhead inside page */
+.sec-head { display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px; }
+.sec-label { font-size:9px;font-family:var(--fm);color:var(--a);letter-spacing:.09em;text-transform:uppercase;margin-bottom:3px; }
+.sec-title { font-family:var(--fd);font-size:clamp(1rem,1.8vw,1.35rem);font-weight:700;color:var(--text);overflow-wrap:anywhere; }
+.sec-sub { font-size:12px;color:var(--mute);margin-top:3px;overflow-wrap:anywhere;line-height:1.55; }
+
+/* Two-col insight grid */
+.ig { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px; }
+
+/* Panel inner */
+.panel { background:var(--gc),var(--surf);border:1px solid var(--rim0);border-radius:var(--r);padding:20px;display:flex;flex-direction:column;gap:14px; }
+
+/* Step list */
+.steps { display:flex;flex-direction:column;gap:10px; }
+.step { display:grid;grid-template-columns:26px 1fr;gap:10px;align-items:start; }
+.step-n { width:26px;height:26px;border-radius:7px;background:rgba(79,142,247,.08);border:1px solid rgba(79,142,247,.14);display:grid;place-items:center;font-size:10px;font-family:var(--fm);color:var(--a);flex-shrink:0; }
+.step-h { font-size:13px;font-weight:600;color:var(--text); }
+.step-b { font-size:11px;color:var(--mute);line-height:1.5;overflow-wrap:anywhere; }
+
+/* Status bar */
+.sbar { display:flex;flex-wrap:wrap;gap:16px;padding:12px 14px;background:var(--rim0);border:1px solid var(--rim0);border-radius:9px; }
+.sbar-block .sl { font-size:9px;font-family:var(--fm);letter-spacing:.07em;text-transform:uppercase;color:var(--ghost);margin-bottom:2px; }
+.sbar-block .sv { font-family:var(--fm);font-size:20px;font-weight:500;color:var(--text); }
+
+/* Priority box */
+.pbox { background:rgba(245,158,11,.04);border:1px solid rgba(245,158,11,.13);border-radius:var(--r);padding:18px; }
+.pbox-hd { display:flex;align-items:center;gap:8px;margin-bottom:14px; }
+.pbox-title { font-size:12px;font-weight:600;color:var(--amber); }
+.pstep { display:grid;grid-template-columns:26px 1fr;gap:10px;align-items:start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.035); }
+.pstep:last-child { border-bottom:none;padding-bottom:0; }
+.pstep-n { width:26px;height:26px;border-radius:7px;background:rgba(79,142,247,.08);border:1px solid rgba(79,142,247,.14);display:grid;place-items:center;font-size:10px;font-family:var(--fm);color:var(--a);flex-shrink:0; }
+.pstep-h { font-size:12px;font-weight:600;color:var(--text);margin-bottom:1px; }
+.pstep-b { font-size:11px;color:var(--mute);line-height:1.45;overflow-wrap:anywhere; }
+
+/* Filter bar */
+.fbar { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:10px;padding:14px;background:var(--rim0);border:1px solid var(--rim0);border-radius:10px;margin-bottom:16px; }
+.f-field { display:flex;flex-direction:column;gap:4px;min-width:0; }
+.f-field label { font-size:9px;font-family:var(--fm);color:var(--ghost);text-transform:uppercase;letter-spacing:.07em; }
+.f-field input,.f-field select {
+  width:100%;min-height:34px;padding:0 10px;
+  background:rgba(255,255,255,.04);border:1px solid var(--rim0);border-radius:8px;
+  color:var(--text);font-family:var(--fn);font-size:12px;
+  transition:all var(--tf);-webkit-appearance:none;
+}
+.f-field select { background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='rgba(130,160,215,0.35)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center;padding-right:26px;cursor:pointer; }
+.f-field select option { background:var(--base);color:var(--text); }
+.f-field input::placeholder { color:var(--ghost); }
+.f-field input:focus,.f-field select:focus { outline:none;border-color:rgba(79,142,247,.4);box-shadow:0 0 0 3px rgba(79,142,247,.09);background:rgba(79,142,247,.04); }
+
+/* Table */
+.tbl-wrap { border-radius:var(--r);border:1px solid var(--rim0);overflow:hidden; }
+.tbl { width:100%;border-collapse:collapse;table-layout:fixed; }
+.tbl thead th { padding:10px 13px;background:rgba(255,255,255,.025);font-size:9px;font-family:var(--fm);font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--ghost);text-align:left;border-bottom:1px solid var(--rim0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.tbl tbody tr { border-bottom:1px solid rgba(255,255,255,.025);transition:background var(--tf); }
+.tbl tbody tr:last-child { border-bottom:none; }
+.tbl tbody tr:hover { background:rgba(79,142,247,.04); }
+.tbl td { padding:11px 13px;font-size:12px;color:var(--text);vertical-align:top;overflow-wrap:anywhere;min-width:0; }
+.tbl-pri { font-weight:600; }
+.tbl-sub { font-size:10px;color:var(--ghost);margin-top:1px;overflow-wrap:anywhere; }
+.mono { font-family:var(--fm); }
+.txt-live { color:var(--emerald); }
+.txt-warn { color:var(--amber); }
+.txt-dead { color:var(--rose); }
+
+/* Tenant card */
+.t-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));gap:14px; }
+.t-card { background:var(--gc),var(--surf);border:1px solid var(--rim0);border-radius:var(--r);padding:18px;display:flex;flex-direction:column;gap:14px;transition:border-color var(--tf),transform var(--tf); }
+.t-card:hover { border-color:var(--rim1);transform:translateY(-1px); }
+.t-top { display:flex;align-items:flex-start;justify-content:space-between;gap:10px; }
+.t-name { font-size:15px;font-weight:700;font-family:var(--fd);color:var(--text);overflow-wrap:anywhere; }
+.t-meta { font-size:11px;color:var(--ghost);margin-top:2px;overflow-wrap:anywhere; }
+.t-chips { display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0; }
+.t-stats { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,72px),1fr));gap:7px; }
+.t-stat { padding:9px 8px;background:var(--rim0);border:1px solid var(--rim0);border-radius:8px;text-align:center; }
+.t-stat .tsv { font-family:var(--fm);font-size:16px;font-weight:500;color:var(--text); }
+.t-stat .tsl { font-size:8px;font-family:var(--fm);color:var(--ghost);text-transform:uppercase;letter-spacing:.05em;margin-top:2px; }
+.t-domains { display:flex;flex-wrap:wrap;gap:5px; }
+.t-domain { font-size:10px;font-family:var(--fm);padding:2px 8px;border-radius:var(--rpill);background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.13);color:var(--info);overflow-wrap:anywhere; }
+.t-actions { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:10px; }
+.t-form { background:var(--rim0);border:1px solid var(--rim0);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px; }
+.t-form-lbl { font-size:9px;font-family:var(--fm);text-transform:uppercase;letter-spacing:.07em;color:var(--ghost); }
+.t-form-title { font-size:12px;font-weight:600;color:var(--text);margin-top:-4px; }
+.t-fg { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,100px),1fr));gap:6px; }
+.t-check-row { display:flex;flex-wrap:wrap;gap:6px; }
+.ck-label { display:flex;align-items:center;gap:6px;font-size:11px;color:var(--mute);cursor:pointer;padding:5px 9px;background:rgba(255,255,255,.02);border:1px solid var(--rim0);border-radius:6px;transition:all var(--tf); }
+.ck-label:hover { border-color:var(--rim1);color:var(--text); }
+.ck-label input[type=checkbox] { width:13px;height:13px;accent-color:var(--a);flex-shrink:0; }
+.t-note {
+  padding:10px 12px;
+  border-radius:10px;
+  background:rgba(79,142,247,.04);
+  border:1px solid rgba(79,142,247,.1);
+  display:grid;
+  gap:4px;
+}
+.t-note-label {
+  font-size:9px;
+  font-family:var(--fm);
+  color:var(--a);
+  text-transform:uppercase;
+  letter-spacing:.07em;
+}
+.t-note-copy {
+  font-size:11px;
+  color:var(--mute);
+  line-height:1.55;
+  overflow-wrap:anywhere;
+}
+
+/* Review card */
+.r-feed { display:flex;flex-direction:column;gap:11px; }
+.r-card { background:var(--gc),var(--surf);border:1px solid var(--rim0);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:10px;transition:border-color var(--tf); }
+.r-card:hover { border-color:var(--rim1); }
+.r-top { display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px; }
+.r-rating { font-family:var(--fm);font-size:16px;font-weight:500;color:var(--text); }
+.r-text { font-size:12px;color:var(--mute);line-height:1.65;overflow-wrap:anywhere; }
+.r-foot { display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap; }
+.r-date { font-size:10px;font-family:var(--fm);color:var(--ghost); }
+
+/* Signal card */
+.sig-card { background:var(--rim0);border:1px solid var(--rim0);border-radius:10px;padding:13px;transition:all var(--tf); }
+.sig-card:hover { border-color:var(--rim1); }
+.sig-h { font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;overflow-wrap:anywhere; }
+.sig-sub { font-size:11px;color:var(--ghost);margin-bottom:8px; }
+.sig-row { display:flex;flex-wrap:wrap;gap:14px; }
+.sig-s .sv { font-family:var(--fm);font-size:18px;font-weight:500;color:var(--text); }
+.sig-s .sl { font-size:9px;font-family:var(--fm);color:var(--ghost);text-transform:uppercase;letter-spacing:.05em; }
+
+/* Empty */
+.empty { text-align:center;padding:28px;color:var(--ghost);font-size:12px; }
+.empty strong { display:block;color:var(--mute);font-size:14px;margin-bottom:5px; }
+
+/* Hero variant for overview page */
+.hero-band {
+  background:
+    radial-gradient(ellipse 60% 80% at 0% 50%,rgba(79,142,247,.1),transparent 60%),
+    radial-gradient(ellipse 50% 60% at 100% 0%,rgba(139,92,246,.1),transparent 55%),
+    var(--surf);
+  border:1px solid var(--rim0);
+  border-radius:var(--r);
+  padding:32px;
+  overflow:hidden;
+  position:relative;
+}
+.hero-band::after {
+  content:'';
+  position:absolute;
+  right:-40px;top:-40px;
+  width:240px;height:240px;
+  border-radius:50%;
+  background:radial-gradient(circle,rgba(79,142,247,.09),transparent 70%);
+  pointer-events:none;
+}
+.hero-grid { display:grid;grid-template-columns:1fr 320px;gap:24px;align-items:start; }
+.h-eyebrow { font-size:10px;font-family:var(--fm);letter-spacing:.1em;text-transform:uppercase;color:var(--a);display:flex;align-items:center;gap:7px;margin-bottom:10px; }
+.h-eyebrow::before { content:'';width:14px;height:2px;background:var(--ga);border-radius:1px; }
+.h-title { font-family:var(--fd);font-size:clamp(1.8rem,3vw,2.8rem);font-weight:800;line-height:1.05;letter-spacing:-.03em;color:var(--text);margin-bottom:10px; }
+.h-title em { font-style:italic;background:var(--ga);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text; }
+.h-sub { font-size:13px;color:var(--mute);line-height:1.65;margin-bottom:18px;max-width:480px;overflow-wrap:anywhere; }
+.h-actions { display:flex;flex-wrap:wrap;gap:9px; }
+
+/* Loading overlay */
+.overlay { position:fixed;inset:0;background:rgba(5,9,18,.75);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);display:grid;place-items:center;z-index:200;opacity:0;visibility:hidden;transition:all var(--tb); }
+.overlay.on { opacity:1;visibility:visible; }
+.overlay-box { background:var(--surf);border:1px solid var(--rim1);border-radius:var(--r);padding:36px;text-align:center;width:min(90%,340px);box-shadow:0 0 60px rgba(79,142,247,.12); }
+.spinner { width:40px;height:40px;border-radius:50%;border:3px solid rgba(255,255,255,.07);border-top-color:var(--a);border-right-color:var(--glow);animation:spin .8s linear infinite;margin:0 auto 14px; }
+.overlay-title { font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px; }
+.overlay-sub { font-size:12px;color:var(--mute); }
+
+/* hidden filter items */
+[hidden] { display:none!important; }
+[data-fi][hidden] { display:none!important; }
+
+/* ═══════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════ */
+@media(max-width:900px) {
+  :root { --sidebar:220px; }
+  .hero-grid { grid-template-columns:1fr; }
+}
+@media(max-width:720px) {
+  .shell { grid-template-columns:1fr; }
+  .sidebar {
+    position:fixed;
+    top:var(--topbar);left:0;
+    width:260px;
+    height:calc(100vh - var(--topbar));
+    transform:translateX(-100%);
+    transition:transform var(--tb);
+    z-index:80;
+    background:rgba(5,9,18,.97);
+    backdrop-filter:blur(20px);
+    border-right:1px solid var(--rim1);
+  }
+  .sidebar.open { transform:translateX(0); }
+  .page-viewport { grid-column:1; }
+  .topbar-brand { width:auto;border-right:none; }
+  .menu-btn { display:flex; }
+  .topbar-pill { display:none; }
+}
+@media(max-width:540px) {
+  .page { padding:14px; gap:16px; }
+  .hero-band { padding:20px; }
+  .h-title { font-size:1.6rem; }
+  .t-grid,.ig { grid-template-columns:1fr; }
+  .metrics { grid-template-columns:repeat(2,1fr); }
+  .tbl thead { display:none; }
+  .tbl tbody tr { display:block;padding:10px;border-bottom:1px solid var(--rim0); }
+  .tbl tbody tr:last-child { border-bottom:none; }
+  .tbl td { display:grid;grid-template-columns:80px 1fr;gap:8px;padding:4px 0;border:none;font-size:11px; }
+  .tbl td::before { content:attr(data-label);font-size:9px;font-family:var(--fm);color:var(--ghost);text-transform:uppercase;letter-spacing:.06em;padding-top:2px; }
+  .tbl td[data-label="Update"],.tbl td[data-label="Activation"] { grid-template-columns:1fr; }
+  .tbl td[data-label="Update"]::before,.tbl td[data-label="Activation"]::before { margin-bottom:5px; }
+}
+@media(max-width:380px) {
+  .metrics { grid-template-columns:1fr; }
+  .health-strip { grid-template-columns:repeat(3,1fr); }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- OVERLAY -->
+<div class="overlay" id="ov" aria-hidden="true">
+  <div class="overlay-box">
+    <div class="spinner"></div>
+    <div class="overlay-title">Applying command</div>
+    <div class="overlay-sub">Saving state and refreshing control surface.</div>
+  </div>
+</div>
+
+<div class="shell">
+
+  <!-- ════ TOPBAR ════ -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="brand-gem">FC</div>
+      <div>
+        <div class="brand-name">Founder Control</div>
+        <div class="brand-sub">Mission command</div>
+      </div>
+      <button class="menu-btn" id="mb" aria-label="Toggle navigation">☰</button>
+    </div>
+    <div class="topbar-section-label" id="tsec-label">
+      <span id="tsec-text">Overview</span>
+    </div>
+    <div class="topbar-right">
+      <div class="topbar-pill"><strong>{{ total_tenants }}</strong>&nbsp;tenants</div>
+      <div class="topbar-pill"><strong>{{ pending_reviews }}</strong>&nbsp;pending</div>
+      <div class="dot-live" title="Operational"></div>
+    </div>
+  </header>
+
+  <!-- ════ SIDEBAR ════ -->
+  <aside class="sidebar" id="sb">
+    <div class="sidebar-scroll">
+      <div class="nav-group-label">Navigation</div>
+
+      <a class="nav-item active" data-page="overview" href="#overview">
+        <span class="nav-icon">01</span>
+        <span class="nav-copy">
+          <strong>Overview</strong>
+          <small>Health &amp; priorities</small>
+        </span>
+      </a>
+      <a class="nav-item" data-page="tenants" href="#tenants">
+        <span class="nav-icon">02</span>
+        <span class="nav-copy">
+          <strong>Tenants</strong>
+          <small>Owner environments</small>
+        </span>
+        <span class="nav-badge">{{ total_tenants }}</span>
+      </a>
+      <a class="nav-item" data-page="subscriptions" href="#subscriptions">
+        <span class="nav-icon">03</span>
+        <span class="nav-copy">
+          <strong>Subscriptions</strong>
+          <small>Payments &amp; plans</small>
+        </span>
+      </a>
+      <a class="nav-item" data-page="reviews" href="#reviews">
+        <span class="nav-icon">04</span>
+        <span class="nav-copy">
+          <strong>Reviews</strong>
+          <small>Moderation queue</small>
+        </span>
+        {% if pending_reviews > 0 %}<span class="nav-badge warn">{{ pending_reviews }}</span>{% endif %}
+      </a>
+      <a class="nav-item" data-page="signals" href="#signals">
+        <span class="nav-icon">05</span>
+        <span class="nav-copy">
+          <strong>Signals</strong>
+          <small>Pattern intelligence</small>
+        </span>
+      </a>
+
+      <div class="nav-group-label" style="margin-top:10px">External</div>
+      <a class="nav-item" href="/admin/">
+        <span class="nav-icon">AD</span>
+        <span class="nav-copy">
+          <strong>Django Admin</strong>
+          <small>Open admin workspace</small>
+        </span>
+      </a>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="nav-group-label" style="padding:0 0 6px">Platform health</div>
+      <div class="health-strip">
+        <div class="health-cell">
+          <div class="hv">{{ active_tenants }}</div>
+          <div class="hl">Active</div>
+        </div>
+        <div class="health-cell">
+          <div class="hv">{{ paid_tenants }}</div>
+          <div class="hl">Paid</div>
+        </div>
+        <div class="health-cell" style="{% if expired_tenants > 0 %}border-color:rgba(244,63,94,.18){% endif %}">
+          <div class="hv" style="{% if expired_tenants > 0 %}color:var(--rose){% endif %}">{{ expired_tenants }}</div>
+          <div class="hl">Expired</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ════ PAGE VIEWPORT ════ -->
+  <div class="page-viewport">
+
+    <!-- ▸▸ PAGE: OVERVIEW ▸▸ -->
+    <div class="page active" id="page-overview" data-label="Overview">
+
+      <div class="hero-band">
+        <div class="hero-grid">
+          <div>
+            <div class="h-eyebrow">Founder Operations Center</div>
+            <h1 class="h-title">Operate with<br><em>clarity &amp; speed.</em></h1>
+            <p class="h-sub">Use this control room to keep tenant access active, spot expired subscriptions, activate production domains, and monitor owner review pressure from one founder workflow.</p>
+            <div class="h-actions">
+              <button class="btn btn-p" data-goto="tenants">Inspect tenants</button>
+              <button class="btn btn-g" data-goto="reviews">Triage reviews</button>
+              <a class="btn btn-o" href="/admin/">Admin workspace</a>
+            </div>
+          </div>
+          <div class="pbox">
+            <div class="pbox-hd">
+              <span class="chip c-warn">⚡ Priority snapshot</span>
+            </div>
+            <div class="pstep">
+              <div class="pstep-n">A1</div>
+              <div>
+                <div class="pstep-h">Stabilize paid access</div>
+                <div class="pstep-b">{{ expired_tenants }} access windows need renewal. Start here before owner programs lose continuity.</div>
+              </div>
+            </div>
+            <div class="pstep">
+              <div class="pstep-n">A2</div>
+              <div>
+                <div class="pstep-h">Clear review backlog</div>
+                <div class="pstep-b">{{ pending_reviews }} reviews are waiting for moderation. Clear the queue to protect trust and keep feedback current.</div>
+              </div>
+            </div>
+            <div class="pstep">
+              <div class="pstep-n">A3</div>
+              <div>
+                <div class="pstep-h">Protect active domains</div>
+                <div class="pstep-b">Promote domains only after payment and ownership are confirmed.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Metrics -->
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-glow" style="background:radial-gradient(circle,rgba(79,142,247,.4),transparent)"></div>
+          <div class="metric-lbl">Total Tenants</div>
+          <div class="metric-val">{{ total_tenants }}</div>
+          <div class="metric-foot">Complete owner environments in founder ops</div>
+          <div class="metric-tag tag-up">↑ All environments</div>
+        </div>
+        <div class="metric">
+          <div class="metric-glow" style="background:radial-gradient(circle,rgba(16,212,131,.35),transparent)"></div>
+          <div class="metric-lbl">Active Access</div>
+          <div class="metric-val" style="color:var(--emerald)">{{ active_tenants }}</div>
+          <div class="metric-foot">{{ paid_tenants }} paid supporting the live base</div>
+          <div class="metric-tag tag-up">↑ Live</div>
+        </div>
+        <div class="metric">
+          <div class="metric-glow" style="background:radial-gradient(circle,rgba(245,158,11,.35),transparent)"></div>
+          <div class="metric-lbl">Expired Attention</div>
+          <div class="metric-val" style="{% if expired_tenants > 0 %}color:var(--amber){% endif %}">{{ expired_tenants }}</div>
+          <div class="metric-foot">Accounts requiring renewal or review</div>
+          {% if expired_tenants > 0 %}<div class="metric-tag tag-warn">⚠ Needs action</div>{% else %}<div class="metric-tag tag-up">✓ Clear</div>{% endif %}
+        </div>
+        <div class="metric">
+          <div class="metric-glow" style="background:radial-gradient(circle,rgba(244,63,94,.3),transparent)"></div>
+          <div class="metric-lbl">Review Backlog</div>
+          <div class="metric-val" style="{% if pending_reviews > 0 %}color:var(--rose){% endif %}">{{ pending_reviews }}</div>
+          <div class="metric-foot">{{ total_reviews }} total reviews in network</div>
+          {% if pending_reviews > 0 %}<div class="metric-tag tag-down">! Action needed</div>{% else %}<div class="metric-tag tag-up">✓ Queue clear</div>{% endif %}
+        </div>
+      </div>
+
+      <!-- Insights -->
+      <div class="ig">
+        <div class="panel">
+          <div>
+            <div class="sec-label">Operations Flow</div>
+            <div class="sec-title" style="font-size:1rem">Daily command rhythm</div>
+            <div class="sec-sub">A fast founder loop keeping billing, access, and domains aligned.</div>
+          </div>
+          <div class="steps">
+            <div class="step"><div class="step-n">01</div><div><div class="step-h">Revenue continuity check</div><div class="step-b">Scan subscription table for end dates before access drops.</div></div></div>
+            <div class="step"><div class="step-n">02</div><div><div class="step-h">Adjust plans &amp; trial state</div><div class="step-b">Keep trial and paid logic accurate so owners see the right experience.</div></div></div>
+            <div class="step"><div class="step-n">03</div><div><div class="step-h">Domain activation</div><div class="step-b">Promote the correct custom domain with fallback routing preserved.</div></div></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <div>
+              <div class="sec-label">Current Pressure</div>
+              <div class="sec-title" style="font-size:1rem">System snapshot</div>
+            </div>
+            <span class="chip {% if expired_tenants > 0 or pending_reviews > 0 %}c-warn{% else %}c-live{% endif %}">
+              {% if expired_tenants > 0 or pending_reviews > 0 %}Action needed{% else %}Stable{% endif %}
+            </span>
+          </div>
+          <div class="sbar">
+            <div class="sbar-block"><div class="sl">Paid</div><div class="sv">{{ paid_tenants }}</div></div>
+            <div class="sbar-block"><div class="sl">Active</div><div class="sv">{{ active_tenants }}</div></div>
+            <div class="sbar-block"><div class="sl">Reviews</div><div class="sv" style="{% if pending_reviews > 0 %}color:var(--rose){% endif %}">{{ pending_reviews }}</div></div>
+          </div>
+          <div style="padding:12px;background:rgba(79,142,247,.04);border:1px solid rgba(79,142,247,.1);border-radius:8px;font-size:12px;color:var(--mute);line-height:1.6;">
+            <div style="font-size:9px;font-family:var(--fm);color:var(--a);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Founder principle</div>
+            Keep access current, close review backlog quickly, and promote domains only after payment and owner state are verified.
+          </div>
+        </div>
+      </div>
+    </div><!-- /page-overview -->
+
+
+    <!-- ▸▸ PAGE: TENANTS ▸▸ -->
+    <div class="page" id="page-tenants" data-label="Tenants">
+
+      <div class="page-head">
+        <div>
+          <div class="page-eyebrow">Tenant Control</div>
+          <h2 class="page-title">Owner environments</h2>
+          <p class="page-sub">Search, inspect, and update each environment. Controls work cleanly at every screen size.</p>
+        </div>
+        <span class="chip c-info">{{ total_tenants }} environments</span>
+      </div>
+
+      <div data-fr>
+        <div class="fbar">
+          <div class="f-field"><label>Search</label><input type="search" data-fr-s placeholder="Program, owner, domain…"></div>
+          <div class="f-field"><label>Status</label>
+            <select data-fr-st>
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="expired">Expired</option>
+              <option value="trial">Trial</option>
+            </select>
+          </div>
+          <div class="f-field"><label>Plan</label>
+            <select data-fr-pl>
+              <option value="all">All plans</option>
+              <option value="basic">Basic</option>
+              <option value="pro">Pro</option>
+              <option value="trial">Trial</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="t-grid">
+          {% for tenant in tenants %}
+          <article class="t-card"
+            data-fi
+            data-s="{{ tenant.name }} {{ tenant.owner.email|default:'' }} {{ tenant.schema_name }} {{ tenant.subdomain }} {% for d in tenant.all_domains %}{{ d.domain }} {% endfor %}"
+            data-st="{% if tenant.is_trial %}trial{% elif tenant.is_subscription_active %}active{% else %}expired{% endif %}"
+            data-pl="{% if tenant.is_trial %}trial{% else %}{{ tenant.latest_subscription.plan|default:'basic' }}{% endif %}">
+
+            <div class="t-top">
+              <div>
+                <div style="font-size:9px;font-family:var(--fm);color:var(--ghost);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">Environment</div>
+                <div class="t-name">{{ tenant.name }}</div>
+                <div class="t-meta">{{ tenant.owner.email|default:"No owner email" }}</div>
+                <div class="t-meta">{{ tenant.schema_name }} · {{ tenant.subdomain }}</div>
+                <div class="t-meta">Access URL: {{ tenant.access_domain }}</div>
+              </div>
+              <div class="t-chips">
+                <span class="chip {% if tenant.is_subscription_active %}c-live{% else %}c-dead{% endif %}">{% if tenant.is_subscription_active %}Live{% else %}Paused{% endif %}</span>
+                {% if tenant.is_trial %}<span class="chip c-warn">Trial</span>{% endif %}
+                {% if tenant.days_remaining <= 7 and tenant.is_subscription_active and not tenant.is_trial %}<span class="chip c-warn">Renews soon</span>{% endif %}
+              </div>
+            </div>
+
+            <div class="t-stats">
+              <div class="t-stat"><div class="tsv">{{ tenant.paid_until|default:"—" }}</div><div class="tsl">Paid until</div></div>
+              <div class="t-stat"><div class="tsv">{{ tenant.days_remaining }}</div><div class="tsl">Days left</div></div>
+              <div class="t-stat"><div class="tsv">{{ tenant.member_count }}</div><div class="tsl">Members</div></div>
+              <div class="t-stat"><div class="tsv">{{ tenant.review_count }}</div><div class="tsl">Reviews</div></div>
+            </div>
+
+            <div class="t-domains">
+              {% for d in tenant.all_domains %}<span class="t-domain">{{ d.domain }}{% if d.is_primary %} · primary{% endif %}</span>
+              {% empty %}<span class="chip c-dead">No domains</span>{% endfor %}
+            </div>
+
+            <div class="t-note">
+              <div class="t-note-label">Founder snapshot</div>
+              <div class="t-note-copy">
+                {{ tenant.pending_review_count }} pending reviews, average rating
+                {% if tenant.avg_rating %}{{ tenant.avg_rating|floatformat:1 }}/5{% else %}not available yet{% endif %},
+                and access domain {{ tenant.access_domain }}.
+              </div>
+            </div>
+
+            <div class="t-actions">
+              <form method="post" class="t-form">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="update_access">
+                <input type="hidden" name="tenant_id" value="{{ tenant.id }}">
+                <div class="t-form-lbl">Access control</div>
+                <div class="t-form-title">Update payment &amp; plan</div>
+                <div class="t-fg">
+                  <div class="f-field"><label>Paid until</label><input type="date" name="paid_until" value="{% if tenant.paid_until %}{{ tenant.paid_until|date:'Y-m-d' }}{% endif %}"></div>
+                  <div class="f-field"><label>Plan</label>
+                    <select name="plan">
+                      <option value="trial" {% if tenant.latest_subscription and tenant.latest_subscription.plan == 'trial' %}selected{% endif %}>Trial</option>
+                      <option value="basic" {% if tenant.latest_subscription and tenant.latest_subscription.plan == 'basic' %}selected{% endif %}>Basic</option>
+                      <option value="pro" {% if tenant.latest_subscription and tenant.latest_subscription.plan == 'pro' %}selected{% endif %}>Pro</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="t-check-row">
+                  <label class="ck-label"><input type="checkbox" name="is_active" {% if tenant.is_active %}checked{% endif %}> Owner access</label>
+                  <label class="ck-label"><input type="checkbox" name="is_trial" {% if tenant.is_trial %}checked{% endif %}> Trial</label>
+                </div>
+                <button class="btn btn-p" type="submit" style="width:100%">Save access</button>
+              </form>
+
+              <form method="post" class="t-form">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="activate_custom_domain">
+                <input type="hidden" name="tenant_id" value="{{ tenant.id }}">
+                <div class="t-form-lbl">Domain activation</div>
+                <div class="t-form-title">Assign custom domain</div>
+                <div class="f-field"><label>Domain</label><input type="text" name="custom_domain" placeholder="example.ownerdomain.com"></div>
+                <div class="t-check-row">
+                  <label class="ck-label"><input type="checkbox" name="make_primary" checked> Make primary</label>
+                </div>
+                <button class="btn btn-o" type="submit" style="width:100%">Activate domain</button>
+              </form>
+            </div>
+          </article>
+          {% empty %}
+          <div class="empty" style="grid-column:1/-1"><strong>No tenants yet</strong>New environments appear here once created.</div>
+          {% endfor %}
+        </div>
+
+        <div data-fr-empty hidden>
+          <div class="empty"><strong>No match</strong>No tenants match the current search or filters.</div>
+        </div>
+      </div>
+    </div><!-- /page-tenants -->
+
+
+    <!-- ▸▸ PAGE: SUBSCRIPTIONS ▸▸ -->
+    <div class="page" id="page-subscriptions" data-label="Subscriptions">
+
+      <div class="page-head">
+        <div>
+          <div class="page-eyebrow">Revenue Operations</div>
+          <h2 class="page-title">Subscription database</h2>
+          <p class="page-sub">Use this ledger to renew owner access, verify contact details, and catch accounts that are near expiry before they churn.</p>
+        </div>
+        <span class="chip c-live">{{ paid_tenants }} paid</span>
+      </div>
+
+      <div class="metrics" style="grid-template-columns:repeat(3,1fr)">
+        <div class="metric">
+          <div class="metric-glow" style="background:radial-gradient(circle,rgba(16,212,131,.35),transparent)"></div>
+          <div class="metric-lbl">Paid access base</div>
+          <div class="metric-val">{{ paid_tenants }}</div>
+          <div class="metric-foot">Tenants with active paid subscriptions</div>
+        </div>
+        <div class="metric">
+          <div class="metric-glow" style="background:radial-gradient(circle,rgba(245,158,11,.35),transparent)"></div>
+          <div class="metric-lbl">Expired risk</div>
+          <div class="metric-val" style="{% if expired_tenants > 0 %}color:var(--amber){% endif %}">{{ expired_tenants }}</div>
+          <div class="metric-foot">Requiring direct founder intervention</div>
+        </div>
+        <div class="metric">
+          <div class="metric-glow" style="background:radial-gradient(circle,rgba(79,142,247,.35),transparent)"></div>
+          <div class="metric-lbl">Live access</div>
+          <div class="metric-val" style="color:var(--emerald)">{{ active_tenants }}</div>
+          <div class="metric-foot">Owner environments currently active</div>
+        </div>
+      </div>
+
+      <div data-fr>
+        <div class="fbar">
+          <div class="f-field"><label>Search owners</label><input type="search" data-fr-s placeholder="Owner, email, phone, domain…"></div>
+          <div class="f-field"><label>Status</label>
+            <select data-fr-st>
+              <option value="all">All statuses</option>
+              <option value="active">Paid active</option>
+              <option value="expired">Expired</option>
+              <option value="trial">Trial</option>
+            </select>
+          </div>
+          <div class="f-field"><label>Plan</label>
+            <select data-fr-pl>
+              <option value="all">All plans</option>
+              <option value="basic">Basic</option>
+              <option value="pro">Pro</option>
+              <option value="trial">Trial</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th style="width:16%">Owner</th>
+                <th style="width:13%">Contact</th>
+                <th style="width:16%">Domain</th>
+                <th style="width:11%">Paid until</th>
+                <th style="width:8%">Left</th>
+                <th style="width:9%">Status</th>
+                <th style="width:27%">Update</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in owner_rows %}
+              <tr data-fi
+                data-s="{{ row.owner_name }} {{ row.owner_email }} {{ row.phone_number }} {{ row.domain_url }}"
+                data-st="{% if row.is_trial %}trial{% elif row.status == 'active' %}active{% else %}expired{% endif %}"
+                data-pl="{% if row.is_trial %}trial{% else %}{{ row.plan|default:'basic' }}{% endif %}">
+                <td data-label="Owner">
+                  <div class="tbl-pri">{{ row.owner_name }}</div>
+                  <div class="tbl-sub">{{ row.owner_email }}</div>
+                </td>
+                <td data-label="Contact">{{ row.phone_number|default:"—" }}</td>
+                <td data-label="Domain" style="word-break:break-all">{{ row.domain_url }}</td>
+                <td data-label="Paid until">{{ row.paid_until|default:"—" }}</td>
+                <td data-label="Left">
+                  <span class="mono {% if row.days_remaining < 7 %}txt-dead{% elif row.days_remaining < 30 %}txt-warn{% else %}txt-live{% endif %}">
+                    {% if row.days_remaining == 0 %}Due now{% else %}{{ row.days_remaining }}d{% endif %}
+                  </span>
+                </td>
+                <td data-label="Status">
+                  <span class="chip {% if row.is_trial %}c-warn{% elif row.status == 'active' %}c-live{% else %}c-dead{% endif %}">
+                    {% if row.is_trial %}trial{% else %}{{ row.status }}{% endif %}
+                  </span>
+                </td>
+                <td data-label="Update">
+                  <form method="post" style="display:flex;flex-direction:column;gap:7px">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="update_access">
+                    <input type="hidden" name="tenant_id" value="{{ row.tenant_id }}">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px">
+                      <div class="f-field"><label>End date</label><input type="date" name="paid_until" value="{% if row.paid_until %}{{ row.paid_until|date:'Y-m-d' }}{% endif %}" style="min-height:30px;font-size:11px"></div>
+                      <div class="f-field"><label>Plan</label>
+                        <select name="plan" style="min-height:30px;font-size:11px">
+                          <option value="basic" {% if row.plan == 'basic' %}selected{% endif %}>Basic</option>
+                          <option value="pro" {% if row.plan == 'pro' %}selected{% endif %}>Pro</option>
+                          <option value="trial" {% if row.is_trial %}selected{% endif %}>Trial</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px">
+                      <label class="ck-label" style="font-size:10px;padding:3px 7px"><input type="checkbox" name="is_active" {% if row.is_active %}checked{% endif %}> Active</label>
+                      <label class="ck-label" style="font-size:10px;padding:3px 7px"><input type="checkbox" name="is_trial" {% if row.is_trial %}checked{% endif %}> Trial</label>
+                    </div>
+                    <button class="btn btn-p" type="submit" style="min-height:30px;font-size:11px">Update</button>
+                  </form>
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="7"><div class="empty"><strong>No owners yet</strong>Owner records appear here once created.</div></td></tr>
+              {% endfor %}
+              <tr data-fr-empty hidden>
+                <td colspan="7"><div class="empty">No records match the current search or filters.</div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /page-subscriptions -->
+
+
+    <!-- ▸▸ PAGE: REVIEWS ▸▸ -->
+    <div class="page" id="page-reviews" data-label="Reviews">
+
+      <div class="page-head">
+        <div>
+          <div class="page-eyebrow">Feedback Command</div>
+          <h2 class="page-title">Review stream</h2>
+          <p class="page-sub">Review owner sentiment, clear pending moderation, and identify complaints that may point to product or support issues.</p>
+        </div>
+        <span class="chip {% if pending_reviews > 0 %}c-warn{% else %}c-live{% endif %}">{{ pending_reviews }} pending</span>
+      </div>
+
+      <div class="ig">
+        <div class="panel">
+          <div>
+            <div class="sec-label">Moderation Status</div>
+            <div class="sec-title" style="font-size:1rem">Queue snapshot</div>
+          </div>
+          <div class="sbar">
+            <div class="sbar-block"><div class="sl">Total reviews</div><div class="sv">{{ total_reviews }}</div></div>
+            <div class="sbar-block"><div class="sl">Pending</div><div class="sv" style="{% if pending_reviews > 0 %}color:var(--rose){% endif %}">{{ pending_reviews }}</div></div>
+          </div>
+          <p style="font-size:12px;color:var(--mute);line-height:1.6">Use the full table for moderation decisions, then read the compact cards below when you need more context behind a trend.</p>
+        </div>
+        <div class="panel">
+          <div>
+            <div class="sec-label">Signal interpretation</div>
+            <div class="sec-title" style="font-size:1rem">What to watch</div>
+          </div>
+          <div class="steps">
+            <div class="step"><div class="step-n">S1</div><div><div class="step-h">Pending spikes</div><div class="step-b">A rising queue usually means moderation speed is falling behind demand.</div></div></div>
+            <div class="step"><div class="step-n">S2</div><div><div class="step-h">Low-rating clusters</div><div class="step-b">Repeated low scores from one owner often point to product friction.</div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div data-fr>
+        <div class="fbar">
+          <div class="f-field"><label>Search reviews</label><input type="search" data-fr-s placeholder="Owner, reviewer, review text…"></div>
+          <div class="f-field"><label>Status</label>
+            <select data-fr-st>
+              <option value="all">All</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="tbl-wrap" style="margin-bottom:20px">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th style="width:18%">Owner</th>
+                <th style="width:16%">Reviewer</th>
+                <th style="width:8%">Rating</th>
+                <th style="width:10%">Status</th>
+                <th style="width:34%">Review</th>
+                <th style="width:14%">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for review in reviews %}
+              <tr data-fi
+                data-s="{{ review.owner.program_name }} {{ review.owner.email }} {{ review.member.reg_number }} {{ review.member.program_name }} {{ review.content }}"
+                data-st="{{ review.status }}">
+                <td data-label="Owner"><div class="tbl-pri">{{ review.owner.program_name }}</div><div class="tbl-sub">{{ review.owner.email }}</div></td>
+                <td data-label="Reviewer"><div class="tbl-pri">{{ review.member.reg_number }}</div><div class="tbl-sub">{{ review.member.program_name }}</div></td>
+                <td data-label="Rating"><span style="font-family:var(--fm);font-weight:500">{{ review.rating }}/5</span></td>
+                <td data-label="Status"><span class="chip {% if review.status == 'approved' %}c-live{% elif review.status == 'pending' %}c-warn{% else %}c-dead{% endif %}">{{ review.status }}</span></td>
+                <td data-label="Review" style="font-size:11px;color:var(--mute)">{{ review.content }}</td>
+                <td data-label="Created" style="font-family:var(--fm);font-size:10px;color:var(--ghost)">{{ review.created_at|date:"M d, Y H:i" }}</td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="6"><div class="empty"><strong>No reviews yet</strong>Reviews appear as feedback flows in.</div></td></tr>
+              {% endfor %}
+              <tr data-fr-empty hidden>
+                <td colspan="6"><div class="empty">No reviews match the current filters.</div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Review cards feed -->
+      <div>
+        <div class="sec-label" style="margin-bottom:10px">Recent review cards</div>
+        <div class="r-feed">
+          {% for review in reviews|slice:":3" %}
+          <div class="r-card">
+            <div class="r-top">
+              <div>
+                <span class="chip c-info" style="margin-bottom:5px">{{ review.owner.program_name }}</span>
+                <div class="tbl-pri" style="margin-top:4px">{{ review.member.reg_number }}</div>
+                <div class="tbl-sub">{{ review.member.program_name }}</div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
+                <div class="r-rating">{{ review.rating }}/5</div>
+                <span class="chip {% if review.status == 'approved' %}c-live{% elif review.status == 'pending' %}c-warn{% else %}c-dead{% endif %}">{{ review.status }}</span>
+              </div>
+            </div>
+            <p class="r-text">{{ review.content }}</p>
+            <div class="r-foot"><div class="r-date">{{ review.created_at|date:"M d, Y H:i" }}</div></div>
+          </div>
+          {% empty %}
+          <div class="empty"><strong>No review cards yet</strong>Cards appear once feedback starts flowing.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div><!-- /page-reviews -->
+
+
+    <!-- ▸▸ PAGE: SIGNALS ▸▸ -->
+    <div class="page" id="page-signals" data-label="Signals">
+
+      <div class="page-head">
+        <div>
+          <div class="page-eyebrow">Signal Intelligence</div>
+          <h2 class="page-title">Pattern board</h2>
+          <p class="page-sub">Owner-level signal panel and response playbook for spotting and addressing rising friction.</p>
+        </div>
+        <span class="chip c-info">Pattern view</span>
+      </div>
+
+      <div class="ig">
+        <!-- Signal cards -->
+        <div class="panel" style="gap:12px">
+          <div>
+            <div class="sec-label">Review signals</div>
+            <div class="sec-title" style="font-size:1rem">Owner signal cards</div>
+          </div>
+          {% for signal in review_signals %}
+          <div class="sig-card">
+            <div class="sig-h">{{ signal.owner__program_name|default:"Unknown owner" }}</div>
+            <div class="sig-sub">Total {{ signal.total_reviews }} · Pending {{ signal.pending_reviews }}</div>
+            <div class="sig-row">
+              <div class="sig-s">
+                <div class="sv">{% if signal.average_rating %}{{ signal.average_rating|floatformat:1 }}/5{% else %}—{% endif %}</div>
+                <div class="sl">Avg rating</div>
+              </div>
+              <div class="sig-s">
+                <div class="sv" style="{% if signal.pending_reviews > 0 %}color:var(--amber){% endif %}">{{ signal.pending_reviews }}</div>
+                <div class="sl">Pending</div>
+              </div>
+            </div>
+          </div>
+          {% empty %}
+          <div class="empty"><strong>No signals yet</strong>Signal cards populate as review activity grows.</div>
+          {% endfor %}
+        </div>
+
+        <!-- Playbook -->
+        <div class="panel">
+          <div>
+            <div class="sec-label">Founder Playbook</div>
+            <div class="sec-title" style="font-size:1rem">Response guidance</div>
+          </div>
+          <div class="steps">
+            <div class="step"><div class="step-n">01</div><div><div class="step-h">Confirm payment state</div><div class="step-b">Start with subscription dates and plan accuracy before touching access or domains.</div></div></div>
+            <div class="step"><div class="step-n">02</div><div><div class="step-h">Enable access deliberately</div><div class="step-b">Use active and trial toggles to reflect actual customer state with no ambiguity.</div></div></div>
+            <div class="step"><div class="step-n">03</div><div><div class="step-h">Promote domains safely</div><div class="step-b">Assign custom domain only after billing and ownership are fully verified.</div></div></div>
+            <div class="step"><div class="step-n">04</div><div><div class="step-h">Read complaints as input</div><div class="step-b">Clusters of low ratings are roadmap signals, not noise. Act on patterns, not individual reviews.</div></div></div>
+          </div>
+          <div style="padding:12px;background:rgba(16,212,131,.04);border:1px solid rgba(16,212,131,.1);border-radius:8px">
+            <div style="display:flex;align-items:center;gap:7px;margin-bottom:6px">
+              <div style="width:6px;height:6px;border-radius:50%;background:var(--emerald);box-shadow:0 0 7px rgba(16,212,131,.5)"></div>
+              <span style="font-size:9px;font-family:var(--fm);color:var(--emerald);text-transform:uppercase;letter-spacing:.07em">System operational</span>
+            </div>
+            <p style="font-size:12px;color:var(--mute);line-height:1.6">All founder systems active. Use Django Admin for deeper database operations not covered here.</p>
+          </div>
+        </div>
+      </div>
+    </div><!-- /page-signals -->
+
+  </div><!-- /page-viewport -->
+</div><!-- /shell -->
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function(){
+"use strict";
+
+/* ── Loading overlay ── */
+var ov = document.getElementById("ov");
+document.querySelectorAll("form").forEach(function(f){
+  f.addEventListener("submit",function(){
+    var btn = f.querySelector('button[type="submit"]');
+    if(btn){ btn.disabled=true; btn.classList.add("is-loading"); }
+    if(ov){ ov.classList.add("on"); ov.setAttribute("aria-hidden","false"); }
+  });
+});
+
+/* ── Page switcher ── */
+var pages   = Array.from(document.querySelectorAll(".page"));
+var navItems = Array.from(document.querySelectorAll(".nav-item[data-page]"));
+var topLabel = document.getElementById("tsec-text");
+var current  = "overview";
+
+function switchTo(id){
+  if(id === current) return;
+  var leaving = document.getElementById("page-"+current);
+  var arriving = document.getElementById("page-"+id);
+  if(!arriving) return;
+
+  /* exit old page */
+  leaving.classList.add("exit");
+  setTimeout(function(){
+    leaving.classList.remove("active","exit");
+    leaving.scrollTop = 0;
+  }, 150);
+
+  /* enter new page */
+  arriving.classList.add("active");
+  current = id;
+
+  /* update nav */
+  navItems.forEach(function(a){
+    a.classList.toggle("active", a.dataset.page === id);
+  });
+
+  /* update topbar label */
+  if(topLabel){
+    topLabel.textContent = arriving.dataset.label || id;
+  }
+
+  if(window.location.hash !== "#" + id){
+    window.location.hash = id;
+  }
+
+  /* close mobile sidebar */
+  var sb = document.getElementById("sb");
+  if(sb) sb.classList.remove("open");
+}
+
+/* Nav item clicks */
+navItems.forEach(function(a){
+  a.addEventListener("click",function(e){
+    e.preventDefault();
+    switchTo(a.dataset.page);
+  });
+});
+
+/* data-goto buttons (inside pages) */
+document.querySelectorAll("[data-goto]").forEach(function(btn){
+  btn.addEventListener("click",function(){
+    switchTo(btn.dataset.goto);
+  });
+});
+
+/* Mobile sidebar toggle */
+var mb = document.getElementById("mb");
+var sb = document.getElementById("sb");
+if(mb && sb){
+  mb.addEventListener("click",function(){ sb.classList.toggle("open"); });
+  document.addEventListener("click",function(e){
+    if(sb.classList.contains("open") && !sb.contains(e.target) && !mb.contains(e.target)){
+      sb.classList.remove("open");
+    }
+  });
+  document.addEventListener("keydown", function(e){
+    if(e.key === "Escape"){
+      sb.classList.remove("open");
+    }
+  });
+}
+
+/* ── Filter system ── */
+document.querySelectorAll("[data-fr]").forEach(function(root){
+  var si = root.querySelector("[data-fr-s]");
+  var ss = root.querySelector("[data-fr-st]");
+  var ps = root.querySelector("[data-fr-pl]");
+  var items = Array.from(root.querySelectorAll("[data-fi]"));
+  var empty = Array.from(root.querySelectorAll("[data-fr-empty]"));
+
+  function run(){
+    var q = si ? si.value.toLowerCase().trim() : "";
+    var sv = ss ? ss.value : "all";
+    var pv = ps ? ps.value : "all";
+    var vis = 0;
+    items.forEach(function(el){
+      var ms = !q || (el.dataset.s||"").toLowerCase().includes(q);
+      var mst = sv==="all" || (el.dataset.st||"")=== sv;
+      var mpl = pv==="all" || (el.dataset.pl||"")=== pv;
+      el.hidden = !(ms && mst && mpl);
+      if(!el.hidden) vis++;
+    });
+    empty.forEach(function(el){ el.hidden = vis>0; });
+  }
+
+  if(si) si.addEventListener("input",run);
+  if(ss) ss.addEventListener("change",run);
+  if(ps) ps.addEventListener("change",run);
+  run();
+});
+
+var initial = (window.location.hash || "").replace("#", "");
+if(initial && document.getElementById("page-" + initial)){
+  switchTo(initial);
+}
+
+window.addEventListener("hashchange", function(){
+  var id = (window.location.hash || "").replace("#", "");
+  if(id && document.getElementById("page-" + id) && id !== current){
+    switchTo(id);
+  }
+});
+
+})();
+</script>
+{% endblock %}
