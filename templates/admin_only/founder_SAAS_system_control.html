@@ -4,169 +4,16 @@
 
 {% block extra_css %}
 <style>
-:root {
-  --void: #050912;
-  --deep: #080f1f;
-  --base: #0b1527;
-  --surf: #0e1c34;
-  --raise: #111f3a;
-  --lift: #162743;
-  --rim0: rgba(255,255,255,0.045);
-  --rim1: rgba(255,255,255,0.08);
-  --rim2: rgba(255,255,255,0.14);
-  --text: #eef2ff;
-  --mute: rgba(180,198,240,0.58);
-  --ghost: rgba(130,160,215,0.38);
-  --a: #8b5cf6;
-  --a2: #38bdf8;
-  --glow: #38bdf8;
-  --emerald: #10d483;
-  --amber: #f59e0b;
-  --rose: #f43f5e;
-  --info: #38bdf8;
-  --ga: linear-gradient(135deg,#8b5cf6,#38bdf8);
-  --gc: linear-gradient(180deg,rgba(255,255,255,0.04) 0%,rgba(255,255,255,0) 100%);
-}
+    .founder-theme .brand-mark,
+    .founder-theme .btn-primary {
+        background: linear-gradient(135deg, #8b5cf6, #0ea5e9);
+    }
 
-.founder-theme .glass-dashboard {
-  background:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 24%),
-    radial-gradient(circle at top right, rgba(139, 92, 246, 0.18), transparent 28%),
-    radial-gradient(circle at bottom center, rgba(14, 165, 233, 0.14), transparent 24%),
-    var(--void);
-}
-
-.founder-theme .dashboard-shell {
-  display: grid;
-  grid-template-columns: minmax(280px, 320px) 1fr;
-  gap: var(--dash-gap);
-  width: min(1600px, 100%);
-  margin: 0 auto;
-}
-
-.founder-theme .dashboard-sidebar {
-  position: relative;
-  top: auto;
-  left: auto;
-  width: auto;
-  max-height: none;
-  transform: none;
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.founder-theme .dashboard-sidebar .glass-card {
-  max-height: none;
-}
-
-.founder-theme .sidebar-head {
-  display: flex;
-  align-items: center;
-  gap: var(--dash-gap);
-}
-
-.founder-theme .brand-mark {
-  background: var(--ga);
-  box-shadow:
-    0 0 18px rgba(139, 92, 246, 0.45),
-    0 0 30px rgba(56, 189, 248, 0.22);
-}
-
-.founder-theme .sidebar-title h1 {
-  font-family: 'Syne', system-ui, sans-serif;
-  font-size: clamp(1.1rem, 2vw, 1.8rem);
-  margin: 0;
-}
-
-.founder-theme .sidebar-nav {
-  display: grid;
-  gap: 8px;
-}
-
-.founder-theme .sidebar-link {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: clamp(10px, 1vw, 14px);
-  border-radius: 14px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.08);
-  color: var(--text);
-  text-decoration: none;
-  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
-}
-
-.founder-theme .sidebar-link:hover {
-  transform: translateY(-1px);
-  background: rgba(255,255,255,0.09);
-  border-color: rgba(139,92,246,0.32);
-}
-
-.founder-theme .sidebar-link.is-active {
-  background: rgba(139,92,246,0.14);
-  border-color: rgba(139,92,246,0.38);
-  box-shadow: inset 0 0 0 1px rgba(56,189,248,0.18);
-}
-
-.founder-theme .sidebar-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  background: rgba(255,255,255,0.08);
-}
-
-.founder-theme .btn-primary {
-  background: linear-gradient(135deg, #8b5cf6, #38bdf8);
-  box-shadow: 0 0 12px rgba(139, 92, 246, 0.28);
-}
-
-.founder-theme .btn-secondary {
-  background: linear-gradient(135deg, #0ea5e9, #2563eb);
-}
-
-.founder-theme .signal-grid {
-  display: grid;
-  gap: var(--dash-gap);
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-}
-
-.founder-theme .data-table th,
-.founder-theme .data-table td {
-  color: var(--text);
-}
-
-.founder-theme .signal-grid .glass-card {
-  padding: var(--dash-pad);
-}
-
-.founder-theme .dashboard-main {
-  display: grid;
-  gap: var(--dash-gap);
-}
-
-.founder-theme .dashboard-panel {
-  padding: var(--dash-pad);
-}
-
-.founder-theme .section-title {
-  font-size: clamp(1rem, 1.4vw, 1.45rem);
-}
-
-.founder-theme .panel-subtitle {
-  color: var(--mute);
-}
-
-@media (max-width: 960px) {
-  .founder-theme .dashboard-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .founder-theme .dashboard-sidebar {
-    width: 100%;
-  }
-}
+    .founder-theme .signal-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: var(--dash-gap);
+    }
 </style>
 {% endblock %}
 
@@ -190,14 +37,7 @@
                     </div>
 
                     <nav class="sidebar-nav">
-                        <a class="sidebar-link" href="#welcome" data-dashboard-target="welcome" data-dashboard-default="true">
-                            <span class="sidebar-icon">W</span>
-                            <span class="sidebar-copy">
-                                <strong>Welcome</strong>
-                                <span>Start here</span>
-                            </span>
-                        </a>
-                        <a class="sidebar-link" href="#overview" data-dashboard-target="overview">
+                        <a class="sidebar-link" href="#overview" data-dashboard-target="overview" data-dashboard-default="true">
                             <span class="sidebar-icon">O</span>
                             <span class="sidebar-copy">
                                 <strong>Overview</strong>
@@ -252,30 +92,6 @@
             </aside>
 
             <section class="dashboard-main">
-                <div class="dashboard-focus-group" data-dashboard-section="welcome">
-                    <section class="glass-card dashboard-panel dashboard-stack">
-                        <span class="eyebrow">Founder welcome</span>
-                        <div>
-                            <h1>Guide the network from one calm control surface.</h1>
-                            <p class="panel-subtitle">Start here, then move into tenants, payments, reviews, and signals with the sidebar.</p>
-                        </div>
-                        <div class="hero-spot">
-                            <div class="soft-card">
-                                <div class="mini-label">Tenants in system</div>
-                                <div class="mini-value">{{ total_tenants }}</div>
-                            </div>
-                            <div class="soft-card">
-                                <div class="mini-label">Needs action</div>
-                                <div class="mini-value">{{ expired_tenants }} expired · {{ pending_reviews }} pending reviews</div>
-                            </div>
-                            <div class="soft-card">
-                                <div class="mini-label">Healthy base</div>
-                                <div class="mini-value">{{ active_tenants }} active · {{ paid_tenants }} paid</div>
-                            </div>
-                        </div>
-                    </section>
-                </div>
-
                 <div class="dashboard-focus-group" data-dashboard-section="overview">
                     <section class="glass-card dashboard-panel dashboard-stack">
                         <span class="eyebrow">Founder control room</span>
