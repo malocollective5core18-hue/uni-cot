@@ -1,20 +1,35 @@
-from django.shortcuts import redirect, render
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.core.exceptions import ObjectDoesNotExist
+import json
+import logging
+import re
+from datetime import datetime
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login as auth_login, logout as auth_logout
+from django.core.exceptions import ObjectDoesNotExist
+from django.core.paginator import Paginator
 from django.db import DatabaseError, OperationalError, ProgrammingError, connection, transaction
 from django.db.models import Avg, Count, Q
-from django_tenants.utils import schema_context
+from django.http import JsonResponse
+from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_date
-from datetime import datetime
-import json
-import logging
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+from django_tenants.utils import schema_context
 
-from .models import CountdownCard, ImagePost, Property, User, UserGroup, UserGroupMember, SystemSetting, RegistrationFormField, ExternalTable, ExternalTableRecord
+from .models import (
+    CountdownCard,
+    ExternalTable,
+    ExternalTableRecord,
+    ImagePost,
+    Property,
+    RegistrationFormField,
+    SystemSetting,
+    User,
+    UserGroup,
+    UserGroupMember,
+)
 from customers.models import (
     CRTenant,
     Domain,
@@ -27,6 +42,16 @@ from service.models import Comment, OwnerUser
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Constants  (defined at module level so all views can reference them)
+# ---------------------------------------------------------------------------
+
+PUBLIC_DEMO_COUNTDOWN_KEY = "public_demo"
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
 def _build_access_domain(domain):
     if not domain:
@@ -87,11 +112,22 @@ def _tenant_base_path(request):
 
 
 def _drop_tenant_schema(schema_name):
+    """Drop a tenant schema only after confirming it exists in the catalogue."""
     if not schema_name or schema_name == 'public':
         return
 
     with connection.cursor() as cursor:
-        cursor.execute(f'DROP SCHEMA IF EXISTS {connection.ops.quote_name(schema_name)} CASCADE')
+        # Verify the schema actually exists before issuing destructive DDL.
+        cursor.execute(
+            "SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = %s",
+            [schema_name],
+        )
+        if not cursor.fetchone():
+            logger.warning("_drop_tenant_schema: schema %r not found, skipping.", schema_name)
+            return
+        cursor.execute(
+            f'DROP SCHEMA IF EXISTS {connection.ops.quote_name(schema_name)} CASCADE'
+        )
 
 
 def _get_tenant_owner(tenant):
@@ -161,21 +197,20 @@ def _scope_external_tables_queryset(request):
 def normalize_record(schema, data):
     """
     Normalize record data against current schema.
-    Adds missing fields with None value if schema defines them.
+    Adds missing fields with None if schema defines them.
     Preserves extra fields not in schema (forward compatibility).
     """
     if not isinstance(data, dict):
         data = {}
     if not isinstance(schema, list):
         schema = []
-    
+
     normalized = data.copy()
-    
     for field in schema:
         field_key = field.get('key', field.get('name', ''))
         if field_key and field_key not in normalized:
             normalized[field_key] = None
-    
+
     return normalized
 
 
@@ -234,37 +269,12 @@ def _serialize_property(prop):
 
 
 USER_RESERVED_FIELDS = {
-    'id',
-    'uuid',
-    'full_name',
-    'name',
-    'fullName',
-    'display_name',
-    'registration_number',
-    'registration number',
-    'reg_no',
-    'regNo',
-    'regNumber',
-    'email',
-    'email_address',
-    'phone',
-    'phone_number',
-    'contact_phone',
-    'group_name',
-    'group',
-    'role',
-    'status',
-    'case_info',
-    'caseInfo',
-    'is_verified',
-    'is_active',
-    'is_admin',
-    'created_at',
-    'updated_at',
-    'created_by',
-    'last_login',
-    'login_count',
-    'password_hash',
+    'id', 'uuid', 'full_name', 'name', 'fullName', 'display_name',
+    'registration_number', 'registration number', 'reg_no', 'regNo', 'regNumber',
+    'email', 'email_address', 'phone', 'phone_number', 'contact_phone',
+    'group_name', 'group', 'role', 'status', 'case_info', 'caseInfo',
+    'is_verified', 'is_active', 'is_admin', 'created_at', 'updated_at',
+    'created_by', 'last_login', 'login_count', 'password_hash',
 }
 
 
@@ -272,14 +282,10 @@ def _extract_user_custom_fields(payload):
     custom_fields = {}
     if not isinstance(payload, dict):
         return custom_fields
-
     for key, value in payload.items():
-        if key in USER_RESERVED_FIELDS:
-            continue
-        if key.startswith('_'):
+        if key in USER_RESERVED_FIELDS or key.startswith('_'):
             continue
         custom_fields[key] = value
-
     return custom_fields
 
 
@@ -319,6 +325,7 @@ def _serialize_external_table(table):
 
 def _serialize_external_record(record):
     data = record.data
+    # JSONField should already return a dict; guard against legacy string storage.
     if isinstance(data, str):
         try:
             data = json.loads(data)
@@ -343,12 +350,38 @@ def _user_schema_error_response(error):
     logger.exception("User schema/database error: %s", error_text)
     message = 'User data schema is not up to date on this server.'
     if 'custom_fields' in error_text:
-        message = 'User data schema is missing the custom_fields column. Run the latest core migrations on the server.'
+        message = (
+            'User data schema is missing the custom_fields column. '
+            'Run the latest core migrations on the server.'
+        )
     return JsonResponse({'success': False, 'error': message}, status=500)
 
-# Create your views here.
+
+def _paginate_queryset(request, queryset, default_page_size=100):
+    """Return a page of results based on ?page= and ?page_size= query params."""
+    try:
+        page_size = max(1, min(int(request.GET.get('page_size', default_page_size)), 1000))
+    except (ValueError, TypeError):
+        page_size = default_page_size
+    paginator = Paginator(queryset, page_size)
+    try:
+        page_number = int(request.GET.get('page', 1))
+    except (ValueError, TypeError):
+        page_number = 1
+    page = paginator.get_page(page_number)
+    return page, {
+        'page': page.number,
+        'page_size': page_size,
+        'total_pages': paginator.num_pages,
+        'total_count': paginator.count,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Page views
+# ---------------------------------------------------------------------------
+
 def index(request, *args, **kwargs):
-    # Tenant domains should land on the system home, not the public welcome page
     tenant = getattr(request, 'tenant', None)
     if tenant and getattr(tenant, 'schema_name', None) != 'public':
         tenant_base_path = _tenant_base_path(request)
@@ -356,18 +389,20 @@ def index(request, *args, **kwargs):
             return redirect(f'{tenant_base_path}/system/')
         return redirect('/system/')
     from service.views import welcome as service_welcome
-
     return service_welcome(request, *args, **kwargs)
+
 
 def groups(request, *args, **kwargs):
     return render(request, 'groups.html', {
         'tenant_base_path': _tenant_base_path(request),
     })
 
+
 def properties(request, *args, **kwargs):
     return render(request, 'properties.html', {
         'tenant_base_path': _tenant_base_path(request),
     })
+
 
 def external_tables(request, *args, **kwargs):
     framework_fields = [{
@@ -385,6 +420,10 @@ def external_tables(request, *args, **kwargs):
         'tenant_base_path': _tenant_base_path(request),
     })
 
+
+# ---------------------------------------------------------------------------
+# Founder / SaaS control panel
+# ---------------------------------------------------------------------------
 
 def founder_saas_system_control(request, *args, **kwargs):
     if request.method == 'POST' and request.POST.get('action') == 'founder_login':
@@ -412,6 +451,7 @@ def founder_saas_system_control(request, *args, **kwargs):
             auth_logout(request)
             messages.success(request, 'Founder logged out.')
             return redirect('founder_saas_system_control')
+
         tenant_id = request.POST.get('tenant_id', '').strip()
         tenant = CRTenant.objects.filter(id=tenant_id).select_related('owner').first()
 
@@ -473,19 +513,14 @@ def founder_saas_system_control(request, *args, **kwargs):
 
             domain, created = Domain.objects.update_or_create(
                 domain=custom_domain,
-                defaults={
-                    'tenant': tenant,
-                    'is_primary': make_primary,
-                },
+                defaults={'tenant': tenant, 'is_primary': make_primary},
             )
 
             tenant.is_active = True
             tenant.save(update_fields=['is_active'])
 
-            if created:
-                messages.success(request, f'Custom domain {custom_domain} activated for {tenant.name}.')
-            else:
-                messages.success(request, f'Custom domain {custom_domain} updated for {tenant.name}.')
+            action_word = 'activated' if created else 'updated'
+            messages.success(request, f'Custom domain {custom_domain} {action_word} for {tenant.name}.')
             return redirect('founder_saas_system_control')
 
         if action == 'delete_owner':
@@ -510,6 +545,7 @@ def founder_saas_system_control(request, *args, **kwargs):
                     tenant.delete()
                     owner.delete()
             except Exception as error:
+                logger.exception("Owner deletion failed for %s", owner_email)
                 messages.error(
                     request,
                     f'Owner deletion failed for {owner_email}. Nothing was fully removed. Error: {error}',
@@ -518,13 +554,14 @@ def founder_saas_system_control(request, *args, **kwargs):
 
             messages.success(
                 request,
-                f'Owner {owner_email} and tenant {tenant_name} were permanently deleted, including tenant schema and member data.',
+                f'Owner {owner_email} and tenant {tenant_name} were permanently deleted.',
             )
             return redirect('founder_saas_system_control')
 
         messages.error(request, 'Unknown founder action.')
         return redirect('founder_saas_system_control')
 
+    # GET — dashboard
     total_tenants = CRTenant.objects.count()
     active_tenants = CRTenant.objects.filter(is_active=True).count()
     paid_tenants = CRTenant.objects.filter(
@@ -537,11 +574,18 @@ def founder_saas_system_control(request, *args, **kwargs):
     ).distinct().count()
     total_reviews = Comment.objects.count()
     pending_reviews = Comment.objects.filter(status='pending').count()
-    owner_rows = []
 
     tenants = []
-    tenant_qs = CRTenant.objects.select_related('owner').prefetch_related('domains', 'subscriptions').order_by('-created_on')
+    owner_rows = []
+    tenant_qs = (
+        CRTenant.objects
+        .select_related('owner')
+        .prefetch_related('domains', 'subscriptions')
+        .order_by('-created_on')
+    )
     for tenant in tenant_qs:
+        # Avoid per-tenant schema_context switches on the list page — fetch
+        # the owner via the already-joined owner relation where possible.
         owner = _get_tenant_owner(tenant)
         owner_comments = Comment.objects.filter(owner=owner) if owner else Comment.objects.none()
         tenant.latest_subscription = tenant.subscriptions.filter(is_active=True).order_by('-created_at').first()
@@ -563,7 +607,11 @@ def founder_saas_system_control(request, *args, **kwargs):
             'status': 'active' if tenant.is_subscription_active else 'expired',
             'is_active': tenant.is_active,
             'is_trial': tenant.is_trial,
-            'plan': tenant.latest_subscription.plan if tenant.latest_subscription else ('trial' if tenant.is_trial else 'basic'),
+            'plan': (
+                tenant.latest_subscription.plan
+                if tenant.latest_subscription
+                else ('trial' if tenant.is_trial else 'basic')
+            ),
         })
 
     reviews = Comment.objects.select_related('owner', 'owner__tenant', 'member').order_by('-created_at')
@@ -592,12 +640,14 @@ def founder_saas_system_control(request, *args, **kwargs):
     }
     return render(request, 'admin_only/founder_SAAS_system_control.html', context)
 
-# API Views for Image Posts (Slider Images)
+
+# ---------------------------------------------------------------------------
+# API — Slider Images
+# ---------------------------------------------------------------------------
+
+@csrf_exempt
 def api_slider_images(request, *args, **kwargs):
-    """
-    GET: List all active image posts
-    POST: Create a new image post
-    """
+    """GET: list active images.  POST: create image (owner only)."""
     if request.method == 'GET':
         owner_id = _get_product_owner_id(request)
         images = ImagePost.objects.filter(status='active')
@@ -618,11 +668,10 @@ def api_slider_images(request, *args, **kwargs):
         } for img in images]
         return JsonResponse({'success': True, 'data': data})
 
-    denied = _ensure_owner_system_access(request)
-    if denied:
-        return denied
-
     if request.method == 'POST':
+        denied = _ensure_owner_system_access(request)
+        if denied:
+            return denied
         try:
             body = json.loads(request.body)
             image = ImagePost.objects.create(
@@ -646,20 +695,24 @@ def api_slider_images(request, *args, **kwargs):
                     'image_url': image.cloudinary_url,
                     'category': image.category,
                     'order': image.display_order,
-                }
+                },
             }, status=201)
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_slider_images POST error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
 
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+
+
+@csrf_exempt
 def api_slider_image_detail(request, image_id, *args, **kwargs):
-    """
-    GET: Get single image details
-    PUT: Update an image
-    DELETE: Delete an image
-    """
+    """GET / PUT / DELETE a single image (owner only except GET)."""
     denied = _ensure_owner_system_access(request)
     if denied:
         return denied
+
     try:
         owner_id = _get_product_owner_id(request)
         image_qs = ImagePost.objects.all()
@@ -668,7 +721,7 @@ def api_slider_image_detail(request, image_id, *args, **kwargs):
         image = image_qs.get(id=image_id)
     except ObjectDoesNotExist:
         return JsonResponse({'success': False, 'error': 'Image not found'}, status=404)
-    
+
     if request.method == 'GET':
         return JsonResponse({
             'success': True,
@@ -682,10 +735,10 @@ def api_slider_image_detail(request, image_id, *args, **kwargs):
                 'order': image.display_order,
                 'status': image.status,
                 'created_at': image.created_at.isoformat() if image.created_at else None,
-            }
+            },
         })
-    
-    elif request.method == 'PUT':
+
+    if request.method == 'PUT':
         try:
             body = json.loads(request.body)
             image.title = body.get('title', image.title)
@@ -710,22 +763,28 @@ def api_slider_image_detail(request, image_id, *args, **kwargs):
                     'image_url': image.cloudinary_url,
                     'category': image.category,
                     'order': image.display_order,
-                }
+                },
             })
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_slider_image_detail PUT error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    
-    elif request.method == 'DELETE':
+
+    if request.method == 'DELETE':
         image.delete()
         return JsonResponse({'success': True, 'message': 'Image deleted successfully'})
 
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
-# API Views for Countdown Cards
+
+# ---------------------------------------------------------------------------
+# API — Countdown Cards
+# ---------------------------------------------------------------------------
+
+@csrf_exempt
 def api_countdown_cards(request, *args, **kwargs):
-    """
-    GET: List all active countdown cards
-    POST: Create a new countdown card
-    """
+    """GET: list published cards.  POST: create card (owner only)."""
     if request.method == 'GET':
         owner_id = _get_product_owner_id(request)
         cards = CountdownCard.objects.filter(status='active', is_published=True)
@@ -746,34 +805,14 @@ def api_countdown_cards(request, *args, **kwargs):
         } for card in cards]
         return JsonResponse({'success': True, 'data': data})
 
-    denied = _ensure_owner_system_access(request)
-    if denied:
-        return denied
-
     if request.method == 'POST':
+        denied = _ensure_owner_system_access(request)
+        if denied:
+            return denied
         try:
             body = json.loads(request.body)
-            
-            # Parse datetime strings
-            start_time_str = body.get('start_time')
-            end_time_str = body.get('end_time')
-            
-            start_time = None
-            end_time = None
-            
-            if start_time_str:
-                # Handle ISO format strings with 'Z' suffix
-                if isinstance(start_time_str, str):
-                    if start_time_str.endswith('Z'):
-                        start_time_str = start_time_str[:-1] + '+00:00'
-                    start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
-            
-            if end_time_str:
-                if isinstance(end_time_str, str):
-                    if end_time_str.endswith('Z'):
-                        end_time_str = end_time_str[:-1] + '+00:00'
-                    end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
-            
+            start_time = _parse_datetime_input(body.get('start_time'))
+            end_time = _parse_datetime_input(body.get('end_time'))
             card = CountdownCard.objects.create(
                 title=body.get('title', ''),
                 description=body.get('description', ''),
@@ -792,21 +831,24 @@ def api_countdown_cards(request, *args, **kwargs):
                     'file_url': card.file_url,
                     'start_time': card.start_time.isoformat() if card.start_time else None,
                     'end_time': card.end_time.isoformat() if card.end_time else None,
-                }
+                },
             }, status=201)
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_countdown_cards POST error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
 
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
+
+@csrf_exempt
 def api_countdown_card_detail(request, card_id, *args, **kwargs):
-    """
-    GET: Get single countdown card
-    PUT: Update a countdown card
-    DELETE: Delete a countdown card
-    """
+    """GET / PUT / DELETE a single countdown card (owner only)."""
     denied = _ensure_owner_system_access(request)
     if denied:
         return denied
+
     try:
         owner_id = _get_product_owner_id(request)
         card_qs = CountdownCard.objects.all()
@@ -817,7 +859,7 @@ def api_countdown_card_detail(request, card_id, *args, **kwargs):
         card = card_qs.get(id=card_id)
     except ObjectDoesNotExist:
         return JsonResponse({'success': False, 'error': 'Countdown card not found'}, status=404)
-    
+
     if request.method == 'GET':
         return JsonResponse({
             'success': True,
@@ -830,27 +872,19 @@ def api_countdown_card_detail(request, card_id, *args, **kwargs):
                 'end_time': card.end_time.isoformat() if card.end_time else None,
                 'status': card.status,
                 'created_by': card.created_by,
-            }
+            },
         })
-    
-    elif request.method == 'PUT':
+
+    if request.method == 'PUT':
         try:
             body = json.loads(request.body)
             card.title = body.get('title', card.title)
             card.description = body.get('description', card.description)
             card.file_url = body.get('file_url', card.file_url)
             if 'start_time' in body:
-                start_time_str = body['start_time']
-                if isinstance(start_time_str, str):
-                    if start_time_str.endswith('Z'):
-                        start_time_str = start_time_str[:-1] + '+00:00'
-                    card.start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+                card.start_time = _parse_datetime_input(body['start_time'])
             if 'end_time' in body:
-                end_time_str = body['end_time']
-                if isinstance(end_time_str, str):
-                    if end_time_str.endswith('Z'):
-                        end_time_str = end_time_str[:-1] + '+00:00'
-                    card.end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+                card.end_time = _parse_datetime_input(body['end_time'])
             if 'status' in body:
                 card.status = body['status']
             if 'is_published' in body:
@@ -865,37 +899,41 @@ def api_countdown_card_detail(request, card_id, *args, **kwargs):
                     'description': card.description,
                     'file_url': card.file_url,
                     'status': card.status,
-                }
+                },
             })
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_countdown_card_detail PUT error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    
-    elif request.method == 'DELETE':
+
+    if request.method == 'DELETE':
         card.delete()
         return JsonResponse({'success': True, 'message': 'Countdown card deleted successfully'})
 
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
-# ============================================
-# API Views for Properties (Lost & Found)
-# ============================================
 
+# ---------------------------------------------------------------------------
+# API — Properties (Lost & Found)
+# ---------------------------------------------------------------------------
+
+@csrf_exempt
 def api_properties(request, *args, **kwargs):
-    """
-    GET: List all properties (lost/found items)
-    POST: Create a new property
-    """
+    """GET: list properties.  POST: create property."""
     if request.method == 'GET':
-        category = request.GET.get('category', None)
-        status = request.GET.get('status', None)
-        
+        category = request.GET.get('category')
+        status = request.GET.get('status')
+
         properties = _scope_properties_queryset(request)
         if category:
             properties = properties.filter(category=category)
         if status:
             properties = properties.filter(status=status)
-        
-        data = [_serialize_property(prop) for prop in properties]
-        return JsonResponse({'success': True, 'data': data})
+
+        page, meta = _paginate_queryset(request, properties)
+        data = [_serialize_property(prop) for prop in page]
+        return JsonResponse({'success': True, 'data': data, 'meta': meta})
 
     if request.method == 'POST':
         tenant = getattr(request, 'tenant', None)
@@ -932,35 +970,34 @@ def api_properties(request, *args, **kwargs):
             return JsonResponse({
                 'success': True,
                 'message': 'Property created successfully',
-                'data': _serialize_property(prop)
+                'data': _serialize_property(prop),
             }, status=201)
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_properties POST error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
 
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
+
+@csrf_exempt
 def api_property_detail(request, property_id, *args, **kwargs):
-    """
-    GET: Get single property
-    PUT: Update a property
-    DELETE: Delete a property
-    """
+    """GET / PUT / DELETE a single property."""
     try:
         prop = _scope_properties_queryset(request).get(id=property_id)
     except ObjectDoesNotExist:
         return JsonResponse({'success': False, 'error': 'Property not found'}, status=404)
-    
+
     if request.method == 'GET':
-        return JsonResponse({
-            'success': True,
-            'data': _serialize_property(prop)
-        })
+        return JsonResponse({'success': True, 'data': _serialize_property(prop)})
 
     if request.method == 'PUT':
         try:
             body = json.loads(request.body)
             is_claim_submission = (
-                body.get('status') == 'claimed' and
-                any(key in body for key in ['claimant_name', 'claimant_contact', 'claim_proof', 'claimed_at'])
+                body.get('status') == 'claimed'
+                and any(key in body for key in ['claimant_name', 'claimant_contact', 'claim_proof', 'claimed_at'])
             )
             if not is_claim_submission:
                 denied = _ensure_owner_system_access(request)
@@ -993,28 +1030,31 @@ def api_property_detail(request, property_id, *args, **kwargs):
             return JsonResponse({
                 'success': True,
                 'message': 'Property updated successfully',
-                'data': _serialize_property(prop)
+                'data': _serialize_property(prop),
             })
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_property_detail PUT error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    
-    elif request.method == 'DELETE':
+
+    if request.method == 'DELETE':
         denied = _ensure_owner_system_access(request)
         if denied:
             return denied
         prop.delete()
         return JsonResponse({'success': True, 'message': 'Property deleted successfully'})
 
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
-# ============================================
-# API Views for Users
-# ============================================
 
+# ---------------------------------------------------------------------------
+# API — Users
+# ---------------------------------------------------------------------------
+
+@csrf_exempt
 def api_users(request, *args, **kwargs):
-    """
-    GET: List all users
-    POST: Create a new user
-    """
+    """GET: list users.  POST: create user."""
     if request.method == 'GET':
         tenant = getattr(request, 'tenant', None)
         tenant_scoped_read = bool(tenant and getattr(tenant, 'schema_name', None) not in (None, '', 'public'))
@@ -1023,8 +1063,9 @@ def api_users(request, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Owner login required for this tenant system'}, status=403)
         try:
             users = _scope_users_queryset(request).filter(is_active=True)
-            data = [_serialize_user(user) for user in users]
-            return JsonResponse({'success': True, 'data': data})
+            page, meta = _paginate_queryset(request, users)
+            data = [_serialize_user(user) for user in page]
+            return JsonResponse({'success': True, 'data': data, 'meta': meta})
         except (DatabaseError, OperationalError, ProgrammingError) as error:
             return _user_schema_error_response(error)
 
@@ -1048,102 +1089,106 @@ def api_users(request, *args, **kwargs):
                 owner_id = getattr(tenant, 'owner_id', None)
 
             if is_public_tenant_signup:
-                # Public tenant sign-up is limited to basic member onboarding fields.
                 allowed_keys = {
                     'full_name', 'name', 'fullName', 'display_name',
                     'registration_number', 'reg_no', 'regNo', 'regNumber',
-                    'email', 'phone', 'phone_number', 'contact_phone',
-                    'role'
+                    'email', 'phone', 'phone_number', 'contact_phone', 'role',
                 }
                 body = {key: value for key, value in body.items() if key in allowed_keys}
                 body['role'] = 'member'
                 body.pop('group_name', None)
                 body.pop('case_info', None)
                 body.pop('status', None)
-            
-            # Normalize field names for flexibility from different forms
-            if 'full_name' not in body and 'name' in body:
-                body['full_name'] = body.get('name', '').strip()
-            if 'full_name' not in body and 'fullName' in body:
-                body['full_name'] = body.get('fullName', '').strip()
-            if 'full_name' not in body and 'display_name' in body:
-                body['full_name'] = body.get('display_name', '').strip()
 
-            if 'registration_number' not in body and 'reg_no' in body:
-                body['registration_number'] = body.get('reg_no', '').strip()
-            if 'registration_number' not in body and 'regNo' in body:
-                body['registration_number'] = body.get('regNo', '').strip()
-            if 'registration_number' not in body and 'regNumber' in body:
-                body['registration_number'] = body.get('regNumber', '').strip()
+            # Normalise field name aliases
+            if 'full_name' not in body:
+                for alias in ('name', 'fullName', 'display_name'):
+                    if alias in body:
+                        body['full_name'] = body[alias].strip()
+                        break
+            if 'registration_number' not in body:
+                for alias in ('reg_no', 'regNo', 'regNumber'):
+                    if alias in body:
+                        body['registration_number'] = body[alias].strip()
+                        break
 
-            # Validate required fields
             full_name = body.get('full_name', '').strip()
             registration_number = body.get('registration_number', '').strip()
-            
+
             if not full_name:
-                return JsonResponse({'success': False, 'error': 'full_name is required (provide full_name, name or fullName)'}, status=400)
+                return JsonResponse(
+                    {'success': False, 'error': 'full_name is required (provide full_name, name or fullName)'},
+                    status=400,
+                )
             if not registration_number:
-                return JsonResponse({'success': False, 'error': 'registration_number is required (provide registration_number, reg_no or regNo)'}, status=400)
-            
-            # Check for duplicate registration_number
-            if _scope_users_queryset(request).filter(registration_number=registration_number).exists():
-                return JsonResponse({'success': False, 'error': 'A user with this registration number already exists'}, status=400)
-            
-            # Validate email format if provided
-            email = body.get('email', '').strip()
+                return JsonResponse(
+                    {'success': False, 'error': 'registration_number is required (provide registration_number, reg_no or regNo)'},
+                    status=400,
+                )
+
+            email = body.get('email', '').strip() or None
             if email and '@' not in email:
                 return JsonResponse({'success': False, 'error': 'Invalid email format'}, status=400)
-            
-            # Convert empty string to None to avoid unique constraint violation
-            # (empty strings are considered duplicates, but NULL values are not)
-            if not email:
-                email = None
 
-            # Handle duplicate email gracefully (no interrupt when email belongs to existing user)
-            existing_email_user = None
-            if email:
-                existing_email_user = _scope_users_queryset(request).filter(email=email).exclude(registration_number=registration_number).first()
-            
-            if existing_email_user:
-                # Keep working, but avoid duplicate unique constraint, and we can treat this as update
-                existing_email_user.full_name = full_name
-                existing_email_user.registration_number = registration_number
-                existing_email_user.phone = body.get('phone', '').strip() or existing_email_user.phone
-                existing_email_user.role = body.get('role', 'member')
-                existing_custom_fields = _parse_json_field(getattr(existing_email_user, 'custom_fields', {}), {})
-                existing_custom_fields.update(_extract_user_custom_fields(body))
-                existing_email_user.custom_fields = existing_custom_fields
-                existing_email_user.save()
-                return JsonResponse({'success': True, 'message': 'User updated (duplicate email used)', 'data': _serialize_user(existing_email_user)}, status=200)
-            
-            user = User.objects.create(
-                full_name=full_name,
-                registration_number=registration_number,
-                email=email,
-                phone=body.get('phone', '').strip() or None,
-                role=body.get('role', 'member'),
-                group_name=body.get('group_name', '').strip() or None,
-                case_info=body.get('case_info', '').strip() or None,
-                custom_fields=_extract_user_custom_fields(body),
-                created_by=owner_id,
-            )
+            # Use get_or_create to avoid TOCTOU race on registration_number
+            with transaction.atomic():
+                existing = _scope_users_queryset(request).filter(registration_number=registration_number).first()
+                if existing:
+                    return JsonResponse(
+                        {'success': False, 'error': 'A user with this registration number already exists'},
+                        status=400,
+                    )
+
+                # Handle duplicate email: update existing rather than hard-fail
+                if email:
+                    existing_email_user = (
+                        _scope_users_queryset(request)
+                        .filter(email=email)
+                        .exclude(registration_number=registration_number)
+                        .first()
+                    )
+                    if existing_email_user:
+                        existing_email_user.full_name = full_name
+                        existing_email_user.registration_number = registration_number
+                        existing_email_user.phone = body.get('phone', '').strip() or existing_email_user.phone
+                        existing_email_user.role = body.get('role', 'member')
+                        existing_custom = _parse_json_field(getattr(existing_email_user, 'custom_fields', {}), {})
+                        existing_custom.update(_extract_user_custom_fields(body))
+                        existing_email_user.custom_fields = existing_custom
+                        existing_email_user.save()
+                        return JsonResponse(
+                            {'success': True, 'message': 'User updated (duplicate email used)', 'data': _serialize_user(existing_email_user)},
+                            status=200,
+                        )
+
+                user = User.objects.create(
+                    full_name=full_name,
+                    registration_number=registration_number,
+                    email=email,
+                    phone=body.get('phone', '').strip() or None,
+                    role=body.get('role', 'member'),
+                    group_name=body.get('group_name', '').strip() or None,
+                    case_info=body.get('case_info', '').strip() or None,
+                    custom_fields=_extract_user_custom_fields(body),
+                    created_by=owner_id,
+                )
             return JsonResponse({
                 'success': True,
                 'message': 'User created successfully',
-                'data': _serialize_user(user)
+                'data': _serialize_user(user),
             }, status=201)
         except (DatabaseError, OperationalError, ProgrammingError) as error:
             return _user_schema_error_response(error)
         except Exception as e:
+            logger.exception("api_users POST error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
 
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
+
+@csrf_exempt
 def api_user_detail(request, user_id, *args, **kwargs):
-    """
-    GET: Get single user
-    PUT: Update a user
-    DELETE: Delete a user
-    """
+    """GET / PUT / DELETE a single user (owner only)."""
     denied = _ensure_owner_system_access(request)
     if denied:
         return denied
@@ -1151,7 +1196,7 @@ def api_user_detail(request, user_id, *args, **kwargs):
         user = _scope_users_queryset(request).get(id=user_id)
     except ObjectDoesNotExist:
         return JsonResponse({'success': False, 'error': 'User not found'}, status=404)
-    
+
     if request.method == 'GET':
         try:
             return JsonResponse({
@@ -1159,47 +1204,41 @@ def api_user_detail(request, user_id, *args, **kwargs):
                 'data': {
                     **_serialize_user(user),
                     'last_login': user.last_login.isoformat() if user.last_login else None,
-                }
+                },
             })
         except (DatabaseError, OperationalError, ProgrammingError) as error:
             return _user_schema_error_response(error)
-    
-    elif request.method == 'PUT':
+
+    if request.method == 'PUT':
         try:
             try:
                 body = json.loads(request.body)
             except json.JSONDecodeError:
                 return JsonResponse({'success': False, 'error': 'Invalid JSON in request body'}, status=400)
-            
-            # Validate required fields if they are being updated
+
             if 'full_name' in body:
                 full_name = body['full_name'].strip()
                 if not full_name:
                     return JsonResponse({'success': False, 'error': 'full_name cannot be empty'}, status=400)
                 user.full_name = full_name
-            
+
             if 'registration_number' in body:
                 registration_number = body['registration_number'].strip()
                 if not registration_number:
                     return JsonResponse({'success': False, 'error': 'registration_number cannot be empty'}, status=400)
-                # Check for duplicate registration_number (excluding current user)
                 if _scope_users_queryset(request).filter(registration_number=registration_number).exclude(id=user_id).exists():
                     return JsonResponse({'success': False, 'error': 'A user with this registration number already exists'}, status=400)
                 user.registration_number = registration_number
-            
+
             if 'email' in body:
                 email = body['email'].strip()
-                # Validate email format if provided
                 if email and '@' not in email:
                     return JsonResponse({'success': False, 'error': 'Invalid email format'}, status=400)
-                # Convert empty string to None to avoid unique constraint violation
-                if not email:
-                    email = None
-                # Check for duplicate email if provided (excluding current user)
+                email = email or None
                 if email and _scope_users_queryset(request).filter(email=email).exclude(id=user_id).exists():
                     return JsonResponse({'success': False, 'error': 'A user with this email already exists'}, status=400)
                 user.email = email
-            
+
             if 'phone' in body:
                 user.phone = body['phone'].strip()
             if 'status' in body:
@@ -1212,6 +1251,7 @@ def api_user_detail(request, user_id, *args, **kwargs):
                 setattr(user, 'case_info', body['case_info'])
             if 'is_verified' in body:
                 user.is_verified = body['is_verified']
+
             custom_fields = _parse_json_field(getattr(user, 'custom_fields', {}), {})
             custom_fields.update(_extract_user_custom_fields(body))
             user.custom_fields = custom_fields
@@ -1219,30 +1259,31 @@ def api_user_detail(request, user_id, *args, **kwargs):
             return JsonResponse({
                 'success': True,
                 'message': 'User updated successfully',
-                'data': _serialize_user(user)
+                'data': _serialize_user(user),
             })
         except (DatabaseError, OperationalError, ProgrammingError) as error:
             return _user_schema_error_response(error)
         except Exception as e:
+            logger.exception("api_user_detail PUT error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    
-    elif request.method == 'DELETE':
-        # Perform hard delete so user is removed from the database entirely.
+
+    if request.method == 'DELETE':
         user.delete()
         return JsonResponse({'success': True, 'message': 'User deleted successfully'})
 
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
-# ============================================
-# API Views for Groups
-# ============================================
 
+# ---------------------------------------------------------------------------
+# API — Groups
+# ---------------------------------------------------------------------------
+
+@csrf_exempt
 def api_groups(request, *args, **kwargs):
-    """
-    GET: List all groups
-    POST: Create a new group
-    """
+    """GET: list active groups.  POST: create group (owner only)."""
     if request.method == 'GET':
         groups = _scope_groups_queryset(request).filter(is_active=True)
+        page, meta = _paginate_queryset(request, groups)
         data = [{
             'id': group.id,
             'group_name': group.group_name,
@@ -1252,14 +1293,13 @@ def api_groups(request, *args, **kwargs):
             'current_members': group.current_members,
             'is_flagged': group.is_flagged,
             'created_at': group.created_at.isoformat() if group.created_at else None,
-        } for group in groups]
-        return JsonResponse({'success': True, 'data': data})
-
-    denied = _ensure_owner_system_access(request)
-    if denied:
-        return denied
+        } for group in page]
+        return JsonResponse({'success': True, 'data': data, 'meta': meta})
 
     if request.method == 'POST':
+        denied = _ensure_owner_system_access(request)
+        if denied:
+            return denied
         try:
             body = json.loads(request.body)
             group = UserGroup.objects.create(
@@ -1272,26 +1312,25 @@ def api_groups(request, *args, **kwargs):
             return JsonResponse({
                 'success': True,
                 'message': 'Group created successfully',
-                'data': {
-                    'id': group.id,
-                    'group_name': group.group_name,
-                }
+                'data': {'id': group.id, 'group_name': group.group_name},
             }, status=201)
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_groups POST error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
 
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
+
+@csrf_exempt
 def api_group_detail(request, group_id, *args, **kwargs):
-    """
-    GET: Get single group with members
-    PUT: Update a group
-    DELETE: Delete a group
-    """
+    """GET / PUT / DELETE a single group."""
     try:
         group = _scope_groups_queryset(request).get(id=group_id)
     except ObjectDoesNotExist:
         return JsonResponse({'success': False, 'error': 'Group not found'}, status=404)
-    
+
     if request.method == 'GET':
         members_qs = _scope_group_members_queryset(request).filter(group_id=group_id, status='active')
         member_list = [{
@@ -1301,7 +1340,6 @@ def api_group_detail(request, group_id, *args, **kwargs):
             'joined_at': m.joined_at.isoformat() if m.joined_at else None,
         } for m in members_qs]
 
-        # Fallback to user.group_name when dedicated UserGroupMember entries are not present
         if not member_list:
             user_members = _scope_users_queryset(request).filter(group_name=group.group_name, is_active=True)
             member_list = [{
@@ -1321,7 +1359,7 @@ def api_group_detail(request, group_id, *args, **kwargs):
                 'max_members': group.max_members,
                 'current_members': group.current_members,
                 'members': member_list,
-            }
+            },
         })
 
     denied = _ensure_owner_system_access(request)
@@ -1347,36 +1385,32 @@ def api_group_detail(request, group_id, *args, **kwargs):
                 group.leader_id = body['leader_id']
             group.save()
 
-            # Keep users tied to group_name in sync
             if old_group_name != new_group_name:
                 _scope_users_queryset(request).filter(group_name=old_group_name, is_active=True).update(group_name=new_group_name)
 
             return JsonResponse({
                 'success': True,
                 'message': 'Group updated successfully',
-                'data': {
-                    'id': group.id,
-                    'group_name': group.group_name,
-                }
+                'data': {'id': group.id, 'group_name': group.group_name},
             })
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_group_detail PUT error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    
-    elif request.method == 'DELETE':
-        # Clear group_name for all users in this group first
+
+    if request.method == 'DELETE':
         _scope_users_queryset(request).filter(group_name=group.group_name).update(group_name='')
-        # Delete all group members
         _scope_group_members_queryset(request).filter(group_id=group_id).delete()
-        # Delete the group
         group.delete()
         return JsonResponse({'success': True, 'message': 'Group deleted successfully'})
 
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
+
+@csrf_exempt
 def api_group_members(request, *args, **kwargs):
-    """
-    GET: List all group members
-    POST: Add a member to a group
-    """
+    """GET: list members.  POST: add member (owner only)."""
     if request.method == 'GET':
         members = _scope_group_members_queryset(request)
 
@@ -1396,11 +1430,9 @@ def api_group_members(request, *args, **kwargs):
             except ValueError:
                 return JsonResponse({'success': False, 'error': 'Invalid user_id'}, status=400)
 
-        if status is not None:
-            members = members.filter(status=status)
-        else:
-            members = members.filter(status='active')
+        members = members.filter(status=status) if status is not None else members.filter(status='active')
 
+        page, meta = _paginate_queryset(request, members)
         data = [{
             'id': m.id,
             'user_id': m.user_id,
@@ -1408,56 +1440,47 @@ def api_group_members(request, *args, **kwargs):
             'is_leader': m.is_leader,
             'status': m.status,
             'joined_at': m.joined_at.isoformat() if m.joined_at else None,
-        } for m in members]
-        return JsonResponse({'success': True, 'data': data})
-
-    denied = _ensure_owner_system_access(request)
-    if denied:
-        return denied
+        } for m in page]
+        return JsonResponse({'success': True, 'data': data, 'meta': meta})
 
     if request.method == 'POST':
+        denied = _ensure_owner_system_access(request)
+        if denied:
+            return denied
         try:
             body = json.loads(request.body)
             user_id = body.get('user_id')
             group_id = body.get('group_id')
             is_leader = body.get('is_leader', False)
             status = body.get('status', 'active')
-            
+
             if not user_id or not group_id:
                 return JsonResponse({'success': False, 'error': 'user_id and group_id are required'}, status=400)
-            
-            # Check if user exists
+
             try:
                 user = _scope_users_queryset(request).get(id=user_id)
             except ObjectDoesNotExist:
                 return JsonResponse({'success': False, 'error': 'User not found'}, status=404)
-            
-            # Check if group exists
+
             try:
                 group = _scope_groups_queryset(request).get(id=group_id)
             except ObjectDoesNotExist:
                 return JsonResponse({'success': False, 'error': 'Group not found'}, status=404)
-            
-            # Check if member already exists
+
             if _scope_group_members_queryset(request).filter(user_id=user_id, group_id=group_id).exists():
                 return JsonResponse({'success': False, 'error': 'User is already a member of this group'}, status=400)
-            
-            # Create group member record
+
             member = UserGroupMember.objects.create(
                 user_id=user_id,
                 group_id=group_id,
                 is_leader=is_leader,
-                status=status
+                status=status,
             )
-            
-            # Update user's group_name
             user.group_name = group.group_name
             user.save()
-            
-            # Update group's current_members count
             group.current_members = _scope_group_members_queryset(request).filter(group_id=group_id, status='active').count()
             group.save()
-            
+
             return JsonResponse({
                 'success': True,
                 'message': 'Member added to group successfully',
@@ -1467,21 +1490,20 @@ def api_group_members(request, *args, **kwargs):
                     'group_id': member.group_id,
                     'is_leader': member.is_leader,
                     'status': member.status,
-                }
+                },
             }, status=201)
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_group_members POST error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    
-    else:
-        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
 
+@csrf_exempt
 def api_group_member_detail(request, member_id, *args, **kwargs):
-    """
-    GET: Get single group member
-    PUT: Update a group member
-    DELETE: Remove a member from a group
-    """
+    """GET / PUT / DELETE a single group member (owner only)."""
     denied = _ensure_owner_system_access(request)
     if denied:
         return denied
@@ -1489,7 +1511,7 @@ def api_group_member_detail(request, member_id, *args, **kwargs):
         member = _scope_group_members_queryset(request).get(id=member_id)
     except ObjectDoesNotExist:
         return JsonResponse({'success': False, 'error': 'Member not found'}, status=404)
-    
+
     if request.method == 'GET':
         return JsonResponse({
             'success': True,
@@ -1500,10 +1522,10 @@ def api_group_member_detail(request, member_id, *args, **kwargs):
                 'is_leader': member.is_leader,
                 'status': member.status,
                 'joined_at': member.joined_at.isoformat() if member.joined_at else None,
-            }
+            },
         })
-    
-    elif request.method == 'PUT':
+
+    if request.method == 'PUT':
         try:
             body = json.loads(request.body)
             if 'is_leader' in body:
@@ -1511,12 +1533,11 @@ def api_group_member_detail(request, member_id, *args, **kwargs):
             if 'status' in body:
                 member.status = body['status']
             member.save()
-            
-            # Update group's current_members count
+
             group = _scope_groups_queryset(request).get(id=member.group_id)
             group.current_members = _scope_group_members_queryset(request).filter(group_id=member.group_id, status='active').count()
             group.save()
-            
+
             return JsonResponse({
                 'success': True,
                 'message': 'Member updated successfully',
@@ -1526,48 +1547,44 @@ def api_group_member_detail(request, member_id, *args, **kwargs):
                     'group_id': member.group_id,
                     'is_leader': member.is_leader,
                     'status': member.status,
-                }
+                },
             })
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_group_member_detail PUT error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    
-    elif request.method == 'DELETE':
+
+    if request.method == 'DELETE':
         try:
             group_id = member.group_id
             member.delete()
-            
-            # Update group's current_members count
             group = _scope_groups_queryset(request).get(id=group_id)
             group.current_members = _scope_group_members_queryset(request).filter(group_id=group_id, status='active').count()
             group.save()
-            
             return JsonResponse({'success': True, 'message': 'Member removed from group successfully'})
         except Exception as e:
+            logger.exception("api_group_member_detail DELETE error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    
-    else:
-        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
 
-# ============================================
-# API Views for System Settings (Signup Control)
-# ============================================
+# ---------------------------------------------------------------------------
+# API — System Settings: signup control
+# ---------------------------------------------------------------------------
 
+@csrf_exempt
 def api_signup_setting(request, *args, **kwargs):
-    """
-    GET: Get signup_allowed setting
-    PUT: Update signup_allowed setting
-    """
+    """GET / PUT the signup_allowed system setting."""
     SIGNUP_SETTING_KEY = 'signup_allowed'
-    
+
     if request.method == 'GET':
         try:
-            # Try to get existing setting
             try:
                 setting = _scope_system_settings_queryset(request).get(setting_key=SIGNUP_SETTING_KEY)
                 signup_allowed = setting.setting_value == 'true'
             except ObjectDoesNotExist:
-                # Create default setting (signup allowed by default)
                 setting = SystemSetting.objects.create(
                     setting_key=SIGNUP_SETTING_KEY,
                     setting_value='true',
@@ -1576,65 +1593,54 @@ def api_signup_setting(request, *args, **kwargs):
                     created_by=_get_product_owner_id(request),
                 )
                 signup_allowed = True
-            
             return JsonResponse({
                 'success': True,
-                'data': {
-                    'signup_allowed': signup_allowed,
-                    'setting_key': SIGNUP_SETTING_KEY
-                }
+                'data': {'signup_allowed': signup_allowed, 'setting_key': SIGNUP_SETTING_KEY},
             })
         except Exception as e:
+            logger.exception("api_signup_setting GET error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
 
-    denied = _ensure_owner_system_access(request)
-    if denied:
-        return denied
-
     if request.method == 'PUT':
+        denied = _ensure_owner_system_access(request)
+        if denied:
+            return denied
         try:
             body = json.loads(request.body)
             signup_allowed = body.get('signup_allowed', True)
-            
-            # Get or create the setting
             setting, created = SystemSetting.objects.get_or_create(
                 setting_key=SIGNUP_SETTING_KEY,
                 created_by=_get_product_owner_id(request),
                 defaults={
                     'setting_value': 'true' if signup_allowed else 'false',
                     'setting_type': 'boolean',
-                    'description': 'Controls whether new members can sign up'
-                }
+                    'description': 'Controls whether new members can sign up',
+                },
             )
-            
             if not created:
                 setting.setting_value = 'true' if signup_allowed else 'false'
                 setting.save()
-            
             return JsonResponse({
                 'success': True,
                 'message': 'Signup setting updated successfully',
-                'data': {
-                    'signup_allowed': signup_allowed,
-                    'setting_key': SIGNUP_SETTING_KEY
-                }
+                'data': {'signup_allowed': signup_allowed, 'setting_key': SIGNUP_SETTING_KEY},
             })
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_signup_setting PUT error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    
-    else:
-        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
 
-# ============================================
-# API Views for System Settings (Storage Links)
-# ============================================
+# ---------------------------------------------------------------------------
+# API — System Settings: storage links
+# ---------------------------------------------------------------------------
 
+@csrf_exempt
 def api_system_settings(request, *args, **kwargs):
-    """
-    GET: Return storage links for system menu buttons
-    PUT: Update storage links for system menu buttons
-    """
+    """GET / PUT storage links and registration-mode settings."""
     STORAGE_NOTES_KEY = 'storage_notes_link'
     STORAGE_CALENDAR_KEY = 'storage_calendar_link'
     STORAGE_SUMMARY_KEY = 'storage_summary_link'
@@ -1647,17 +1653,10 @@ def api_system_settings(request, *args, **kwargs):
     EXTERNAL_SIGNUP_TARGET_ID_KEY = 'external_signup_target_id'
     EXTERNAL_SIGNUP_TARGET_NAME_KEY = 'external_signup_target_name'
     allowed_keys = [
-        STORAGE_NOTES_KEY,
-        STORAGE_CALENDAR_KEY,
-        STORAGE_SUMMARY_KEY,
-        REGISTRATION_MODE_KEY,
-        REGISTRATION_LINK_KEY,
-        REGISTRATION_LINK_BEHAVIOR_KEY,
-        EXTERNAL_TABLE_MODE_KEY,
-        EXTERNAL_TABLE_NAME_KEY,
-        EXTERNAL_TABLE_ID_KEY,
-        EXTERNAL_SIGNUP_TARGET_ID_KEY,
-        EXTERNAL_SIGNUP_TARGET_NAME_KEY,
+        STORAGE_NOTES_KEY, STORAGE_CALENDAR_KEY, STORAGE_SUMMARY_KEY,
+        REGISTRATION_MODE_KEY, REGISTRATION_LINK_KEY, REGISTRATION_LINK_BEHAVIOR_KEY,
+        EXTERNAL_TABLE_MODE_KEY, EXTERNAL_TABLE_NAME_KEY, EXTERNAL_TABLE_ID_KEY,
+        EXTERNAL_SIGNUP_TARGET_ID_KEY, EXTERNAL_SIGNUP_TARGET_NAME_KEY,
     ]
 
     def build_settings_payload():
@@ -1674,18 +1673,15 @@ def api_system_settings(request, *args, **kwargs):
             EXTERNAL_SIGNUP_TARGET_ID_KEY: '',
             EXTERNAL_SIGNUP_TARGET_NAME_KEY: '',
         }
-        settings = _scope_system_settings_queryset(request).filter(setting_key__in=allowed_keys)
-        for setting in settings:
+        for setting in _scope_system_settings_queryset(request).filter(setting_key__in=allowed_keys):
             settings_map[setting.setting_key] = setting.setting_value or ''
         return settings_map
 
     if request.method == 'GET':
         try:
-            return JsonResponse({
-                'success': True,
-                'data': build_settings_payload(),
-            })
+            return JsonResponse({'success': True, 'data': build_settings_payload()})
         except Exception as e:
+            logger.exception("api_system_settings GET error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
 
     if request.method == 'PUT':
@@ -1724,7 +1720,7 @@ def api_system_settings(request, *args, **kwargs):
                     'setting_type': 'string',
                     'description': descriptions.get(key, ''),
                     'updated_by': owner_id,
-                }
+                },
             )
             if not created:
                 setting.setting_value = value
@@ -1742,15 +1738,13 @@ def api_system_settings(request, *args, **kwargs):
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
 
-# ============================================
-# API Views for Registration Form Fields
-# ============================================
+# ---------------------------------------------------------------------------
+# API — Registration Form Fields
+# ---------------------------------------------------------------------------
 
+@csrf_exempt
 def api_registration_fields(request, *args, **kwargs):
-    """
-    GET: List all active registration form fields
-    POST: Create a new registration form field
-    """
+    """GET: list active fields.  POST: create field (owner only)."""
     if request.method == 'GET':
         owner_id = _get_product_owner_id(request)
         fields = RegistrationFormField.objects.filter(is_active=True)
@@ -1760,7 +1754,7 @@ def api_registration_fields(request, *args, **kwargs):
         data = [{
             'id': field.id,
             'name': field.field_name,
-            'key': field.field_key or field.field_name,  # Use field_name as fallback
+            'key': field.field_key or field.field_name,
             'type': field.field_type,
             'label': field.field_label,
             'placeholder': field.placeholder or '',
@@ -1770,11 +1764,10 @@ def api_registration_fields(request, *args, **kwargs):
         } for field in fields]
         return JsonResponse({'success': True, 'data': data})
 
-    denied = _ensure_owner_system_access(request)
-    if denied:
-        return denied
-
     if request.method == 'POST':
+        denied = _ensure_owner_system_access(request)
+        if denied:
+            return denied
         try:
             body = json.loads(request.body)
             field = RegistrationFormField.objects.create(
@@ -1798,21 +1791,20 @@ def api_registration_fields(request, *args, **kwargs):
                     'type': field.field_type,
                     'label': field.field_label,
                     'required': 'yes' if field.is_required else 'no',
-                }
+                },
             }, status=201)
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_registration_fields POST error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    
-    else:
-        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
 
+@csrf_exempt
 def api_registration_field_detail(request, field_id, *args, **kwargs):
-    """
-    GET: Get single field
-    PUT: Update a field
-    DELETE: Delete a field
-    """
+    """GET / PUT / DELETE a single registration field (owner only)."""
     denied = _ensure_owner_system_access(request)
     if denied:
         return denied
@@ -1824,7 +1816,7 @@ def api_registration_field_detail(request, field_id, *args, **kwargs):
         field = field_qs.get(id=field_id)
     except ObjectDoesNotExist:
         return JsonResponse({'success': False, 'error': 'Field not found'}, status=404)
-    
+
     if request.method == 'GET':
         return JsonResponse({
             'success': True,
@@ -1839,10 +1831,10 @@ def api_registration_field_detail(request, field_id, *args, **kwargs):
                 'required': 'yes' if field.is_required else 'no',
                 'order': field.display_order,
                 'is_active': field.is_active,
-            }
+            },
         })
-    
-    elif request.method == 'PUT':
+
+    if request.method == 'PUT':
         try:
             body = json.loads(request.body)
             field.field_name = body.get('name', field.field_name)
@@ -1863,107 +1855,104 @@ def api_registration_field_detail(request, field_id, *args, **kwargs):
                     'key': field.field_key,
                     'type': field.field_type,
                     'label': field.field_label,
-                }
+                },
             })
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_registration_field_detail PUT error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    
-    elif request.method == 'DELETE':
+
+    if request.method == 'DELETE':
         field.delete()
         return JsonResponse({'success': True, 'message': 'Field deleted successfully'})
-    
-    else:
-        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)# ============================================
-# API Views for Form Framework Restructure
-# ============================================
 
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+
+
+# ---------------------------------------------------------------------------
+# API — Bulk user clear
+# ---------------------------------------------------------------------------
+
+@csrf_exempt
 def api_users_clear_all(request, *args, **kwargs):
-    """
-    POST: Delete all users
-    """
+    """POST: delete all scoped users (owner only)."""
     denied = _ensure_owner_system_access(request)
     if denied:
         return denied
+
     if request.method == 'POST':
         try:
             users = _scope_users_queryset(request)
             count = users.count()
             users.delete()
-            return JsonResponse({
-                'success': True,
-                'message': f'{count} users deleted successfully'
-            })
+            return JsonResponse({'success': True, 'message': f'{count} users deleted successfully'})
         except Exception as e:
+            logger.exception("api_users_clear_all POST error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    else:
-        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
 
+# ---------------------------------------------------------------------------
+# API — External Tables
+# ---------------------------------------------------------------------------
+
+@csrf_exempt
 def api_external_tables(request, *args, **kwargs):
-    """
-    GET: List all external tables
-    POST: Create a new external table
-    """
+    """GET: list tables.  POST: create table (owner only)."""
     if request.method == 'GET':
-        # Return list of external tables
         tables = _scope_external_tables_queryset(request)
-        data = [_serialize_external_table(table) for table in tables]
-        return JsonResponse({'success': True, 'data': data})
-
-    denied = _ensure_owner_system_access(request)
-    if denied:
-        return denied
+        page, meta = _paginate_queryset(request, tables)
+        data = [_serialize_external_table(table) for table in page]
+        return JsonResponse({'success': True, 'data': data, 'meta': meta})
 
     if request.method == 'POST':
+        denied = _ensure_owner_system_access(request)
+        if denied:
+            return denied
         try:
             body = json.loads(request.body)
             table_name = body.get('table_name', '')
             fields = body.get('fields', [])
             hidden_columns = _parse_json_field(body.get('hidden_columns', []), [])
-            
-            # Validate table name
-            import re
+
             if not re.match(r'^[a-zA-Z0-9_]+$', table_name):
                 return JsonResponse({
                     'success': False,
-                    'error': 'Invalid table name. Only letters, numbers, and underscores allowed.'
+                    'error': 'Invalid table name. Only letters, numbers, and underscores allowed.',
                 }, status=400)
-            
-            # Create external table record
+
             table = ExternalTable.objects.create(
                 table_name=table_name,
                 fields_schema=fields if isinstance(fields, list) else [],
                 hidden_columns=hidden_columns if isinstance(hidden_columns, list) else [],
                 created_by=_get_product_owner_id(request),
             )
-            
             return JsonResponse({
                 'success': True,
                 'message': 'External table created successfully',
-                'data': _serialize_external_table(table)
+                'data': _serialize_external_table(table),
             }, status=201)
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_external_tables POST error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    
-    else:
-        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
 
+@csrf_exempt
 def api_external_table_detail(request, table_id, *args, **kwargs):
-    """
-    GET: Get external table details
-    DELETE: Delete external table
-    """
+    """GET / PUT / PATCH / DELETE a single external table."""
     try:
         table = _scope_external_tables_queryset(request).get(id=table_id)
     except ObjectDoesNotExist:
         return JsonResponse({'success': False, 'error': 'Table not found'}, status=404)
-    
+
     if request.method == 'GET':
-        return JsonResponse({
-            'success': True,
-            'data': _serialize_external_table(table)
-        })
+        return JsonResponse({'success': True, 'data': _serialize_external_table(table)})
 
     denied = _ensure_owner_system_access(request)
     if denied:
@@ -1977,20 +1966,18 @@ def api_external_table_detail(request, table_id, *args, **kwargs):
                 new_name = str(body.get('table_name', '')).strip()
                 if not new_name:
                     return JsonResponse({'success': False, 'error': 'Table name cannot be empty'}, status=400)
-                tables_qs = _scope_external_tables_queryset(request).exclude(id=table.id)
-                if tables_qs.filter(table_name__iexact=new_name).exists():
+                if _scope_external_tables_queryset(request).exclude(id=table.id).filter(table_name__iexact=new_name).exists():
                     return JsonResponse({'success': False, 'error': 'Another table with this name already exists'}, status=400)
                 table.table_name = new_name
 
             if 'fields_schema' in body:
                 fields_schema = body.get('fields_schema', [])
-                # JSONField handles serialization automatically - pass as list
                 if isinstance(fields_schema, list):
                     table.fields_schema = fields_schema
                 elif isinstance(fields_schema, str):
                     try:
                         table.fields_schema = json.loads(fields_schema)
-                    except:
+                    except json.JSONDecodeError:
                         table.fields_schema = []
                 else:
                     table.fields_schema = []
@@ -2001,85 +1988,81 @@ def api_external_table_detail(request, table_id, *args, **kwargs):
 
             if 'is_visible' in body:
                 table.is_visible = bool(body.get('is_visible'))
-
             if 'is_active' in body:
                 table.is_active = bool(body.get('is_active'))
 
             table.save()
-            return JsonResponse({'success': True, 'message': 'External table updated successfully', 'data': _serialize_external_table(table)})
+            return JsonResponse({
+                'success': True,
+                'message': 'External table updated successfully',
+                'data': _serialize_external_table(table),
+            })
         except json.JSONDecodeError:
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_external_table_detail PUT error")
             return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
-    elif request.method == 'DELETE':
+    if request.method == 'DELETE':
         table.delete()
         return JsonResponse({'success': True, 'message': 'External table deleted successfully'})
-    
-    else:
-        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
 
+@csrf_exempt
 def api_external_table_records(request, table_id, *args, **kwargs):
-    """
-    GET: List records in external table
-    POST: Add new record to external table
-    """
+    """GET: list records.  POST: add record."""
     try:
         table = _scope_external_tables_queryset(request).get(id=table_id)
     except ObjectDoesNotExist:
-        logger.warning(f"Table not found: {table_id}")
+        logger.warning("api_external_table_records: table %s not found", table_id)
         return JsonResponse({'success': False, 'error': 'Table not found'}, status=404)
-    
+
     if request.method == 'GET':
         records = ExternalTableRecord.objects.filter(table=table)
         schema = table.get_fields_list() if hasattr(table, 'get_fields_list') else []
-        
+        page, meta = _paginate_queryset(request, records)
         normalized_records = []
-        for record in records:
+        for record in page:
             serialized = _serialize_external_record(record)
-            # Normalize against current schema
             serialized['data'] = normalize_record(schema, serialized.get('data', {}))
             normalized_records.append(serialized)
-        
-        return JsonResponse({'success': True, 'data': normalized_records})
-
-    denied = _ensure_owner_system_access(request)
-    if denied:
-        return denied
+        return JsonResponse({'success': True, 'data': normalized_records, 'meta': meta})
 
     if request.method == 'POST':
+        denied = _ensure_owner_system_access(request)
+        if denied:
+            return denied
         try:
             body = json.loads(request.body)
             record_data = body.get('data', {})
-            
-            # Ensure data is a dict (JSONField handles serialization)
             if not isinstance(record_data, dict):
                 record_data = {}
-            
-            record = ExternalTableRecord.objects.create(
-                table=table,
-                data=record_data
-            )
-            
+
+            record = ExternalTableRecord.objects.create(table=table, data=record_data)
             _sync_external_table_record_count(table)
-            
             return JsonResponse({
                 'success': True,
                 'message': 'Record added successfully',
-                'data': _serialize_external_record(record)
+                'data': _serialize_external_record(record),
             }, status=201)
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_external_table_records POST error")
             return JsonResponse({'success': False, 'error': str(e)}, status=400)
-    
-    else:
-        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
 
+@csrf_exempt
 def api_external_table_record_detail(request, table_id, record_id, *args, **kwargs):
+    """GET / PUT / PATCH / DELETE a single external table record (owner only)."""
     denied = _ensure_owner_system_access(request)
     if denied:
         return denied
+
     try:
         table = _scope_external_tables_queryset(request).get(id=table_id)
     except ObjectDoesNotExist:
@@ -2093,7 +2076,7 @@ def api_external_table_record_detail(request, table_id, record_id, *args, **kwar
     if request.method == 'GET':
         return JsonResponse({'success': True, 'data': _serialize_external_record(record)})
 
-    elif request.method in ('PUT', 'PATCH'):
+    if request.method in ('PUT', 'PATCH'):
         try:
             body = json.loads(request.body)
             current_data = _serialize_external_record(record)['record_data']
@@ -2105,16 +2088,22 @@ def api_external_table_record_detail(request, table_id, record_id, *args, **kwar
                 if key in body:
                     current_data[key] = body.get(key)
 
-            record.data = json.dumps(current_data)
+            # Assign the dict directly — JSONField handles serialisation.
+            record.data = current_data
             record.save()
             _sync_external_table_record_count(table)
-            return JsonResponse({'success': True, 'message': 'Record updated successfully', 'data': _serialize_external_record(record)})
+            return JsonResponse({
+                'success': True,
+                'message': 'Record updated successfully',
+                'data': _serialize_external_record(record),
+            })
         except json.JSONDecodeError:
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
+            logger.exception("api_external_table_record_detail PUT error")
             return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
-    elif request.method == 'DELETE':
+    if request.method == 'DELETE':
         record.delete()
         _sync_external_table_record_count(table)
         return JsonResponse({'success': True, 'message': 'Record deleted successfully'})
@@ -2122,191 +2111,135 @@ def api_external_table_record_detail(request, table_id, record_id, *args, **kwar
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
 
+# ---------------------------------------------------------------------------
+# API — Registration validation & external-table signup
+# ---------------------------------------------------------------------------
+
+@csrf_exempt
 def api_validate_registration(request, *args, **kwargs):
-    """
-    POST: Validate registration number against main User database
-    """
-    if request.method == 'POST':
-        try:
-            body = json.loads(request.body)
-            registration_number = body.get('registration_number', '').strip()
-            
-            if not registration_number:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'Registration number is required'
-                }, status=400)
-            
-            # Check if user exists with this registration number
-            try:
-                user = _scope_users_queryset(request).get(registration_number=registration_number)
-                return JsonResponse({
-                    'success': True,
-                    'valid': True,
-                    'user': {
-                        'id': user.id,
-                        'full_name': user.full_name,
-                        'email': user.email,
-                        'registration_number': user.registration_number
-                    }
-                })
-            except ObjectDoesNotExist:
-                return JsonResponse({
-                    'success': True,
-                    'valid': False,
-                    'error': 'Registration number not found'
-                })
-                
-        except json.JSONDecodeError:
-            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
-        except Exception as e:
-            return JsonResponse({'success': False, 'error': str(e)}, status=500)
-    
-    else:
+    """POST: validate a registration number against the User table."""
+    if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
+    try:
+        body = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
 
+    registration_number = body.get('registration_number', '').strip()
+    if not registration_number:
+        return JsonResponse({'success': False, 'error': 'Registration number is required'}, status=400)
+
+    try:
+        user = _scope_users_queryset(request).get(registration_number=registration_number)
+        return JsonResponse({
+            'success': True,
+            'valid': True,
+            'user': {
+                'id': user.id,
+                'full_name': user.full_name,
+                'email': user.email,
+                'registration_number': user.registration_number,
+            },
+        })
+    except ObjectDoesNotExist:
+        return JsonResponse({'success': True, 'valid': False, 'error': 'Registration number not found'})
+    except Exception as e:
+        logger.exception("api_validate_registration error")
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@csrf_exempt
 def api_external_table_signup(request, *args, **kwargs):
-    """
-    POST: Submit member signup for external table
-    """
-    if request.method == 'POST':
-        try:
-            body = json.loads(request.body)
-            table_id = body.get('table_id')
-            registration_number = body.get('registration_number', '').strip()
-            name = body.get('name', '').strip()
-            email = body.get('email', '').strip()
-            phone = body.get('phone', '').strip()
-            notes = body.get('notes', '').strip()
-            
-            # Validate required fields
-            if not all([table_id, registration_number, name, email]):
-                return JsonResponse({
-                    'success': False,
-                    'error': 'All required fields must be provided'
-                }, status=400)
-            
-            # Get the table
-            try:
-                table = _scope_external_tables_queryset(request).get(id=table_id)
-            except ObjectDoesNotExist:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'Table not found'
-                }, status=404)
-            
-            # Validate registration number exists in User table
-            try:
-                user = _scope_users_queryset(request).get(registration_number=registration_number)
-            except ObjectDoesNotExist:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'Invalid registration number'
-                }, status=400)
-            
-            # Check if user is already signed up for this table
-            existing_record = ExternalTableRecord.objects.filter(
-                table=table,
-                data__contains=f'"registration_number": "{registration_number}"'
-            ).first()
-            
-            if existing_record:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'You have already applied for this table'
-                }, status=400)
-            
-            # Create the signup record
-            record_data = {
-                'registration_number': registration_number,
-                'full_name': name,
-                'email': email,
-                'phone': phone,
-                'notes': notes,
-                'user_id': user.id,
-                'status': 'pending',  # pending, approved, rejected
-                'submitted_at': datetime.now().isoformat()
-            }
-            
-            # Ensure data is a dict (JSONField handles serialization)
-            record_data_dict = {
-                'full_name': name,
-                'registration_number': registration_number,
-                'phone': phone,
-                'notes': notes,
-                'user_id': user.id,
-                'status': 'pending',
-                'submitted_at': datetime.now().isoformat()
-            }
-            
-            record = ExternalTableRecord.objects.create(
-                table=table,
-                data=record_data_dict
-            )
-            
-            # Update record count
-            table.record_count = ExternalTableRecord.objects.filter(table=table).count()
-            table.save()
-            
-            return JsonResponse({
-                'success': True,
-                'message': 'Application submitted successfully',
-                'data': {
-                    'id': record.id,
-                    'status': 'pending'
-                }
-            }, status=201)
-            
-        except json.JSONDecodeError:
-            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
-        except Exception as e:
-            return JsonResponse({'success': False, 'error': str(e)}, status=500)
-    
-    else:
+    """POST: submit a member signup record for an external table."""
+    if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
+    try:
+        body = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
 
-def api_external_table_toggle_visibility(request, table_id):
-    """
-    POST: Toggle visibility of external table
-    """
+    table_id = body.get('table_id')
+    registration_number = body.get('registration_number', '').strip()
+    name = body.get('name', '').strip()
+    email = body.get('email', '').strip()
+    phone = body.get('phone', '').strip()
+    notes = body.get('notes', '').strip()
+
+    if not all([table_id, registration_number, name, email]):
+        return JsonResponse({'success': False, 'error': 'All required fields must be provided'}, status=400)
+
     try:
         table = _scope_external_tables_queryset(request).get(id=table_id)
     except ObjectDoesNotExist:
         return JsonResponse({'success': False, 'error': 'Table not found'}, status=404)
-    
-    if request.method == 'POST':
-        try:
-            body = json.loads(request.body)
-            is_visible = body.get('is_visible')
-            
-            if is_visible is None:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'is_visible field is required'
-                }, status=400)
-            
-            if isinstance(is_visible, str):
-                table.is_visible = is_visible.lower() in ('true', '1', 'yes', 'on')
-            else:
-                table.is_visible = bool(is_visible)
-            table.save()
-            
-            return JsonResponse({
-                'success': True,
-                'message': f'Table visibility {"enabled" if table.is_visible else "disabled"}',
-                'data': {
-                    'id': table.id,
-                    'is_visible': table.is_visible
-                }
-            })
-            
-        except json.JSONDecodeError:
-            return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
-        except Exception as e:
-            return JsonResponse({'success': False, 'error': str(e)}, status=500)
-    
-    else:
+
+    try:
+        user = _scope_users_queryset(request).get(registration_number=registration_number)
+    except ObjectDoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Invalid registration number'}, status=400)
+
+    # Use the proper JSONField lookup — avoids false matches from substring search.
+    if ExternalTableRecord.objects.filter(table=table, data__registration_number=registration_number).exists():
+        return JsonResponse({'success': False, 'error': 'You have already applied for this table'}, status=400)
+
+    record_data = {
+        'full_name': name,
+        'registration_number': registration_number,
+        'email': email,
+        'phone': phone,
+        'notes': notes,
+        'user_id': user.id,
+        'status': 'pending',
+        'submitted_at': datetime.now().isoformat(),
+    }
+
+    try:
+        record = ExternalTableRecord.objects.create(table=table, data=record_data)
+        _sync_external_table_record_count(table)
+        return JsonResponse({
+            'success': True,
+            'message': 'Application submitted successfully',
+            'data': {'id': record.id, 'status': 'pending'},
+        }, status=201)
+    except Exception as e:
+        logger.exception("api_external_table_signup error")
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@csrf_exempt
+def api_external_table_toggle_visibility(request, table_id):
+    """POST: toggle is_visible on an external table (owner only)."""
+    try:
+        table = _scope_external_tables_queryset(request).get(id=table_id)
+    except ObjectDoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Table not found'}, status=404)
+
+    if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
-PUBLIC_DEMO_COUNTDOWN_KEY = "public_demo"
+
+    denied = _ensure_owner_system_access(request)
+    if denied:
+        return denied
+
+    try:
+        body = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
+
+    is_visible = body.get('is_visible')
+    if is_visible is None:
+        return JsonResponse({'success': False, 'error': 'is_visible field is required'}, status=400)
+
+    if isinstance(is_visible, str):
+        table.is_visible = is_visible.lower() in ('true', '1', 'yes', 'on')
+    else:
+        table.is_visible = bool(is_visible)
+    table.save()
+
+    return JsonResponse({
+        'success': True,
+        'message': f'Table visibility {"enabled" if table.is_visible else "disabled"}',
+        'data': {'id': table.id, 'is_visible': table.is_visible},
+    })
