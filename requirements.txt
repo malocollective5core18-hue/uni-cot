@@ -15,7 +15,8 @@ cloudinary==1.40.0
 # Production Server
 gunicorn==22.0.0
 whitenoise==6.7.0
-django-redis==5.1.0
+django-redis==5.4.0
+redis==5.0.8
 
 # Additional Utilities
 python-decouple==3.8
