@@ -3,6 +3,7 @@ Django settings wrapper for mysite project.
 Imports from inner settings module and applies production configurations.
 """
 
+import os
 import sys
 import traceback
 
@@ -10,10 +11,38 @@ import traceback
 # This file must remain a thin wrapper; the concrete configuration lives in
 # `mysite/mysite/settings.py`.
 try:
+    print(
+        "DEBUG: mysite/settings.py importing mysite.mysite.settings",
+        file=sys.stderr,
+    )
+    print(
+        f"DEBUG: DJANGO_SETTINGS_MODULE={os.getenv('DJANGO_SETTINGS_MODULE')}",
+        file=sys.stderr,
+    )
+    print(
+        f"DEBUG: cwd={os.getcwd()}",
+        file=sys.stderr,
+    )
+    print(
+        f"DEBUG: sys.path[0]={sys.path[0]!r}",
+        file=sys.stderr,
+    )
     from mysite.mysite.settings import *  # noqa: F401,F403
 except Exception:
     print(
         "ERROR importing mysite.mysite.settings from mysite/settings.py",
+        file=sys.stderr,
+    )
+    print(
+        f"ERROR: DJANGO_SETTINGS_MODULE={os.getenv('DJANGO_SETTINGS_MODULE')}",
+        file=sys.stderr,
+    )
+    print(
+        f"ERROR: cwd={os.getcwd()}",
+        file=sys.stderr,
+    )
+    print(
+        f"ERROR: sys.path={sys.path}",
         file=sys.stderr,
     )
     traceback.print_exc()
