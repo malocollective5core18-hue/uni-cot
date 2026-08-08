@@ -1531,7 +1531,9 @@ def api_create_tenant(request, *args, **kwargs):
                 is_active=True,
             )
 
+            start = time()
             tenant = create_owner_tenant(owner)
+            logger.info("api_create_tenant: created tenant id=%s for owner=%s in %.2fs", getattr(tenant, 'id', None), owner.email, time() - start)
     except Exception:
         error_ref = uuid.uuid4().hex[:8]
         logger.exception(
