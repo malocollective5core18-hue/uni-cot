@@ -3,10 +3,21 @@ Django settings wrapper for mysite project.
 Imports from inner settings module and applies production configurations.
 """
 
+import sys
+import traceback
+
 # Import all settings from the inner config module.
 # This file must remain a thin wrapper; the concrete configuration lives in
 # `mysite/mysite/settings.py`.
-from mysite.mysite.settings import *  # noqa: F401,F403
+try:
+    from mysite.mysite.settings import *  # noqa: F401,F403
+except Exception:
+    print(
+        "ERROR importing mysite.mysite.settings from mysite/settings.py",
+        file=sys.stderr,
+    )
+    traceback.print_exc()
+    raise
 
 # Keep app lists explicit here so the outer settings module and the inner
 # settings module agree on shared-vs-tenant placement when Django imports this
