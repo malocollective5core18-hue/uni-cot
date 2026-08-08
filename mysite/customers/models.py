@@ -1,5 +1,7 @@
 import os
 import secrets
+import logging
+import time
 from datetime import timedelta
 
 from django.db import models
@@ -8,6 +10,8 @@ from django.utils import timezone
 from django.utils.text import slugify
 from django_tenants.models import DomainMixin, TenantMixin
 from django_tenants.postgresql_backend.base import _check_schema_name
+
+logger = logging.getLogger(__name__)
 
 
 def get_tenant_routing_mode():
@@ -37,16 +41,25 @@ def ensure_tenant_schema_ready(tenant, verbosity=0):
     Path routing skips TenantMixin.save() schema side effects, so we provision
     the schema explicitly after the tenant record is created.
     """
+    start = time.time()
     create_schema = getattr(tenant, "create_schema", None)
     if callable(create_schema):
-        return create_schema(check_if_exists=True, verbosity=verbosity)
+        result = create_schema(check_if_exists=True, verbosity=verbosity)
+        logger.info("ensure_tenant_schema_ready: used tenant.create_schema for %s (%.2fs)", getattr(tenant, 'schema_name', None), time.time() - start)
+        return result
 
     schema_name = getattr(tenant, "schema_name", None)
     if not schema_name:
         raise RuntimeError("Cannot provision tenant schema without schema_name.")
 
     # Fallback for environments where the mixin helper is unavailable.
-    return call_command("migrate_schemas", schema_name=schema_name, interactive=False, verbosity=verbosity)
+    try:
+        result = call_command("migrate_schemas", schema_name=schema_name, interactive=False, verbosity=verbosity)
+        logger.info("ensure_tenant_schema_ready: migrate_schemas completed for %s (%.2fs)", schema_name, time.time() - start)
+        return result
+    except Exception:
+        logger.exception("ensure_tenant_schema_ready: migrate_schemas failed for %s", schema_name)
+        raise
 
 
 def _build_unique_identifier(raw_value, existing_values=None, separator="_"):
@@ -332,6 +345,14 @@ def create_owner_tenant(owner, base_domain=None):
         deactivate_existing=False,
     )
 
-    ensure_tenant_schema_ready(tenant, verbosity=0)
+    # Provision schema/tables. This can be expensive (runs migrations for the
+    # tenant). In high-throughput signup flows it's useful to avoid blocking the
+    # HTTP request while the schema is provisioned. Control via
+    # TENANT_PROVISION_SYNC env var (default: 'true').
+    provision_sync = os.getenv('TENANT_PROVISION_SYNC', 'true').strip().lower() == 'true'
+    if provision_sync:
+        ensure_tenant_schema_ready(tenant, verbosity=0)
+    else:
+        logger.info("create_owner_tenant: deferred provisioning for tenant %s (schema=%s)", tenant.name, tenant.schema_name)
 
     return tenant
