@@ -45,6 +45,8 @@ SHARED_APPS_CORRECTED = [
     'django_tenants',
     'service',
     'customers',
+    # Public API routes also query Core models; migrate Core in public schema.
+    'core',
     *COMMON_APPS_CORRECTED,
 ]
 
