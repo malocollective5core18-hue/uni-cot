@@ -132,6 +132,9 @@ SHARED_APPS = [
     'django_tenants',
     'service',
     'customers',
+    # The public service routes use Core models (for example system settings
+    # and countdown cards), so their tables must exist in the public schema.
+    'core',
     *COMMON_APPS,
 ]
 
