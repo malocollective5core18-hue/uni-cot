@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -8,6 +9,7 @@ from django.core.cache import cache
 from django.db import IntegrityError
 from django.contrib.auth.hashers import make_password
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
+from django.template.loader import render_to_string
 from django.urls import reverse
 
 from core import views
@@ -24,6 +26,53 @@ class SessionConfigurationTests(SimpleTestCase):
         self.assertEqual(settings.SESSION_CACHE_ALIAS, 'default')
         self.assertFalse(settings.SESSION_SAVE_EVERY_REQUEST)
         self.assertEqual(settings.SESSION_COOKIE_AGE, 60 * 60 * 24 * 7)
+
+
+@override_settings(
+    STORAGES={
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    },
+)
+class CompanyShowcaseTemplateTests(TestCase):
+    """The public showcase is static and must not add render-time queries."""
+
+    external_urls = (
+        "https://lomi-apple.onrender.com",
+        "https://speakora-ghfw.onrender.com/",
+        "https://stanslau2025.github.io/DFIX_DGXcore",
+        "https://34.35.47.111:3000",
+        "https://www.mauzosheetai.co.tz/",
+        "https://zima.co.tz/",
+    )
+
+    def _assert_showcase(self, template_name):
+        with self.assertNumQueries(0):
+            rendered = render_to_string(template_name, {
+                "comments": [],
+                "review_summary": {},
+                "tenant_base_path": "",
+            })
+
+        vision_position = rendered.index('id="vision-projects"')
+        collaborations_position = rendered.index('id="collaborations"')
+        blog_position = rendered.index('id="blog"')
+        self.assertLess(vision_position, collaborations_position)
+        self.assertLess(collaborations_position, blog_position)
+
+        for url in self.external_urls:
+            self.assertRegex(
+                rendered,
+                rf'href="{re.escape(url)}"[^>]*target="_blank"[^>]*rel="noopener noreferrer"',
+            )
+        self.assertIn('BLACKSCIENCE Technologies', rendered)
+
+    def test_index_showcase_renders_before_blog_without_queries(self):
+        self._assert_showcase("index.html")
+
+    def test_welcome_showcase_renders_before_blog_without_queries(self):
+        self._assert_showcase("welcome.html")
 
 
 class HealthEndpointTests(CacheIsolationMixin, TestCase):

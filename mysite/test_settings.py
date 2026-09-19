@@ -8,3 +8,11 @@ CACHES = {
         "LOCATION": "tests-isolated",
     },
 }
+
+# Tests render templates directly without a preceding collectstatic step.
+# Production retains the manifest-backed WhiteNoise configuration in settings.py.
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
