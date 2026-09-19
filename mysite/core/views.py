@@ -12,7 +12,7 @@ from django.contrib.auth.hashers import make_password
 from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator
-from django.db import DatabaseError, OperationalError, ProgrammingError, connection, transaction
+from django.db import DatabaseError, IntegrityError, OperationalError, ProgrammingError, connection, transaction
 from django.db.models import Avg, Count, F, Prefetch, Q, Sum
 from django.db.models.functions import Greatest
 from django.http import HttpResponseNotModified, JsonResponse
@@ -2531,6 +2531,8 @@ def api_external_table_records(request, table_id, *args, **kwargs):
             }, status=201)
         except json.JSONDecodeError:
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
+        except IntegrityError:
+            return JsonResponse({'success': False, 'error': 'A record for this registration number already exists'}, status=400)
         except Exception as e:
             logger.exception("api_external_table_records POST error")
             return _unexpected_api_error()
@@ -2580,6 +2582,8 @@ def api_external_table_record_detail(request, table_id, record_id, *args, **kwar
             })
         except json.JSONDecodeError:
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
+        except IntegrityError:
+            return JsonResponse({'success': False, 'error': 'A record for this registration number already exists'}, status=400)
         except Exception as e:
             logger.exception("api_external_table_record_detail PUT error")
             return _unexpected_api_error()
@@ -2692,6 +2696,10 @@ def api_external_table_signup(request, *args, **kwargs):
             'message': 'Application submitted successfully',
             'data': {'id': record.id, 'status': 'pending'},
         }, status=201)
+    except IntegrityError:
+        # The JSON lookup above is only a friendly early response. This is the
+        # authoritative outcome for two signups that race after that lookup.
+        return JsonResponse({'success': False, 'error': 'You have already applied for this table'}, status=400)
     except Exception as e:
         logger.exception("api_external_table_signup error")
         return _unexpected_api_error()

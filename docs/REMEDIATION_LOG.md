@@ -117,3 +117,11 @@
 - Files touched: `mysite/mysite/rate_limit.py`, `mysite/core/views.py`, `mysite/service/views.py`, `mysite/core/tests.py`.
 - Evidence: `core.tests.SharedRateLimitTests.test_limit_is_not_stored_in_the_session` passed. `compileall` and `git diff --check` also passed.
 - Remaining risk: Correct client IP requires Render/proxy forwarding configuration; production Redis remains required by settings.
+
+## Correctness — Concurrent external-table signups (2026-09-19)
+
+- Finding: External-table signup checked JSON data for an existing application and then inserted a row, so two simultaneous requests could both pass the check and create duplicates.
+- Change: Added a dedicated `registration_number` column, synchronized from record JSON on every model save, and enforced a conditional PostgreSQL unique constraint on `(table, registration_number)` when a registration number is present. The signup endpoint now converts a race-triggered constraint error into the established duplicate-application response. Owner record create/edit endpoints return a stable validation error on the same constraint. New migration `core.0005` backfills only the first unambiguous legacy value per table; it leaves existing duplicate legacy rows intact and does not delete or rewrite their JSON data.
+- Files touched: `mysite/core/models.py`, `mysite/core/migrations/0005_external_table_record_registration_number.py`, `mysite/core/views.py`, `mysite/core/tests.py`.
+- Evidence: `compileall`, `manage.py check`, `manage.py check --deploy`, and `makemigrations --check --dry-run` passed (the deploy check reports the expected development-environment security warnings). The focused registration suite applies `core.0005` to a fresh PostgreSQL test database and verifies duplicate rejection, unconstrained non-signup records, and a bounded signup endpoint query count.
+- Remaining risk: The full suite ran 43 tests but remains pre-existing non-green: 11 errors require Cloudinary `cloud_name` test configuration, and two service tests have stale response/status expectations. These failures are unrelated to this migration and were not changed here.

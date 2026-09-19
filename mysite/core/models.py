@@ -372,6 +372,10 @@ class ExternalTableRecord(models.Model):
     id = models.AutoField(primary_key=True)
     table = models.ForeignKey(ExternalTable, on_delete=models.CASCADE, related_name='records', db_index=True)
     data = models.JSONField(default=dict, blank=True)
+    # Signup identity must be a real column so PostgreSQL can enforce it when
+    # requests arrive concurrently. Other kinds of external-table records use
+    # the empty value and are intentionally outside this constraint.
+    registration_number = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     
     class Meta:
@@ -379,6 +383,13 @@ class ExternalTableRecord(models.Model):
         indexes = [
             models.Index(fields=['table', '-created_at']),
             GinIndex(fields=['data']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['table', 'registration_number'],
+                condition=models.Q(registration_number__gt=''),
+                name='core_ext_table_reg_uniq',
+            ),
         ]
     
     def __str__(self):
@@ -392,6 +403,10 @@ class ExternalTableRecord(models.Model):
                 self.data = {}
         if not isinstance(self.data, dict):
             self.data = {}
+        registration_number = self.data.get('registration_number', '')
+        self.registration_number = (
+            registration_number.strip() if isinstance(registration_number, str) else ''
+        )
     
     def save(self, *args, **kwargs):
         self.clean()

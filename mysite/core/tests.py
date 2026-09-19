@@ -1,12 +1,14 @@
 import json
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.core.cache import cache
+from django.db import IntegrityError
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
 from core import views
-from core.models import ExternalTable, User
+from core.models import ExternalTable, ExternalTableRecord, User
 from customers.models import CRTenant, TenantDashboardMetric
 from service.models import OwnerUser
 from mysite.mysite.rate_limit import is_rate_limited
@@ -140,6 +142,60 @@ class ExternalTableRecordCountTests(TestCase):
 
         table.refresh_from_db()
         self.assertEqual(table.record_count, 0)
+
+
+class ExternalTableRecordRegistrationTests(TestCase):
+    def test_signup_endpoint_uses_bounded_queries(self):
+        table = ExternalTable.objects.create(table_name="signup_query_budget")
+        User.objects.create(
+            full_name="Signup User",
+            registration_number="REG-QUERY-001",
+        )
+        request = RequestFactory().post(
+            "/api/external-tables/signup/",
+            data=json.dumps(
+                {
+                    "table_id": table.id,
+                    "registration_number": "REG-QUERY-001",
+                    "name": "Signup User",
+                    "email": "signup@example.com",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        with (
+            patch("core.views._rate_limit", return_value=False),
+            patch("core.views._scope_external_tables_queryset", return_value=ExternalTable.objects.all()),
+            patch("core.views._scope_users_queryset", return_value=User.objects.all()),
+            # django-tenants emits six schema switches; transaction.atomic()
+            # emits a savepoint/release pair in TestCase, alongside five
+            # bounded business queries.
+            self.assertNumQueries(14),
+        ):
+            response = views.api_external_table_signup(request)
+
+        self.assertEqual(response.status_code, 201)
+
+    def test_registration_number_is_unique_within_a_table(self):
+        table = ExternalTable.objects.create(table_name="registration_constraint")
+        ExternalTableRecord.objects.create(
+            table=table,
+            data={"registration_number": "REG-001"},
+        )
+
+        with self.assertRaises(IntegrityError):
+            ExternalTableRecord.objects.create(
+                table=table,
+                data={"registration_number": "REG-001"},
+            )
+
+    def test_records_without_a_registration_number_are_not_constrained(self):
+        table = ExternalTable.objects.create(table_name="unidentified_records")
+        ExternalTableRecord.objects.create(table=table, data={"note": "first"})
+        ExternalTableRecord.objects.create(table=table, data={"note": "second"})
+
+        self.assertEqual(table.records.count(), 2)
 
 
 @override_settings(
