@@ -96,7 +96,13 @@ class Command(BaseCommand):
     help = "Provision queued tenant schemas. Run as a dedicated background worker in production."
 
     def add_arguments(self, parser):
-        parser.add_argument("--once", action="store_true", help="Process at most one queued job.")
+        run_mode = parser.add_mutually_exclusive_group()
+        run_mode.add_argument("--once", action="store_true", help="Process at most one queued job.")
+        run_mode.add_argument(
+            "--drain",
+            action="store_true",
+            help="Process all currently due jobs, then exit.",
+        )
         parser.add_argument("--interval", type=float, default=5.0, help="Seconds to wait between polling cycles.")
 
     def handle(self, *args, **options):
@@ -115,4 +121,8 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.SUCCESS(f"Tenant id={job.tenant_id} is ready."))
             if options["once"]:
                 return
+            if options["drain"]:
+                if job is None:
+                    return
+                continue
             time.sleep(max(options["interval"], 0.1))

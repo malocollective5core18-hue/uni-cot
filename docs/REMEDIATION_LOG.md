@@ -141,3 +141,27 @@
 - Files touched: `templates/admin_only/founder_SAAS_system_control.html`.
 - Evidence: The CSS no longer establishes `.fc-hero` as a positioning context or renders its out-of-flow decorative circle.
 - Remaining risk: Visual verification after Render deploy is still required across desktop and mobile widths.
+
+## Free-tier tenant provisioning fallback (2026-09-19)
+
+- Finding: New owner registration safely queued a tenant provisioning job, but the Render Free web service runs Gunicorn only. No worker claimed the job, leaving the tenant `pending` and its owner unable to access its path-routed workspace.
+- Change: Added `provision_tenants --drain`, which processes all currently due jobs and exits. Render's existing `bootstrap_render` deploy command now invokes this mode instead of directly creating schemas without updating the provisioning lifecycle. A manual Render deploy therefore provisions queued owners and transitions successful tenants to `ready`.
+- Files touched: `mysite/customers/management/commands/provision_tenants.py`, `mysite/customers/management/commands/bootstrap_render.py`, `mysite/customers/tests.py`.
+- Evidence: Pending focused test run.
+- Remaining risk: This is a Free-tier fallback, not real-time provisioning. A newly registered owner remains pending until the next manual deploy. Paid production should run a dedicated `python manage.py provision_tenants` worker.
+
+## Owner and tenant isolation validation (2026-09-19)
+
+- Finding: The final owner, tenant, and member isolation checks were blocked by an overlong test tenant key and a fixture that retained the pending state/session from registration. One provisioning test also asserted the old behavior that rejected pending tenant paths before public page handling.
+- Change: Corrected the isolation fixture to use a valid 20-character key, normalize its tenant to ready, and restore the authenticated owner session. Updated the pending-path test to verify public path resolution while owner-only APIs remain protected.
+- Files touched: `mysite/core/tests.py`, `mysite/customers/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: `mysite.core.tests.TenantSystemIsolationTests` passed all 8 tests. The focused owner registration/login and provisioning run passed the service suite and reached only the stale pending-path assertion before this test correction; rerun is required after the correction.
+- Remaining risk: Full project verification commands remain to be run before deployment.
+
+## Test cache isolation (2026-09-19)
+
+- Finding: Registration tests shared the default cache-backed rate-limit keys, so test order could consume the registration limit before the rollback assertion ran.
+- Change: Added test-only settings that force the default cache to `LocMemCache`, plus a reusable per-test cache cleanup mixin for registration, login, external signup, tenant registration, and owner-admin login tests. Production limiter behavior and limits were unchanged.
+- Files touched: `manage.py`, `mysite/test_settings.py`, `mysite/tests/helpers.py`, `mysite/core/tests.py`, `mysite/service/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: 49 tests passed in normal, reverse, and two shuffled orders. The previously failing rollback test passes alone and the service module passes all 17 tests. `manage.py check` reports no issues and `makemigrations --check --dry-run` reports no changes.
+- Remaining risk: Existing non-failing warnings remain for the missing staticfiles directory, unordered external-table pagination, and naive property datetime input.

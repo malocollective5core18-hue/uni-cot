@@ -6,17 +6,18 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.contrib.auth.hashers import check_password, make_password
 
-from customers.models import get_public_tenant_domain
+from customers.models import CRTenant, get_public_tenant_domain
 from core.models import User as CoreUser, UserGroup, UserGroupMember
 from service.models import OwnerUser, Member, Comment
 from service.views import _find_member_login_record
+from mysite.tests.helpers import CacheIsolationMixin
 
 
 @override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
-class OwnerSignupTests(TestCase):
+class OwnerSignupTests(CacheIsolationMixin, TestCase):
     @patch("service.views.create_owner_tenant", side_effect=RuntimeError("boom"))
     def test_register_view_rolls_back_owner_when_tenant_creation_fails(self, mocked_create_owner_tenant):
         response = self.client.post(
@@ -69,7 +70,7 @@ class TenantDomainConfigTests(TestCase):
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
-class CrossDeviceLoginTests(TestCase):
+class CrossDeviceLoginTests(CacheIsolationMixin, TestCase):
     def test_public_member_login_lookup_does_not_query_tenants(self):
         with self.assertNumQueries(0):
             record = _find_member_login_record("BCIT-001", "member123")
@@ -102,6 +103,60 @@ class CrossDeviceLoginTests(TestCase):
         session = self.client.session
         self.assertEqual(session["service_user"]["owner_id"], owner.id)
         self.assertEqual(session["service_user"]["user_type"], "owner")
+
+    def test_owner_dashboard_handles_missing_phone_number_during_login(self):
+        owner = OwnerUser.objects.create(
+            email="owner-null-phone@example.com",
+            program_name="BCIT",
+            password=make_password("secret123"),
+            is_owner=True,
+            is_active=True,
+            phone_number="",
+        )
+
+        response = self.client.post(
+            reverse("service:login"),
+            {
+                "login_identifier": "owner-null-phone@example.com",
+                "password": "secret123",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Owner Dashboard")
+        self.assertTrue(response.wsgi_request.session["service_user"]["owner_id"], owner.id)
+
+    def test_owner_login_rejects_pending_tenant_until_it_is_ready(self):
+        owner = OwnerUser.objects.create(
+            email="owner-pending@example.com",
+            program_name="Pending Tenant",
+            password=make_password("secret123"),
+            is_owner=True,
+            is_active=True,
+        )
+        CRTenant.objects.create(
+            name="Pending Tenant",
+            schema_name="pending_tenant",
+            subdomain="pending-tenant",
+            tenant_key="A" * 20,
+            owner=owner,
+            is_active=True,
+            provisioning_state=CRTenant.PROVISIONING_PENDING,
+        )
+
+        response = self.client.post(
+            reverse("service:login"),
+            {
+                "login_identifier": "owner-pending@example.com",
+                "password": "secret123",
+            },
+            follow=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.url.endswith(reverse("service:welcome")), response.url)
+        self.assertEqual(self.client.session.get("service_user"), None)
 
     def test_django_admin_can_log_in_from_welcome_page_to_founder_dashboard(self):
         founder = get_user_model().objects.create_user(
@@ -156,7 +211,7 @@ class CrossDeviceLoginTests(TestCase):
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
-class CsrfApiFlowTests(TestCase):
+class CsrfApiFlowTests(CacheIsolationMixin, TestCase):
     def test_welcome_sets_csrf_cookie_and_owner_api_post_accepts_it(self):
         client = Client(enforce_csrf_checks=True)
 
@@ -443,7 +498,7 @@ class ReplyCommentTests(TestCase):
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
-class OwnerAdminLoginTests(TestCase):
+class OwnerAdminLoginTests(CacheIsolationMixin, TestCase):
     @patch("service.views._get_tenant_from_request")
     def test_owner_admin_login_uses_current_tenant_context(self, mocked_get_tenant):
         owner = OwnerUser.objects.create(
