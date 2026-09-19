@@ -11,6 +11,7 @@ from django.http import HttpResponseNotFound, JsonResponse
 from django.urls import reverse
 from django.shortcuts import redirect
 from django.contrib import messages
+from django.core.cache import cache
 from django.db import connection
 
 
@@ -26,6 +27,38 @@ class TenantMiddleware:
     
     def __init__(self, get_response):
         self.get_response = get_response
+
+    def _routing_cache_key(self, tenant_id, subdomain, tenant_key):
+        version_key = f"tenant-routing:version:{tenant_id}"
+        version = cache.get(version_key)
+        if version is None:
+            cache.add(version_key, 1, timeout=None)
+            version = cache.get(version_key, 1)
+        return f"tenant-routing:path:{tenant_id}:{subdomain}:{tenant_key}:v{version}"
+
+    def _resolve_path_tenant(self, path_tenant):
+        """Resolve an exact path tuple, caching only already-valid tenant rows."""
+        from customers.models import CRTenant
+
+        cache_key = self._routing_cache_key(
+            path_tenant['tenant_id'],
+            path_tenant['tenant_slug'],
+            path_tenant['tenant_key'],
+        )
+        tenant = cache.get(cache_key)
+        if tenant is not None:
+            return tenant
+
+        tenant = CRTenant.objects.filter(
+            id=path_tenant['tenant_id'],
+            subdomain=path_tenant['tenant_slug'],
+            tenant_key=path_tenant['tenant_key'],
+            is_active=True,
+            provisioning_state=CRTenant.PROVISIONING_READY,
+        ).first()
+        if tenant is not None:
+            cache.set(cache_key, tenant, timeout=60)
+        return tenant
 
     def _get_public_tenant_context(self, request):
         public_tenant = getattr(request, 'tenant', None)
@@ -83,15 +116,7 @@ class TenantMiddleware:
 
         path_tenant = self._extract_path_tenant(request.path)
         if path_tenant:
-            from customers.models import CRTenant
-
-            tenant = CRTenant.objects.filter(
-                id=path_tenant['tenant_id'],
-                subdomain=path_tenant['tenant_slug'],
-                tenant_key=path_tenant['tenant_key'],
-                is_active=True,
-                provisioning_state=CRTenant.PROVISIONING_READY,
-            ).first()
+            tenant = self._resolve_path_tenant(path_tenant)
             if not tenant:
                 return HttpResponseNotFound('Tenant not found')
             request.tenant = tenant

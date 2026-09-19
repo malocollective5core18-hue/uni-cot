@@ -6,6 +6,7 @@ from datetime import timedelta
 from urllib.parse import urlsplit
 
 from django.db import connection, models
+from django.core.cache import cache
 from django.core.management import call_command
 from django.utils import timezone
 from django.utils.text import slugify
@@ -13,6 +14,21 @@ from django_tenants.models import DomainMixin, TenantMixin
 from django_tenants.postgresql_backend.base import _check_schema_name
 
 logger = logging.getLogger(__name__)
+
+
+def _tenant_routing_version_key(tenant_id):
+    return f"tenant-routing:version:{tenant_id}"
+
+
+def invalidate_tenant_routing_cache(tenant_id):
+    """Invalidate all cached route variants for one tenant without key scans."""
+    if not tenant_id:
+        return
+    version_key = _tenant_routing_version_key(tenant_id)
+    try:
+        cache.incr(version_key)
+    except ValueError:
+        cache.add(version_key, 2, timeout=None)
 
 
 def get_tenant_routing_mode():
@@ -220,6 +236,17 @@ class CRTenant(TenantMixin):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        result = super().save(*args, **kwargs)
+        invalidate_tenant_routing_cache(self.pk)
+        return result
+
+    def delete(self, *args, **kwargs):
+        tenant_id = self.pk
+        result = super().delete(*args, **kwargs)
+        invalidate_tenant_routing_cache(tenant_id)
+        return result
 
     @property
     def days_remaining(self):

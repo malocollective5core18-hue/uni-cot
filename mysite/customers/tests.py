@@ -4,6 +4,8 @@ from unittest.mock import Mock, patch
 from django.test import RequestFactory, TestCase
 from django_tenants.models import TenantMixin
 from django.utils import timezone
+from django.test.utils import CaptureQueriesContext
+from django.db import connection
 
 from customers.management.commands.provision_tenants import claim_next_job, recover_stale_jobs, run_job
 from customers.models import (
@@ -141,6 +143,30 @@ class PathTenantProvisioningTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
         get_response.assert_not_called()
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    def test_path_tenant_resolution_uses_cached_validated_tenant(self):
+        owner = OwnerUser.objects.create(
+            email="cached@example.com",
+            program_name="Cached Tenant",
+            password="hashed",
+            is_owner=True,
+            is_active=True,
+        )
+        tenant = create_owner_tenant(owner)
+        tenant.provisioning_state = CRTenant.PROVISIONING_READY
+        tenant.save(update_fields=["provisioning_state"])
+        middleware = TenantMiddleware(Mock())
+        path_tenant = {
+            "tenant_slug": tenant.subdomain,
+            "tenant_id": tenant.id,
+            "tenant_key": tenant.tenant_key,
+        }
+
+        self.assertEqual(middleware._resolve_path_tenant(path_tenant).id, tenant.id)
+        with CaptureQueriesContext(connection) as queries:
+            self.assertEqual(middleware._resolve_path_tenant(path_tenant).id, tenant.id)
+        self.assertEqual(len(queries), 0)
 
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
     @patch.object(TenantMixin, "save", side_effect=RuntimeError("tenant mixin should not run"))

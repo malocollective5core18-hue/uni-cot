@@ -77,3 +77,11 @@
 - Files touched: `mysite/core/views.py`, `mysite/core/tests.py`, `mysite/core/management/commands/reconcile_external_table_counts.py`.
 - Evidence: Pending focused counter tests.
 - Remaining risk: Run `python manage.py reconcile_external_table_counts` once after deployment and periodically as an integrity check.
+
+## P1-3 — Path tenant lookup overhead (2026-09-19)
+
+- Finding: Every path-routed tenant request queried the tenant registry before application handling.
+- Change: Added a 60-second cache for exact, validated path tenant tuples. A per-tenant cache version is bumped on tenant save/delete, invalidating old route entries without cache key scans.
+- Files touched: `mysite/customers/models.py`, `mysite/mysite/tenant_middleware.py`, `mysite/customers/tests.py`.
+- Evidence: Pending focused cached-resolution test.
+- Remaining risk: The legacy host resolver and django-tenants middleware remain active; consolidation requires an integration-tested routing decision and is deliberately not bundled into this cache change.
