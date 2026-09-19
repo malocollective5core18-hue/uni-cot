@@ -101,3 +101,11 @@
 - Files touched: `mysite/core/views.py`, `templates/system_index.html`, `templates/groups.html`, `templates/external_tables.html`.
 - Evidence: `core.tests.PaginationTests.test_page_size_is_capped_at_one_hundred` passed. `compileall` and `git diff --check` also passed.
 - Remaining risk: The affected screens still assemble all pages in browser memory for their existing all-record interfaces; a follow-up UI redesign should add visible-page rendering and explicit load-more controls.
+
+## P2-1 — Internal exception text in API responses (2026-09-19)
+
+- Finding: Core API exception handlers returned `str(e)` to clients, exposing database, schema, and provider details.
+- Change: Replaced unexpected-exception response bodies with one stable generic 500 response. Existing `logger.exception()` calls retain full stack traces in server logs; expected validation and not-found messages are unchanged.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`.
+- Evidence: `core.tests.ApiErrorResponseTests.test_unexpected_api_error_does_not_include_exception_details` passed. `compileall` and `git diff --check` also passed.
+- Remaining risk: Founder HTML form messages and service APIs need a separate error-contract review.

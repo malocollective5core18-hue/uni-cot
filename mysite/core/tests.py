@@ -47,6 +47,17 @@ class PaginationTests(SimpleTestCase):
         self.assertEqual(meta['page_size'], 100)
         self.assertEqual(meta['total_pages'], 2)
 
+
+class ApiErrorResponseTests(SimpleTestCase):
+    def test_unexpected_api_error_does_not_include_exception_details(self):
+        response = views._unexpected_api_error()
+
+        self.assertEqual(response.status_code, 500)
+        self.assertJSONEqual(
+            response.content,
+            {'success': False, 'error': 'Unable to complete this request. Please try again later.'},
+        )
+
 @override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",

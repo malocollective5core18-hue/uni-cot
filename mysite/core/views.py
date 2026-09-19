@@ -518,6 +518,14 @@ def _user_schema_error_response(error):
     return JsonResponse({'success': False, 'error': message}, status=500)
 
 
+def _unexpected_api_error():
+    """Do not expose exception text; callers already logged the traceback."""
+    return JsonResponse(
+        {'success': False, 'error': 'Unable to complete this request. Please try again later.'},
+        status=500,
+    )
+
+
 def _paginate_queryset(request, queryset, default_page_size=100):
     """Return a page of results based on ?page= and ?page_size= query params."""
     try:
@@ -908,7 +916,7 @@ def api_slider_images(request, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_slider_images POST error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
@@ -976,7 +984,7 @@ def api_slider_image_detail(request, image_id, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_slider_image_detail PUT error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     if request.method == 'DELETE':
         image.delete()
@@ -1048,7 +1056,7 @@ def api_countdown_cards(request, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_countdown_cards POST error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
@@ -1116,7 +1124,7 @@ def api_countdown_card_detail(request, card_id, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_countdown_card_detail PUT error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     if request.method == 'DELETE':
         card.delete()
@@ -1191,7 +1199,7 @@ def api_properties(request, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_properties POST error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
@@ -1251,7 +1259,7 @@ def api_property_detail(request, property_id, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_property_detail PUT error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     if request.method == 'DELETE':
         denied = _ensure_owner_system_access(request)
@@ -1418,7 +1426,7 @@ def api_users(request, *args, **kwargs):
             return _user_schema_error_response(error)
         except Exception as e:
             logger.exception("api_users POST error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
@@ -1502,7 +1510,7 @@ def api_user_detail(request, user_id, *args, **kwargs):
             return _user_schema_error_response(error)
         except Exception as e:
             logger.exception("api_user_detail PUT error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     if request.method == 'DELETE':
         user.delete()
@@ -1613,7 +1621,7 @@ def api_groups(request, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_groups POST error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
@@ -1684,7 +1692,7 @@ def api_group_detail(request, group_id, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_group_detail PUT error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     if request.method == 'DELETE':
         _scope_users_queryset(request).filter(group_name=group.group_name).update(group_name='')
@@ -1777,7 +1785,7 @@ def api_group_move_member(request, *args, **kwargs):
         return JsonResponse({'success': False, 'error': 'User or target group not found'}, status=404)
     except Exception as e:
         logger.exception("api_group_move_member error")
-        return JsonResponse({'success': False, 'error': str(e)}, status=400)
+        return _unexpected_api_error()
 
 
 def api_groups_reformat(request, *args, **kwargs):
@@ -1859,7 +1867,7 @@ def api_groups_reformat(request, *args, **kwargs):
         })
     except Exception as e:
         logger.exception("api_groups_reformat error")
-        return JsonResponse({'success': False, 'error': str(e)}, status=400)
+        return _unexpected_api_error()
 
 
 def api_group_members(request, *args, **kwargs):
@@ -1950,7 +1958,7 @@ def api_group_members(request, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_group_members POST error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
@@ -2007,7 +2015,7 @@ def api_group_member_detail(request, member_id, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_group_member_detail PUT error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     if request.method == 'DELETE':
         try:
@@ -2020,7 +2028,7 @@ def api_group_member_detail(request, member_id, *args, **kwargs):
             return JsonResponse({'success': True, 'message': 'Member removed from group successfully'})
         except Exception as e:
             logger.exception("api_group_member_detail DELETE error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
@@ -2056,7 +2064,7 @@ def api_signup_setting(request, *args, **kwargs):
             return _cached_json_response(request, 'signup_setting', build_payload)
         except Exception as e:
             logger.exception("api_signup_setting GET error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     if request.method == 'PUT':
         denied = _ensure_owner_system_access(request)
@@ -2087,7 +2095,7 @@ def api_signup_setting(request, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_signup_setting PUT error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
@@ -2148,7 +2156,7 @@ def api_system_settings(request, *args, **kwargs):
             )
         except Exception as e:
             logger.exception("api_system_settings GET error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     if request.method == 'PUT':
         denied = _ensure_owner_system_access(request)
@@ -2269,7 +2277,7 @@ def api_registration_fields(request, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_registration_fields POST error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
@@ -2333,7 +2341,7 @@ def api_registration_field_detail(request, field_id, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_registration_field_detail PUT error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     if request.method == 'DELETE':
         field.delete()
@@ -2362,7 +2370,7 @@ def api_users_clear_all(request, *args, **kwargs):
             return JsonResponse({'success': True, 'message': f'{count} users deleted successfully'})
         except Exception as e:
             logger.exception("api_users_clear_all POST error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
@@ -2416,7 +2424,7 @@ def api_external_tables(request, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_external_tables POST error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
@@ -2479,7 +2487,7 @@ def api_external_table_detail(request, table_id, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_external_table_detail PUT error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=500)
+            return _unexpected_api_error()
 
     if request.method == 'DELETE':
         table_id_for_cache = table.id
@@ -2535,7 +2543,7 @@ def api_external_table_records(request, table_id, *args, **kwargs):
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_external_table_records POST error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=400)
+            return _unexpected_api_error()
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
@@ -2584,7 +2592,7 @@ def api_external_table_record_detail(request, table_id, record_id, *args, **kwar
             return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
         except Exception as e:
             logger.exception("api_external_table_record_detail PUT error")
-            return JsonResponse({'success': False, 'error': str(e)}, status=500)
+            return _unexpected_api_error()
 
     if request.method == 'DELETE':
         with transaction.atomic():
@@ -2633,7 +2641,7 @@ def api_validate_registration(request, *args, **kwargs):
         return JsonResponse({'success': True, 'valid': False, 'error': 'Registration number not found'})
     except Exception as e:
         logger.exception("api_validate_registration error")
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+        return _unexpected_api_error()
 
 
 def api_external_table_signup(request, *args, **kwargs):
@@ -2696,7 +2704,7 @@ def api_external_table_signup(request, *args, **kwargs):
         }, status=201)
     except Exception as e:
         logger.exception("api_external_table_signup error")
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+        return _unexpected_api_error()
 
 
 def api_external_table_toggle_visibility(request, table_id):
