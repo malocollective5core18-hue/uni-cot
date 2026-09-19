@@ -10,13 +10,14 @@ from customers.models import CRTenant, get_public_tenant_domain
 from core.models import User as CoreUser, UserGroup, UserGroupMember
 from service.models import OwnerUser, Member, Comment
 from service.views import _find_member_login_record
+from mysite.tests.helpers import CacheIsolationMixin
 
 
 @override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
-class OwnerSignupTests(TestCase):
+class OwnerSignupTests(CacheIsolationMixin, TestCase):
     @patch("service.views.create_owner_tenant", side_effect=RuntimeError("boom"))
     def test_register_view_rolls_back_owner_when_tenant_creation_fails(self, mocked_create_owner_tenant):
         response = self.client.post(
@@ -69,7 +70,7 @@ class TenantDomainConfigTests(TestCase):
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
-class CrossDeviceLoginTests(TestCase):
+class CrossDeviceLoginTests(CacheIsolationMixin, TestCase):
     def test_public_member_login_lookup_does_not_query_tenants(self):
         with self.assertNumQueries(0):
             record = _find_member_login_record("BCIT-001", "member123")
@@ -210,7 +211,7 @@ class CrossDeviceLoginTests(TestCase):
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
-class CsrfApiFlowTests(TestCase):
+class CsrfApiFlowTests(CacheIsolationMixin, TestCase):
     def test_welcome_sets_csrf_cookie_and_owner_api_post_accepts_it(self):
         client = Client(enforce_csrf_checks=True)
 
@@ -497,7 +498,7 @@ class ReplyCommentTests(TestCase):
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
-class OwnerAdminLoginTests(TestCase):
+class OwnerAdminLoginTests(CacheIsolationMixin, TestCase):
     @patch("service.views._get_tenant_from_request")
     def test_owner_admin_login_uses_current_tenant_context(self, mocked_get_tenant):
         owner = OwnerUser.objects.create(

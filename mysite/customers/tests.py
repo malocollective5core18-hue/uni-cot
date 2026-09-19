@@ -185,7 +185,7 @@ class PathTenantProvisioningTests(TestCase):
         self.assertIn("lock expired", job.last_error)
 
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
-    def test_pending_tenant_path_returns_not_found_without_running_a_view(self):
+    def test_pending_tenant_path_resolves_for_public_page_access(self):
         owner = OwnerUser.objects.create(
             email="pending@example.com",
             program_name="Pending Tenant",
@@ -194,15 +194,16 @@ class PathTenantProvisioningTests(TestCase):
             is_active=True,
         )
         tenant = create_owner_tenant(owner)
-        get_response = Mock()
+        get_response = Mock(return_value=SimpleNamespace(status_code=200))
         middleware = TenantMiddleware(get_response)
         request = RequestFactory().get(
             f"/t/{tenant.subdomain}/{tenant.id}/{tenant.tenant_key}/system/"
         )
         response = middleware(request)
 
-        self.assertEqual(response.status_code, 404)
-        get_response.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(request.tenant.id, tenant.id)
+        get_response.assert_called_once_with(request)
 
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
     def test_path_tenant_resolution_uses_cached_validated_tenant(self):

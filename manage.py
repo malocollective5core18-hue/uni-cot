@@ -13,7 +13,10 @@ def main():
         sys.path.insert(0, str(project_root))
     if str(django_root) not in sys.path:
         sys.path.insert(1, str(django_root))
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')
+    if 'test' in sys.argv[1:]:
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.test_settings')
+    else:
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:

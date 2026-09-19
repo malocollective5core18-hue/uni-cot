@@ -1,10 +1,12 @@
 import json
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.core.cache import cache
 from django.db import IntegrityError
+from django.contrib.auth.hashers import make_password
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
@@ -13,6 +15,7 @@ from core.models import ExternalTable, ExternalTableRecord, User
 from customers.models import CRTenant, TenantDashboardMetric
 from service.models import OwnerUser
 from mysite.mysite.rate_limit import is_rate_limited
+from mysite.tests.helpers import CacheIsolationMixin
 
 
 class SessionConfigurationTests(SimpleTestCase):
@@ -63,16 +66,14 @@ class ApiErrorResponseTests(SimpleTestCase):
         )
 
 
-class SharedRateLimitTests(SimpleTestCase):
+class SharedRateLimitTests(CacheIsolationMixin, SimpleTestCase):
     def test_limit_is_not_stored_in_the_session(self):
-        cache.clear()
         request = RequestFactory().post('/', REMOTE_ADDR='203.0.113.10')
 
         self.assertFalse(is_rate_limited(request, 'test', limit=2, window_seconds=60, account='User@Example.com'))
         self.assertFalse(is_rate_limited(request, 'test', limit=2, window_seconds=60, account='user@example.com'))
         self.assertTrue(is_rate_limited(request, 'test', limit=2, window_seconds=60, account='user@example.com'))
         self.assertFalse(hasattr(request, 'session'))
-        cache.clear()
 
 @override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
@@ -172,7 +173,7 @@ class ExternalTableRecordCountTests(TestCase):
         self.assertEqual(table.record_count, 0)
 
 
-class ExternalTableRecordRegistrationTests(TestCase):
+class ExternalTableRecordRegistrationTests(CacheIsolationMixin, TestCase):
     def test_signup_endpoint_uses_bounded_queries(self):
         table = ExternalTable.objects.create(table_name="signup_query_budget")
         User.objects.create(
@@ -230,20 +231,68 @@ class ExternalTableRecordRegistrationTests(TestCase):
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
-class TenantSystemIsolationTests(TestCase):
+class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
     def setUp(self):
-        self.client.post(
-            "/service/register/",
-            {
+        self.owner, owner_created = OwnerUser.objects.get_or_create(
+            email="owner-api@example.com",
+            defaults={
                 "program_name": "BCIT",
-                "email": "owner-api@example.com",
-                "password": "secret123",
-                "confirm_password": "secret123",
+                "password": make_password("secret123"),
+                "is_owner": True,
+                "is_active": True,
             },
-            follow=True,
         )
-        self.owner = OwnerUser.objects.get(email="owner-api@example.com")
-        self.tenant = self.owner.tenant
+        if owner_created:
+            self.client.post(
+                "/service/register/",
+                {
+                    "program_name": "BCIT",
+                    "email": "owner-api@example.com",
+                    "password": "secret123",
+                    "confirm_password": "secret123",
+                },
+                follow=True,
+            )
+
+        self.tenant = getattr(self.owner, "tenant", None)
+        if self.tenant is None:
+            from customers.models import TenantSubscription
+
+            self.tenant = CRTenant.objects.create(
+                name="BCIT",
+                schema_name="bcit_tenant_isolation",
+                subdomain="bcit-tenant-isolation",
+                tenant_key="tenantkey01234567890",
+                owner=self.owner,
+                is_active=True,
+                provisioning_state=CRTenant.PROVISIONING_READY,
+                paid_until=None,
+                subscription_start=None,
+                is_trial=True,
+            )
+            TenantSubscription.objects.create(
+                tenant=self.tenant,
+                plan="trial",
+                status=TenantSubscription.STATUS_TRIAL,
+                start_date=self.tenant.created_on,
+                end_date=self.tenant.created_on + timedelta(days=14),
+                is_active=True,
+            )
+        elif self.tenant.provisioning_state != CRTenant.PROVISIONING_READY:
+            self.tenant.provisioning_state = CRTenant.PROVISIONING_READY
+            self.tenant.save(update_fields=["provisioning_state"])
+
+        session = self.client.session
+        session["service_user"] = {
+            "user_type": "owner",
+            "owner_id": self.owner.id,
+            "email": self.owner.email,
+            "program_name": self.owner.program_name,
+        }
+        session["tenant_id"] = self.tenant.id
+        session["tenant_subdomain"] = self.tenant.subdomain
+        session["tenant_key"] = self.tenant.tenant_key
+        session.save()
 
     def test_tenant_users_api_requires_owner_session(self):
         self.client.post(f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/logout/", follow=True)
