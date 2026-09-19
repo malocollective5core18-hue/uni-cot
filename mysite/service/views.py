@@ -450,16 +450,20 @@ def _clear_service_session(request):
 
 
 def _get_tenant_from_request(request):
-    """Get tenant from request or session"""
+    """Get tenant from request or session."""
     # Check request.tenant (set by middleware)
     tenant = getattr(request, 'tenant', None)
-    
+
     if not tenant and request.session.get('tenant_id'):
         try:
             tenant_id = int(request.session.get('tenant_id'))
             from customers.models import CRTenant
 
-            tenant = CRTenant.objects.filter(id=tenant_id, is_active=True).first()
+            tenant = CRTenant.objects.filter(
+                id=tenant_id,
+                is_active=True,
+                provisioning_state=CRTenant.PROVISIONING_READY,
+            ).first()
         except (TypeError, ValueError):
             tenant = None
 
@@ -469,13 +473,17 @@ def _get_tenant_from_request(request):
             owner = _get_owner_by_id(user.get('owner_id'), include_inactive=True)
             if owner:
                 tenant = getattr(owner, 'tenant', None)
+                if tenant and getattr(tenant, 'provisioning_state', None) != CRTenant.PROVISIONING_READY:
+                    tenant = None
         elif user.get('user_type') == 'member':
             member = _get_member_by_id(user.get('member_id'))
             if member:
                 owner = _get_owner_by_id(member.owner_id, include_inactive=True)
                 if owner:
                     tenant = getattr(owner, 'tenant', None)
-    
+                    if tenant and getattr(tenant, 'provisioning_state', None) != CRTenant.PROVISIONING_READY:
+                        tenant = None
+
     return tenant
 
 
@@ -727,15 +735,19 @@ def login_view(request, *args, **kwargs):
                 
                 # Link owner's tenant to session (if they have one)
                 owner_tenant = getattr(owner, 'tenant', None)
+                if owner_tenant and getattr(owner_tenant, 'provisioning_state', None) != CRTenant.PROVISIONING_READY:
+                    _clear_service_session(request)
+                    messages.error(request, 'Your tenant workspace is still being set up. Please try again in a moment.')
+                    return _tenant_redirect(request, 'service:welcome')
                 if owner_tenant:
                     request.session['tenant_id'] = owner_tenant.id
                     request.session['tenant_subdomain'] = owner_tenant.subdomain
                     request.session['tenant_key'] = owner_tenant.tenant_key
-                
+
                 # Mark session as successfully authenticated
                 request.session.modified = True
                 request.session.set_expiry(60 * 60 * 24 * 7)  # 1 week
-                
+
                 messages.success(request, f'Welcome back, {owner.email}!')
                 return _tenant_redirect(request, 'service:owner_dashboard', tenant=owner_tenant)
 
@@ -999,6 +1011,12 @@ def owner_dashboard(request, *args, **kwargs):
     tenant = getattr(owner, 'tenant', None)
     if not tenant:
         messages.error(request, 'Your owner account is missing a tenant workspace. Please contact founder support.')
+        _clear_service_session(request)
+        return _tenant_redirect(request, 'service:welcome')
+
+    if getattr(tenant, 'provisioning_state', None) != CRTenant.PROVISIONING_READY:
+        _clear_service_session(request)
+        messages.error(request, 'Your tenant workspace is still being set up. Please try again in a moment.')
         return _tenant_redirect(request, 'service:welcome')
 
     if not tenant.is_active:
@@ -1058,6 +1076,8 @@ def owner_dashboard(request, *args, **kwargs):
         system_url = request.build_absolute_uri(
             _tenant_url('service:system_demo', request=request, tenant=tenant)
         )
+
+    owner_phone_number = (getattr(owner, 'phone_number', '') or '').strip()
     
     return render(request, 'owner_dashboard.html', {
         'owner': owner,
@@ -1073,7 +1093,7 @@ def owner_dashboard(request, *args, **kwargs):
         'tenant_base_path': _tenant_base_path(request=request, tenant=tenant),
         'days_remaining': days_remaining,
         'subscription_active': subscription_active,
-        'needs_contact_number': not bool(owner.phone_number.strip()),
+        'needs_contact_number': not bool(owner_phone_number),
     })
 
 
