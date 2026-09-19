@@ -6,7 +6,7 @@ from django.core.cache import cache
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
 from core import views
-from core.models import User
+from core.models import ExternalTable, User
 from customers.models import CRTenant, TenantDashboardMetric
 from service.models import OwnerUser
 
@@ -86,6 +86,25 @@ class FounderDashboardQueryTests(TestCase):
             page, metrics = views._founder_tenant_page(1)
             self.assertEqual(len(page.object_list), 25)
             self.assertEqual(len(metrics), 25)
+
+
+class ExternalTableRecordCountTests(TestCase):
+    def test_increment_updates_counter_without_a_count_query(self):
+        table = ExternalTable.objects.create(table_name="counter_test")
+
+        with self.assertNumQueries(2):
+            views._increment_external_table_record_count(table)
+
+        table.refresh_from_db()
+        self.assertEqual(table.record_count, 1)
+
+    def test_decrement_never_makes_counter_negative(self):
+        table = ExternalTable.objects.create(table_name="counter_floor", record_count=0)
+
+        views._decrement_external_table_record_count(table)
+
+        table.refresh_from_db()
+        self.assertEqual(table.record_count, 0)
 
 
 @override_settings(

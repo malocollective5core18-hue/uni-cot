@@ -13,7 +13,8 @@ from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import DatabaseError, OperationalError, ProgrammingError, connection, transaction
-from django.db.models import Avg, Count, Prefetch, Q, Sum
+from django.db.models import Avg, Count, F, Prefetch, Q, Sum
+from django.db.models.functions import Greatest
 from django.http import HttpResponseNotModified, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -495,9 +496,14 @@ def _serialize_group(group, members=None):
     return data
 
 
-def _sync_external_table_record_count(table):
-    table.record_count = ExternalTableRecord.objects.filter(table=table).count()
-    table.save(update_fields=['record_count', 'updated_at'])
+def _increment_external_table_record_count(table):
+    ExternalTable.objects.filter(pk=table.pk).update(record_count=F('record_count') + 1)
+
+
+def _decrement_external_table_record_count(table):
+    ExternalTable.objects.filter(pk=table.pk).update(
+        record_count=Greatest(F('record_count') - 1, 0)
+    )
 
 
 def _user_schema_error_response(error):
@@ -2551,8 +2557,9 @@ def api_external_table_records(request, table_id, *args, **kwargs):
             if not isinstance(record_data, dict):
                 record_data = {}
 
-            record = ExternalTableRecord.objects.create(table=table, data=record_data)
-            _sync_external_table_record_count(table)
+            with transaction.atomic():
+                record = ExternalTableRecord.objects.create(table=table, data=record_data)
+                _increment_external_table_record_count(table)
             _invalidate_api_cache(request, 'external_tables', f'external_table_records:{table.id}')
             return JsonResponse({
                 'success': True,
@@ -2602,7 +2609,6 @@ def api_external_table_record_detail(request, table_id, record_id, *args, **kwar
             # Assign the dict directly — JSONField handles serialisation.
             record.data = current_data
             record.save()
-            _sync_external_table_record_count(table)
             _invalidate_api_cache(request, 'external_tables', f'external_table_records:{table.id}')
             return JsonResponse({
                 'success': True,
@@ -2616,8 +2622,9 @@ def api_external_table_record_detail(request, table_id, record_id, *args, **kwar
             return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
     if request.method == 'DELETE':
-        record.delete()
-        _sync_external_table_record_count(table)
+        with transaction.atomic():
+            record.delete()
+            _decrement_external_table_record_count(table)
         _invalidate_api_cache(request, 'external_tables', f'external_table_records:{table.id}')
         return JsonResponse({'success': True, 'message': 'Record deleted successfully'})
 
@@ -2713,8 +2720,9 @@ def api_external_table_signup(request, *args, **kwargs):
     }
 
     try:
-        record = ExternalTableRecord.objects.create(table=table, data=record_data)
-        _sync_external_table_record_count(table)
+        with transaction.atomic():
+            record = ExternalTableRecord.objects.create(table=table, data=record_data)
+            _increment_external_table_record_count(table)
         _invalidate_api_cache(request, 'external_tables', f'external_table_records:{table.id}')
         return JsonResponse({
             'success': True,

@@ -69,3 +69,11 @@
 - Files touched: `mysite/customers/models.py`, `mysite/customers/migrations/0008_tenantdashboardmetric.py`, `mysite/customers/management/commands/refresh_tenant_dashboard_metrics.py`, `mysite/core/views.py`, `templates/admin_only/founder_SAAS_system_control.html`.
 - Evidence: `core.tests.FounderDashboardQueryTests` passed with 10 SQL statements for a 25-tenant page: five bounded public data queries plus django-tenants' five required `SET search_path` statements. The count does not grow with tenant count.
 - Remaining risk: Production must schedule `python manage.py refresh_tenant_dashboard_metrics` so metrics remain current; snapshots are intentionally eventually consistent.
+
+## P1-2 — External-table record counter scans (2026-09-19)
+
+- Finding: Every external-table record create, update, or delete recalculated `record_count` with a full `COUNT(*)` scan.
+- Change: Creates now increment and deletes decrement the stored counter atomically with database `F()` expressions; record updates no longer alter the count. Decrements are floored at zero. Added a reconciliation command for existing drift.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`, `mysite/core/management/commands/reconcile_external_table_counts.py`.
+- Evidence: Pending focused counter tests.
+- Remaining risk: Run `python manage.py reconcile_external_table_counts` once after deployment and periodically as an integrity check.
