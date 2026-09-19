@@ -5,7 +5,7 @@ import time
 from datetime import timedelta
 from urllib.parse import urlsplit
 
-from django.db import connection, models
+from django.db import IntegrityError, connection, models, transaction
 from django.core.cache import cache
 from django.core.management import call_command
 from django.utils import timezone
@@ -119,14 +119,10 @@ def _build_unique_identifier(raw_value, existing_values=None, separator="_"):
 
 
 def _generate_unique_tenant_key(length=20):
-    existing_keys = set(CRTenant.objects.values_list("tenant_key", flat=True))
-    existing_keys.discard("")
     while True:
         candidate = secrets.token_urlsafe(length * 2)[:length]
         candidate = "".join(ch for ch in candidate if ch.isalnum())[:length]
-        if len(candidate) < length:
-            continue
-        if candidate not in existing_keys:
+        if len(candidate) == length:
             return candidate
 
 
@@ -438,34 +434,48 @@ def create_owner_tenant(owner, base_domain=None):
     """
     Create a tenant, its primary domain, and a starter subscription record.
     """
-    existing_schema_names = CRTenant.objects.values_list("schema_name", flat=True)
-    existing_subdomains = CRTenant.objects.values_list("subdomain", flat=True)
-    schema_name = _build_unique_identifier(
-        owner.program_name,
-        existing_values=existing_schema_names,
-        separator="_",
-    )
-    subdomain = _build_unique_identifier(
-        owner.program_name,
-        existing_values=existing_subdomains,
-        separator="-",
-    )
-
     trial_start = timezone.now().date()
     trial_end = trial_start + timedelta(days=14)
 
-    tenant = CRTenant(
-        name=owner.program_name,
-        schema_name=schema_name,
-        subdomain=subdomain,
-        tenant_key=_generate_unique_tenant_key(),
-        owner=owner,
-        paid_until=trial_end,
-        subscription_start=trial_start,
-        is_active=True,
-        is_trial=True,
-    )
-    save_tenant_for_routing_mode(tenant, force_insert=True)
+    tenant = None
+    for attempt in range(5):
+        existing_schema_names = CRTenant.objects.values_list("schema_name", flat=True)
+        existing_subdomains = CRTenant.objects.values_list("subdomain", flat=True)
+        schema_name = _build_unique_identifier(
+            owner.program_name,
+            existing_values=existing_schema_names,
+            separator="_",
+        )
+        subdomain = _build_unique_identifier(
+            owner.program_name,
+            existing_values=existing_subdomains,
+            separator="-",
+        )
+        candidate = CRTenant(
+            name=owner.program_name,
+            schema_name=schema_name,
+            subdomain=subdomain,
+            tenant_key=_generate_unique_tenant_key(),
+            owner=owner,
+            paid_until=trial_end,
+            subscription_start=trial_start,
+            is_active=True,
+            is_trial=True,
+        )
+        try:
+            # A savepoint keeps an outer signup transaction usable after a
+            # concurrent unique-key collision.
+            with transaction.atomic():
+                save_tenant_for_routing_mode(candidate, force_insert=True)
+        except IntegrityError:
+            if attempt == 4:
+                raise
+            continue
+        tenant = candidate
+        break
+
+    if tenant is None:
+        raise RuntimeError("Unable to allocate a unique tenant identifier.")
 
     if not uses_path_tenant_routing():
         base_domain = (base_domain or get_base_domain()).strip().lower()

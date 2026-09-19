@@ -85,3 +85,11 @@
 - Files touched: `mysite/customers/models.py`, `mysite/mysite/tenant_middleware.py`, `mysite/customers/tests.py`.
 - Evidence: Pending focused cached-resolution test.
 - Remaining risk: The legacy host resolver and django-tenants middleware remain active; consolidation requires an integration-tested routing decision and is deliberately not bundled into this cache change.
+
+## P1-4 — Tenant-key generation race (2026-09-19)
+
+- Finding: Tenant-key generation loaded every existing key and could still fail under a concurrent unique-key collision.
+- Change: Replaced the full-table key read with fixed-length cryptographic generation. Tenant creation now retries bounded database unique-constraint collisions inside a savepoint, preserving the caller's signup transaction.
+- Files touched: `mysite/customers/models.py`, `mysite/customers/tests.py`.
+- Evidence: Pending focused collision-retry test.
+- Remaining risk: Concurrent identical program names also use the bounded retry path; a sustained collision beyond five attempts is surfaced rather than silently misrouting a tenant.

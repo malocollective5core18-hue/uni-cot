@@ -21,6 +21,36 @@ from service.models import OwnerUser
 
 class PathTenantProvisioningTests(TestCase):
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    @patch("customers.models._generate_unique_tenant_key", side_effect=["A" * 20, "B" * 20])
+    def test_create_owner_tenant_retries_a_duplicate_tenant_key(self, mocked_key):
+        existing_owner = OwnerUser.objects.create(
+            email="existing@example.com",
+            program_name="Existing",
+            password="hashed",
+            is_owner=True,
+            is_active=True,
+        )
+        CRTenant.objects.create(
+            name="Existing",
+            schema_name="existing",
+            subdomain="existing",
+            tenant_key="A" * 20,
+            owner=existing_owner,
+        )
+        owner = OwnerUser.objects.create(
+            email="retry-key@example.com",
+            program_name="Retry Key",
+            password="hashed",
+            is_owner=True,
+            is_active=True,
+        )
+
+        tenant = create_owner_tenant(owner)
+
+        self.assertEqual(tenant.tenant_key, "B" * 20)
+        self.assertEqual(mocked_key.call_count, 2)
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
     def test_create_owner_tenant_skips_domain_creation_in_path_mode(self):
         owner = OwnerUser.objects.create(
             email="owner@example.com",
