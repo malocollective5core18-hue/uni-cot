@@ -109,3 +109,11 @@
 - Files touched: `mysite/core/views.py`, `mysite/core/tests.py`.
 - Evidence: `core.tests.ApiErrorResponseTests.test_unexpected_api_error_does_not_include_exception_details` passed. `compileall` and `git diff --check` also passed.
 - Remaining risk: Founder HTML form messages and service APIs need a separate error-contract review.
+
+## P2-2 — Session-local rate limiting (2026-09-19)
+
+- Finding: Login and public API abuse limits were stored in browser sessions, allowing cookie resets and adding session writes.
+- Change: Replaced both app-local limit helpers with a shared cache-backed fixed-window limiter keyed by scope, client IP, and normalized account identifier where supplied. Login now passes its identifier explicitly; no limiter state is written to the session.
+- Files touched: `mysite/mysite/rate_limit.py`, `mysite/core/views.py`, `mysite/service/views.py`, `mysite/core/tests.py`.
+- Evidence: `core.tests.SharedRateLimitTests.test_limit_is_not_stored_in_the_session` passed. `compileall` and `git diff --check` also passed.
+- Remaining risk: Correct client IP requires Render/proxy forwarding configuration; production Redis remains required by settings.

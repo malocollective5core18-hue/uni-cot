@@ -22,6 +22,7 @@ from django.utils.dateparse import parse_date
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
+from mysite.mysite.rate_limit import is_rate_limited
 
 from .models import (
     CountdownCard,
@@ -68,21 +69,10 @@ def _build_access_domain(domain):
     return domain
 
 
-def _rate_limit(request, key, limit=10, window_seconds=60):
-    """
-    Lightweight session-scoped throttle for public JSON endpoints.
-    It is intentionally local so it works without cache infrastructure.
-    """
-    now = time()
-    storage_key = f'rl_{key}'
-    timestamps = request.session.get(storage_key, [])
-    timestamps = [ts for ts in timestamps if now - ts < window_seconds]
-    if len(timestamps) >= limit:
-        request.session[storage_key] = timestamps
-        return True
-    timestamps.append(now)
-    request.session[storage_key] = timestamps
-    return False
+def _rate_limit(request, key, limit=10, window_seconds=60, account=""):
+    return is_rate_limited(
+        request, key, limit=limit, window_seconds=window_seconds, account=account
+    )
 
 
 def _tenant_owner_session_error(request):

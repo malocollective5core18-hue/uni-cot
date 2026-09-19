@@ -9,6 +9,7 @@ from core import views
 from core.models import ExternalTable, User
 from customers.models import CRTenant, TenantDashboardMetric
 from service.models import OwnerUser
+from mysite.mysite.rate_limit import is_rate_limited
 
 
 class SessionConfigurationTests(SimpleTestCase):
@@ -57,6 +58,18 @@ class ApiErrorResponseTests(SimpleTestCase):
             response.content,
             {'success': False, 'error': 'Unable to complete this request. Please try again later.'},
         )
+
+
+class SharedRateLimitTests(SimpleTestCase):
+    def test_limit_is_not_stored_in_the_session(self):
+        cache.clear()
+        request = RequestFactory().post('/', REMOTE_ADDR='203.0.113.10')
+
+        self.assertFalse(is_rate_limited(request, 'test', limit=2, window_seconds=60, account='User@Example.com'))
+        self.assertFalse(is_rate_limited(request, 'test', limit=2, window_seconds=60, account='user@example.com'))
+        self.assertTrue(is_rate_limited(request, 'test', limit=2, window_seconds=60, account='user@example.com'))
+        self.assertFalse(hasattr(request, 'session'))
+        cache.clear()
 
 @override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],

@@ -23,6 +23,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django_tenants.utils import schema_context
+from mysite.mysite.rate_limit import is_rate_limited
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
@@ -182,21 +183,10 @@ def _parse_json_body(request):
         return None
 
 
-def _rate_limit(request, key, limit=5, window_seconds=60):
-    """
-    Simple session-based rate limit (per browser/session).
-    Returns True if the limit is exceeded.
-    """
-    now = time()
-    storage_key = f'rl_{key}'
-    timestamps = request.session.get(storage_key, [])
-    timestamps = [ts for ts in timestamps if now - ts < window_seconds]
-    if len(timestamps) >= limit:
-        request.session[storage_key] = timestamps
-        return True
-    timestamps.append(now)
-    request.session[storage_key] = timestamps
-    return False
+def _rate_limit(request, key, limit=5, window_seconds=60, account=""):
+    return is_rate_limited(
+        request, key, limit=limit, window_seconds=window_seconds, account=account
+    )
 
 
 def _build_owner_admin_session_payload(owner, tenant):
@@ -712,12 +702,11 @@ def system_demo(request, *args, **kwargs):
 def login_view(request, *args, **kwargs):
     """Login view - handles both owner and member login"""
     if request.method == 'POST':
-        if _rate_limit(request, 'login', limit=5, window_seconds=60):
-            messages.error(request, 'Too many login attempts. Please wait a minute and try again.')
-            return _tenant_redirect(request, 'service:welcome')
-        
         login_identifier = request.POST.get('login_identifier', '').strip()
         password = request.POST.get('password', '')
+        if _rate_limit(request, 'login', limit=5, window_seconds=60, account=login_identifier):
+            messages.error(request, 'Too many login attempts. Please wait a minute and try again.')
+            return _tenant_redirect(request, 'service:welcome')
         
         if '@' in login_identifier:
             # Owner login - allow from any domain/device
