@@ -125,3 +125,11 @@
 - Files touched: `mysite/core/models.py`, `mysite/core/migrations/0005_external_table_record_registration_number.py`, `mysite/core/views.py`, `mysite/core/tests.py`.
 - Evidence: `compileall`, `manage.py check`, `manage.py check --deploy`, and `makemigrations --check --dry-run` passed (the deploy check reports the expected development-environment security warnings). The focused registration suite applies `core.0005` to a fresh PostgreSQL test database and verifies duplicate rejection, unconstrained non-signup records, and a bounded signup endpoint query count.
 - Remaining risk: The full suite ran 43 tests but remains pre-existing non-green: 11 errors require Cloudinary `cloud_name` test configuration, and two service tests have stale response/status expectations. These failures are unrelated to this migration and were not changed here.
+
+## Production incident — Founder dashboard 502 (2026-09-19)
+
+- Finding: A successful founder login redirected to a dashboard request that could never complete when at least one tenant existed. The dashboard iterated over `tenants` while appending each current tenant back into that same list, creating an unbounded loop until the Gunicorn worker timed out or was terminated.
+- Change: Removed the erroneous append. Added a dashboard rendering regression test with an authenticated founder, owner, tenant, and dashboard metric.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`.
+- Evidence: `core.tests.FounderDashboardQueryTests` passed: the rendering test completes with a tenant and the existing bounded-query test remains green.
+- Remaining risk: Render must deploy this commit before the public 502 is resolved. The app currently uses one Free-tier Gunicorn worker, so any other slow request can still block concurrent requests; production sizing and worker configuration need a separate deployment task.

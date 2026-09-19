@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import IntegrityError
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
+from django.urls import reverse
 
 from core import views
 from core.models import ExternalTable, ExternalTableRecord, User
@@ -123,6 +124,33 @@ class FounderDashboardQueryTests(TestCase):
             page, metrics = views._founder_tenant_page(1)
             self.assertEqual(len(page.object_list), 25)
             self.assertEqual(len(metrics), 25)
+
+    def test_dashboard_renders_a_page_with_a_tenant(self):
+        founder = get_user_model().objects.create_user(
+            username="founder-dashboard",
+            email="founder-dashboard@example.com",
+            password="secret123",
+            is_staff=True,
+        )
+        owner = OwnerUser.objects.create(
+            email="dashboard-owner@example.com",
+            program_name="Dashboard Program",
+            password="hashed",
+        )
+        tenant = CRTenant.objects.create(
+            name=owner.program_name,
+            schema_name="dashboard_program",
+            subdomain="dashboard-program",
+            tenant_key="dashkey1234567890123",
+            owner=owner,
+        )
+        TenantDashboardMetric.objects.create(tenant=tenant, member_count=1)
+
+        self.client.force_login(founder)
+        response = self.client.get(reverse("founder_saas_system_control"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, owner.email)
 
 
 class ExternalTableRecordCountTests(TestCase):

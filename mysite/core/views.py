@@ -796,7 +796,6 @@ def founder_saas_system_control(request, *args, **kwargs):
         tenant.schema_data_error = ''
         primary_domain = next((domain.domain for domain in tenant.all_domains if domain.is_primary), None)
         tenant.access_domain = _build_access_domain(primary_domain or tenant.subdomain)
-        tenants.append(tenant)
         owner_rows.append({
             'tenant_id': tenant.id,
             'owner_name': tenant.name,
