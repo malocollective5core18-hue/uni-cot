@@ -906,79 +906,51 @@ def register_view(request, *args, **kwargs):
 
         program_name = request.POST.get('program_name', '').strip()
         email = request.POST.get('email', '').strip()
-        reg_number = request.POST.get('reg_number', '').strip()
         password = request.POST.get('password', '')
         confirm_password = request.POST.get('confirm_password', '')
-        
-        if not program_name or not email or not reg_number or not password:
+
+        if not program_name or not email or not password:
             messages.error(request, 'All fields are required.')
             return _tenant_redirect(request, 'service:welcome')
-        
+
         if password != confirm_password:
             messages.error(request, 'Passwords do not match.')
-            return _tenant_redirect(request, 'service:welcome')
-        
-        owner = _find_active_owner_for_program(program_name)
-        tenant = getattr(owner, 'tenant', None) if owner else None
-        if not owner or not tenant or getattr(tenant, 'schema_name', None) in {None, '', 'public'}:
-            messages.error(request, 'Program not found. Please confirm the program name with your founder.')
             return _tenant_redirect(request, 'service:welcome')
 
         if OwnerUser.objects.filter(email__iexact=email).exists():
             messages.error(request, 'This email belongs to an owner account. Please use owner login.')
             return _tenant_redirect(request, 'service:welcome')
 
-        with schema_context(tenant.schema_name):
-            tenant_owner = _ensure_tenant_owner_row(owner)
-            core_user = _get_owner_core_user(tenant_owner, reg_number)
-            if not core_user:
-                messages.error(
-                    request,
-                    'This registration number is not registered in this program. Please contact your admin first.',
+        try:
+            with transaction.atomic():
+                owner = OwnerUser.objects.create(
+                    email=email,
+                    program_name=program_name,
+                    password=make_password(password),
+                    is_owner=True,
+                    is_active=True,
                 )
-                return _tenant_redirect(request, 'service:welcome')
-
-            email_owner = CoreUser.objects.filter(email__iexact=email).exclude(id=core_user.id).first()
-            if email_owner:
-                messages.error(request, 'This email is already connected to another member.')
-                return _tenant_redirect(request, 'service:welcome')
-
-            if core_user.email and core_user.email.lower() != email.lower():
-                messages.error(request, 'This registration number is already connected to another email.')
-                return _tenant_redirect(request, 'service:welcome')
-
-            if Member.objects.filter(reg_number__iexact=reg_number).exists():
-                messages.error(request, 'This registration number already has a member account. Please log in.')
-                return _tenant_redirect(request, 'service:welcome')
-
-            if not core_user.email:
-                core_user.email = email
-                core_user.save(update_fields=['email', 'updated_at'])
-
-            member = Member.objects.create(
-                owner=tenant_owner,
-                reg_number=reg_number,
-                program_name=tenant.name or owner.program_name,
-                password=make_password(password),
-                is_active=True,
-            )
+                tenant = create_owner_tenant(owner)
+        except Exception:
+            logger.exception('service.register_view: owner signup failed for %s', email)
+            messages.error(request, 'Registration could not be completed right now. Please try again in a moment.')
+            return _tenant_redirect(request, 'service:welcome')
 
         request.session.flush()
         request.session.cycle_key()
         request.session['service_user'] = {
-            'user_type': 'member',
-            'member_id': member.id,
-            'reg_number': member.reg_number,
-            'program_name': member.program_name,
-            'owner_id': tenant_owner.id,
+            'user_type': 'owner',
+            'owner_id': owner.id,
+            'email': owner.email,
+            'program_name': owner.program_name,
         }
-        request.session['program_name'] = member.program_name
+        request.session['program_name'] = owner.program_name
         request.session['tenant_id'] = tenant.id
         request.session['tenant_subdomain'] = tenant.subdomain
         request.session['tenant_key'] = tenant.tenant_key
-        
-        messages.success(request, f'Sign up successful. Welcome, {member.reg_number}!')
-        return _tenant_redirect(request, 'service:member_dashboard', tenant=tenant)
+
+        messages.success(request, f'Welcome, {owner.email}! Your tenant workspace is ready.')
+        return _tenant_redirect(request, 'service:owner_dashboard', tenant=tenant)
     
     return _tenant_redirect(request, 'service:welcome')
 
@@ -1006,27 +978,22 @@ def owner_dashboard(request, *args, **kwargs):
         _clear_service_session(request)
         messages.error(request, 'Your owner account is inactive. Please contact founder support.')
         return _tenant_redirect(request, 'service:welcome')
-    
-    # Get tenant info
+
     tenant = getattr(owner, 'tenant', None)
-    if not tenant:
-        messages.error(request, 'Your owner account is missing a tenant workspace. Please contact founder support.')
-        _clear_service_session(request)
-        return _tenant_redirect(request, 'service:welcome')
+    if tenant:
+        if getattr(tenant, 'provisioning_state', None) != CRTenant.PROVISIONING_READY:
+            _clear_service_session(request)
+            messages.error(request, 'Your tenant workspace is still being set up. Please try again in a moment.')
+            return _tenant_redirect(request, 'service:welcome')
 
-    if getattr(tenant, 'provisioning_state', None) != CRTenant.PROVISIONING_READY:
-        _clear_service_session(request)
-        messages.error(request, 'Your tenant workspace is still being set up. Please try again in a moment.')
-        return _tenant_redirect(request, 'service:welcome')
+        if not tenant.is_active:
+            _clear_service_session(request)
+            messages.error(request, 'Your tenant workspace is disabled. Please contact founder support.')
+            return _tenant_redirect(request, 'service:welcome')
 
-    if not tenant.is_active:
-        _clear_service_session(request)
-        messages.error(request, 'Your tenant workspace is disabled. Please contact founder support.')
-        return _tenant_redirect(request, 'service:welcome')
-
-    if not tenant.is_subscription_active:
-        messages.warning(request, 'Your tenant subscription is inactive or expired. Please renew to continue.')
-        return _tenant_redirect(request, 'service:subscription_expired', tenant=tenant)
+        if not tenant.is_subscription_active:
+            messages.warning(request, 'Your tenant subscription is inactive or expired. Please renew to continue.')
+            return _tenant_redirect(request, 'service:subscription_expired', tenant=tenant)
 
     if request.method == 'POST':
         action = request.POST.get('action', '').strip()
@@ -1541,7 +1508,7 @@ def api_create_tenant(request, *args, **kwargs):
             email,
             program_name,
         )
-        return _json_error(f'Tenant registration failed. Please try again later. Ref: {error_ref}', status=500)
+        return _json_error('Tenant registration failed. Please try again later.', status=500)
     
     return JsonResponse({
         'success': True,
@@ -1575,13 +1542,11 @@ def api_owner_admin_login(request, *args, **kwargs):
 
     email = data.get('email', '').strip()
     password = data.get('password', '')
-    tenant_slug = data.get('tenant_slug', '').strip()
+    tenant_slug = (data.get('tenant_slug', '') or '').strip()
+    tenant_id = data.get('tenant_id')
 
     if not email or not password:
         return _json_error('Email and password are required')
-
-    if not tenant_slug:
-        return _json_error('Tenant slug is required')
 
     # Step 1: Verify owner exists in database
     owner = _get_owner_by_email(email)
@@ -1592,14 +1557,31 @@ def api_owner_admin_login(request, *args, **kwargs):
     if not check_password(password, owner.password):
         return _json_error('Invalid email or password. Please try again.', status=401)
 
-    # Step 3: Check if specified tenant exists (case-insensitive for usability)
     from customers.models import CRTenant
-    tenant = CRTenant.objects.filter(subdomain__iexact=tenant_slug, is_active=True).first()
+    tenant = _get_tenant_from_request(request)
+    if tenant:
+        tenant_owner_id = getattr(tenant, 'owner_id', None)
+        if tenant_owner_id is None and getattr(tenant, 'owner', None) is not None:
+            tenant_owner_id = getattr(tenant.owner, 'id', None)
+        if tenant_owner_id == owner.id:
+            pass
+        else:
+            tenant = None
+    if not tenant and tenant_id:
+        tenant = CRTenant.objects.filter(id=tenant_id, is_active=True).first()
+    elif not tenant and tenant_slug:
+        tenant = CRTenant.objects.filter(subdomain__iexact=tenant_slug, is_active=True).first()
+    else:
+        tenant = tenant
+
     if not tenant:
         return _json_error('Invalid tenant. Please check your tenant slug and try again.', status=400)
 
     # Step 4: Verify owner owns this specific tenant
-    if tenant.owner_id != owner.id:
+    tenant_owner_id = getattr(tenant, 'owner_id', None)
+    if tenant_owner_id is None and getattr(tenant, 'owner', None) is not None:
+        tenant_owner_id = getattr(tenant.owner, 'id', None)
+    if tenant_owner_id != owner.id:
         return _json_error('This is not your tenant. Please log in to your own tenant.', status=403)
 
     # Step 5: Success - owner owns this tenant
@@ -1610,24 +1592,18 @@ def api_owner_admin_login(request, *args, **kwargs):
         'email': owner.email,
         'program_name': owner.program_name,
     }
-    request.session['tenant_id'] = tenant.id
-    request.session['program_name'] = tenant.name
-    request.session['tenant_subdomain'] = tenant.subdomain
-    request.session['tenant_key'] = tenant.tenant_key
+    request.session['tenant_id'] = getattr(tenant, 'id', None)
+    request.session['program_name'] = getattr(tenant, 'name', owner.program_name)
+    request.session['tenant_subdomain'] = getattr(tenant, 'subdomain', '')
+    request.session['tenant_key'] = getattr(tenant, 'tenant_key', '')
 
     return JsonResponse({
         'success': True,
-        'message': f'Successfully logged in to admin for tenant: {tenant.name}',
         'owner': {
             'id': owner.id,
             'email': owner.email,
-            'tenant': {
-                'id': tenant.id,
-                'name': tenant.name,
-                'subdomain': tenant.subdomain,
-            }
+            'program_name': owner.program_name,
         },
-        'session': _build_owner_admin_session_payload(owner, tenant),
     })
 
 

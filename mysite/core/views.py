@@ -84,7 +84,7 @@ def _tenant_owner_session_error(request):
 
 def _has_owner_system_access(request):
     tenant = getattr(request, 'tenant', None)
-    if not tenant:
+    if not tenant or getattr(tenant, 'schema_name', None) in (None, '', 'public'):
         return True
 
     user = request.session.get('service_user') or {}
@@ -93,6 +93,8 @@ def _has_owner_system_access(request):
 
     owner_id = user.get('owner_id')
     tenant_owner_id = getattr(tenant, 'owner_id', None)
+    if tenant_owner_id is None and getattr(tenant, 'owner', None) is not None:
+        tenant_owner_id = getattr(tenant.owner, 'id', None)
     if not owner_id or not tenant_owner_id or owner_id != tenant_owner_id:
         return False
 
@@ -1268,10 +1270,7 @@ def api_property_detail(request, property_id, *args, **kwargs):
 def api_users(request, *args, **kwargs):
     """GET: list users.  POST: create user."""
     if request.method == 'GET':
-        tenant = getattr(request, 'tenant', None)
-        tenant_scoped_read = bool(tenant and getattr(tenant, 'schema_name', None) not in (None, '', 'public'))
-
-        if not _has_owner_system_access(request) and not tenant_scoped_read:
+        if not _has_owner_system_access(request):
             return JsonResponse({'success': False, 'error': 'Owner login required for this tenant system'}, status=403)
         try:
             def build_payload():

@@ -54,7 +54,6 @@ class TenantMiddleware:
             subdomain=path_tenant['tenant_slug'],
             tenant_key=path_tenant['tenant_key'],
             is_active=True,
-            provisioning_state=CRTenant.PROVISIONING_READY,
         ).first()
         if tenant is not None:
             cache.set(cache_key, tenant, timeout=60)
