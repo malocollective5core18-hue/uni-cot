@@ -318,9 +318,12 @@ WSGI_APPLICATION = 'mysite.wsgi.application'
 
 
 # Cache settings
-# Local-memory cache gives the API a fast default with no extra service.
-# Production can switch to Redis by setting REDIS_URL.
+# Redis is mandatory in production because cache-backed sessions and API cache
+# invalidation must be shared by every Gunicorn worker and application instance.
 REDIS_URL = os.getenv('REDIS_URL')
+
+if not DEBUG and not REDIS_URL:
+    raise ImproperlyConfigured("REDIS_URL must be set when DJANGO_DEBUG is false.")
 
 if REDIS_URL:
     CACHES = {
@@ -329,12 +332,13 @@ if REDIS_URL:
             'LOCATION': REDIS_URL,
             'OPTIONS': {
                 'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-                'IGNORE_EXCEPTIONS': True,
+                'IGNORE_EXCEPTIONS': False,
             },
             'TIMEOUT': int(os.getenv('DJANGO_CACHE_TIMEOUT', '300')),
         }
     }
 else:
+    # LocMemCache is intentionally limited to development and tests.
     CACHES = {
         'default': {
             'BACKEND': os.getenv('DJANGO_CACHE_BACKEND', 'django.core.cache.backends.locmem.LocMemCache'),
@@ -409,9 +413,15 @@ LOGOUT_REDIRECT_URL = 'service:welcome'
 
 
 # Session settings
-SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 1 week
+SESSION_COOKIE_AGE = int(os.getenv('DJANGO_SESSION_COOKIE_AGE', str(60 * 60 * 24 * 7)))
 SESSION_COOKIE_NAME = 'ring0_session'
-SESSION_SAVE_EVERY_REQUEST = True
+# Refresh the session only when it changes. This prevents read-only requests
+# (including API polling) from writing a session row on every response.
+SESSION_SAVE_EVERY_REQUEST = False
+# Production uses the shared cache configured above; tests may override this
+# setting to retain database-backed test sessions where required.
+SESSION_ENGINE = os.getenv('DJANGO_SESSION_ENGINE', 'django.contrib.sessions.backends.cache')
+SESSION_CACHE_ALIAS = 'default'
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SAMESITE = 'Lax'

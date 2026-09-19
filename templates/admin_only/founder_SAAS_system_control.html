@@ -453,11 +453,13 @@ body.fc-active {
 /* ── PAGE HERO ── */
 .fc-hero {
   position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
   background: var(--grad-hero);
   border: 1px solid var(--c-edge);
   border-radius: var(--radius);
   padding: 40px;
-  overflow: hidden;
 }
 .fc-hero::after {
   content: '';

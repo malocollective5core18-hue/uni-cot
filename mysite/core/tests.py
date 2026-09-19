@@ -1,11 +1,19 @@
 import json
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.conf import settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from core.models import User
 from service.models import OwnerUser
 
+
+class SessionConfigurationTests(SimpleTestCase):
+    def test_sessions_are_cache_backed_and_not_saved_on_every_request(self):
+        self.assertEqual(settings.SESSION_ENGINE, 'django.contrib.sessions.backends.cache')
+        self.assertEqual(settings.SESSION_CACHE_ALIAS, 'default')
+        self.assertFalse(settings.SESSION_SAVE_EVERY_REQUEST)
+        self.assertEqual(settings.SESSION_COOKIE_AGE, 60 * 60 * 24 * 7)
 
 @override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],

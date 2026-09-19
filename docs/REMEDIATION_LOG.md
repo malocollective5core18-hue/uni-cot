@@ -13,3 +13,19 @@
 - Evidence: `psql -d uni_cot_dev` returned `uni_cot_dev | malochief`. `compileall`, `manage.py check`, `manage.py check --deploy`, and `makemigrations --check --dry-run` exited 0. The deploy check warning is solely from the deliberately short command-scoped secret.
 - Test result: `manage.py test` ran 13 tests and exited 1 with 9 pre-existing errors. `mysite.service.tests` imports the missing `customers.models.get_public_tenant_domain`; core tenant tests fail while rendering because Cloudinary has no configured `cloud_name`. Django created and destroyed its temporary test database successfully.
 - Remaining risk: the test suite is not green at baseline. These failures must be isolated and corrected before any remediation item can be marked verified.
+
+## Founder dashboard hero overflow (2026-09-19)
+
+- Finding: The founder dashboard hero must not expand beyond its page viewport.
+- Change: Constrained `.fc-hero` to the available inline width and made its padding/border participate in that width calculation. Removed the explicit `overflow: hidden` rule at the request of the dashboard owner.
+- Files touched: `templates/admin_only/founder_SAAS_system_control.html`.
+- Evidence: `box-sizing: border-box`, `min-width: 0`, and `max-width: 100%` prevent the hero element itself from producing horizontal overflow in its flex/page container.
+- Remaining risk: Browser/device visual testing is still required; the existing baseline suite has unrelated failures (missing Cloudinary test configuration and stale service-test import).
+
+## P0-1 — Per-request session writes (2026-09-19)
+
+- Finding: Read-only requests refreshed and persisted the session on every response, and production could fall back to a per-worker local cache.
+- Change: Disabled `SESSION_SAVE_EVERY_REQUEST`, configured cache-backed sessions with an explicit one-week lifetime, and made `REDIS_URL` mandatory outside debug mode. Redis failures are no longer silently treated as cache misses.
+- Files touched: `mysite/mysite/settings.py`, `mysite/core/tests.py`.
+- Evidence: `SessionConfigurationTests.test_sessions_are_cache_backed_and_not_saved_on_every_request` asserts the configured session backend, alias, expiry, and disabled per-request saves.
+- Remaining risk: Redis availability must be supplied and monitored in production. The full suite has pre-existing failures unrelated to this settings change.
