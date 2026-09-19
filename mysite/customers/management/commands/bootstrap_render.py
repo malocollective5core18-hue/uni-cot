@@ -1,12 +1,12 @@
 import os
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.db import connection
 
 from customers.models import CRTenant, Domain
 from customers.models import _generate_unique_tenant_key
-from customers.models import ensure_tenant_schema_ready
 from customers.models import uses_path_tenant_routing
 
 
@@ -74,22 +74,10 @@ class Command(BaseCommand):
         else:
             self.stdout.write("Superuser env vars not fully set; skipping superuser creation.")
 
-    def ensure_path_tenant_schemas_ready(self):
-        tenants = CRTenant.objects.exclude(schema_name="public").order_by("id")
-        if not tenants.exists():
-            self.stdout.write("No path-routed tenant schemas to verify.")
-            return
-
-        for tenant in tenants:
-            self.stdout.write(
-                f"Ensuring tenant schema is ready: id={tenant.id} schema_name={tenant.schema_name}"
-            )
-            ensure_tenant_schema_ready(tenant, verbosity=0)
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"Tenant schema ready: id={tenant.id} schema_name={tenant.schema_name}"
-                )
-            )
+    def provision_due_tenants(self):
+        """Run queued provisioning jobs during a Free-tier manual deploy."""
+        self.stdout.write("Draining due tenant provisioning jobs.")
+        call_command("provision_tenants", "--drain", verbosity=1)
 
     def handle(self, *args, **options):
         self.debug_tenant_records()
@@ -114,7 +102,7 @@ class Command(BaseCommand):
                 self.stdout.write("No legacy public tenant record found for path-routing mode.")
 
             self.debug_tenant_records()
-            self.ensure_path_tenant_schemas_ready()
+            self.provision_due_tenants()
             self.ensure_superuser()
             return
 

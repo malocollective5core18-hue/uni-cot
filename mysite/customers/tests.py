@@ -1,6 +1,8 @@
 from datetime import timedelta
-from unittest.mock import Mock, patch
+from types import SimpleNamespace
+from unittest.mock import Mock, call, patch
 
+from django.core.management import call_command
 from django.test import RequestFactory, TestCase
 from django_tenants.models import TenantMixin
 from django.utils import timezone
@@ -20,6 +22,34 @@ from service.models import OwnerUser
 
 
 class PathTenantProvisioningTests(TestCase):
+    @patch("customers.management.commands.provision_tenants.run_job")
+    @patch("customers.management.commands.provision_tenants.claim_next_job")
+    @patch("customers.management.commands.provision_tenants.recover_stale_jobs", return_value=0)
+    def test_drain_processes_all_due_jobs_then_exits(
+        self, mocked_recover, mocked_claim, mocked_run
+    ):
+        first_job = SimpleNamespace(tenant_id=1, tenant=SimpleNamespace(schema_name="first"))
+        second_job = SimpleNamespace(tenant_id=2, tenant=SimpleNamespace(schema_name="second"))
+        mocked_claim.side_effect = [first_job, second_job, None]
+
+        call_command("provision_tenants", "--drain")
+
+        self.assertEqual(mocked_claim.call_count, 3)
+        self.assertEqual(mocked_run.call_args_list, [call(first_job), call(second_job)])
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    @patch("customers.management.commands.bootstrap_render.call_command")
+    @patch("customers.management.commands.bootstrap_render.Command.ensure_superuser")
+    @patch("customers.management.commands.bootstrap_render.Command.ensure_public_owner_user_columns")
+    def test_render_bootstrap_drains_due_tenant_jobs(
+        self, mocked_owner_columns, mocked_superuser, mocked_call_command
+    ):
+        call_command("bootstrap_render")
+
+        mocked_call_command.assert_called_once_with(
+            "provision_tenants", "--drain", verbosity=1
+        )
+
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
     @patch("customers.models._generate_unique_tenant_key", side_effect=["A" * 20, "B" * 20])
     def test_create_owner_tenant_retries_a_duplicate_tenant_key(self, mocked_key):

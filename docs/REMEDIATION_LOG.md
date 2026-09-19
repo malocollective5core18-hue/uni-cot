@@ -141,3 +141,11 @@
 - Files touched: `templates/admin_only/founder_SAAS_system_control.html`.
 - Evidence: The CSS no longer establishes `.fc-hero` as a positioning context or renders its out-of-flow decorative circle.
 - Remaining risk: Visual verification after Render deploy is still required across desktop and mobile widths.
+
+## Free-tier tenant provisioning fallback (2026-09-19)
+
+- Finding: New owner registration safely queued a tenant provisioning job, but the Render Free web service runs Gunicorn only. No worker claimed the job, leaving the tenant `pending` and its owner unable to access its path-routed workspace.
+- Change: Added `provision_tenants --drain`, which processes all currently due jobs and exits. Render's existing `bootstrap_render` deploy command now invokes this mode instead of directly creating schemas without updating the provisioning lifecycle. A manual Render deploy therefore provisions queued owners and transitions successful tenants to `ready`.
+- Files touched: `mysite/customers/management/commands/provision_tenants.py`, `mysite/customers/management/commands/bootstrap_render.py`, `mysite/customers/tests.py`.
+- Evidence: Pending focused test run.
+- Remaining risk: This is a Free-tier fallback, not real-time provisioning. A newly registered owner remains pending until the next manual deploy. Paid production should run a dedicated `python manage.py provision_tenants` worker.
