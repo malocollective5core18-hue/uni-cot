@@ -7,7 +7,7 @@ This middleware extracts subdomain from request and sets up tenant context.
 import re
 from types import SimpleNamespace
 
-from django.http import JsonResponse
+from django.http import HttpResponseNotFound, JsonResponse
 from django.urls import reverse
 from django.shortcuts import redirect
 from django.contrib import messages
@@ -87,10 +87,13 @@ class TenantMiddleware:
 
             tenant = CRTenant.objects.filter(
                 id=path_tenant['tenant_id'],
+                subdomain=path_tenant['tenant_slug'],
+                tenant_key=path_tenant['tenant_key'],
                 is_active=True,
+                provisioning_state=CRTenant.PROVISIONING_READY,
             ).first()
-            if tenant and path_tenant.get('tenant_key') and tenant.tenant_key != path_tenant['tenant_key']:
-                return JsonResponse({'error': 'Tenant not found'}, status=404)
+            if not tenant:
+                return HttpResponseNotFound('Tenant not found')
             request.tenant = tenant
 
             if tenant and not tenant.is_subscription_active:
@@ -112,12 +115,14 @@ class TenantMiddleware:
             tenant = CRTenant.objects.filter(
                 id=legacy_tenant['tenant_id'],
                 is_active=True,
+                provisioning_state=CRTenant.PROVISIONING_READY,
             ).first()
             if tenant:
                 suffix = legacy_tenant['suffix'] or '/'
                 if not suffix.startswith('/'):
                     suffix = f'/{suffix}'
                 return redirect(f"/t/{tenant.subdomain}/{tenant.id}/{tenant.tenant_key}{suffix}", permanent=False)
+            return HttpResponseNotFound('Tenant not found')
         
         # Skip tenant detection for public hosts
         if hostname in self.PUBLIC_HOSTS:
@@ -135,11 +140,19 @@ class TenantMiddleware:
             
             # First try direct subdomain match
             try:
-                tenant = CRTenant.objects.get(subdomain=subdomain, is_active=True)
+                tenant = CRTenant.objects.get(
+                    subdomain=subdomain,
+                    is_active=True,
+                    provisioning_state=CRTenant.PROVISIONING_READY,
+                )
             except CRTenant.DoesNotExist:
                 # Try domain match
                 try:
-                    domain = Domain.objects.get(domain=hostname, tenant__is_active=True)
+                    domain = Domain.objects.get(
+                        domain=hostname,
+                        tenant__is_active=True,
+                        tenant__provisioning_state=CRTenant.PROVISIONING_READY,
+                    )
                     tenant = domain.tenant
                 except Domain.DoesNotExist:
                     pass

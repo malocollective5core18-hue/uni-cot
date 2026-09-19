@@ -1,9 +1,19 @@
-from unittest.mock import patch
+from datetime import timedelta
+from unittest.mock import Mock, patch
 
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django_tenants.models import TenantMixin
+from django.utils import timezone
 
-from customers.models import CRTenant, Domain, TenantSubscription, create_owner_tenant
+from customers.management.commands.provision_tenants import claim_next_job, recover_stale_jobs, run_job
+from customers.models import (
+    CRTenant,
+    Domain,
+    TenantProvisioningJob,
+    TenantSubscription,
+    create_owner_tenant,
+)
+from mysite.tenant_middleware import TenantMiddleware
 from service.models import OwnerUser
 
 
@@ -25,10 +35,12 @@ class PathTenantProvisioningTests(TestCase):
         self.assertEqual(len(tenant.tenant_key), 20)
         self.assertFalse(Domain.objects.filter(tenant=tenant).exists())
         self.assertTrue(TenantSubscription.objects.filter(tenant=tenant, plan="trial").exists())
+        self.assertEqual(tenant.provisioning_state, CRTenant.PROVISIONING_PENDING)
+        self.assertEqual(tenant.provisioning_job.status, TenantProvisioningJob.STATUS_QUEUED)
 
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
     @patch("customers.models.ensure_tenant_schema_ready")
-    def test_create_owner_tenant_provisions_schema_in_path_mode(self, mocked_ensure_schema):
+    def test_create_owner_tenant_queues_schema_provisioning_in_path_mode(self, mocked_ensure_schema):
         owner = OwnerUser.objects.create(
             email="owner3@example.com",
             program_name="Business",
@@ -39,7 +51,96 @@ class PathTenantProvisioningTests(TestCase):
 
         tenant = create_owner_tenant(owner)
 
+        mocked_ensure_schema.assert_not_called()
+        self.assertTrue(TenantProvisioningJob.objects.filter(tenant=tenant).exists())
+
+    @patch("customers.management.commands.provision_tenants.tenant_schema_is_healthy", return_value=True)
+    @patch("customers.management.commands.provision_tenants.ensure_tenant_schema_ready")
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    def test_worker_marks_tenant_ready_after_schema_health_check(self, mocked_ensure_schema, mocked_health_check):
+        owner = OwnerUser.objects.create(
+            email="worker@example.com",
+            program_name="Worker Test",
+            password="hashed",
+            is_owner=True,
+            is_active=True,
+        )
+        tenant = create_owner_tenant(owner)
+
+        job = claim_next_job()
+        self.assertIsNotNone(job)
+        run_job(job)
+
+        tenant.refresh_from_db()
+        job.refresh_from_db()
+        self.assertEqual(tenant.provisioning_state, CRTenant.PROVISIONING_READY)
+        self.assertEqual(job.status, TenantProvisioningJob.STATUS_SUCCEEDED)
         mocked_ensure_schema.assert_called_once_with(tenant, verbosity=0)
+        mocked_health_check.assert_called_once_with(tenant)
+
+    @patch("customers.management.commands.provision_tenants.ensure_tenant_schema_ready", side_effect=RuntimeError("schema unavailable"))
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    def test_worker_requeues_a_failed_provisioning_attempt(self, mocked_ensure_schema):
+        owner = OwnerUser.objects.create(
+            email="retry@example.com",
+            program_name="Retry Test",
+            password="hashed",
+            is_owner=True,
+            is_active=True,
+        )
+        tenant = create_owner_tenant(owner)
+        job = claim_next_job()
+
+        with self.assertRaisesRegex(RuntimeError, "schema unavailable"):
+            run_job(job)
+
+        tenant.refresh_from_db()
+        job.refresh_from_db()
+        self.assertEqual(tenant.provisioning_state, CRTenant.PROVISIONING_PENDING)
+        self.assertEqual(job.status, TenantProvisioningJob.STATUS_RETRY)
+        self.assertEqual(job.attempts, 1)
+        self.assertIn("schema unavailable", job.last_error)
+        mocked_ensure_schema.assert_called_once_with(tenant, verbosity=0)
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    def test_stale_worker_lock_is_recovered_for_retry(self):
+        owner = OwnerUser.objects.create(
+            email="stale@example.com",
+            program_name="Stale Job",
+            password="hashed",
+            is_owner=True,
+            is_active=True,
+        )
+        tenant = create_owner_tenant(owner)
+        job = tenant.provisioning_job
+        job.status = TenantProvisioningJob.STATUS_RUNNING
+        job.locked_at = timezone.now() - timedelta(minutes=16)
+        job.save(update_fields=["status", "locked_at"])
+
+        self.assertEqual(recover_stale_jobs(), 1)
+        job.refresh_from_db()
+        self.assertEqual(job.status, TenantProvisioningJob.STATUS_RETRY)
+        self.assertIn("lock expired", job.last_error)
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    def test_pending_tenant_path_returns_not_found_without_running_a_view(self):
+        owner = OwnerUser.objects.create(
+            email="pending@example.com",
+            program_name="Pending Tenant",
+            password="hashed",
+            is_owner=True,
+            is_active=True,
+        )
+        tenant = create_owner_tenant(owner)
+        get_response = Mock()
+        middleware = TenantMiddleware(get_response)
+        request = RequestFactory().get(
+            f"/t/{tenant.subdomain}/{tenant.id}/{tenant.tenant_key}/system/"
+        )
+        response = middleware(request)
+
+        self.assertEqual(response.status_code, 404)
+        get_response.assert_not_called()
 
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
     @patch.object(TenantMixin, "save", side_effect=RuntimeError("tenant mixin should not run"))

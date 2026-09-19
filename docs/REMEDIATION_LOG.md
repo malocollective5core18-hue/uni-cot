@@ -29,3 +29,19 @@
 - Files touched: `mysite/mysite/settings.py`, `mysite/core/tests.py`.
 - Evidence: `SessionConfigurationTests.test_sessions_are_cache_backed_and_not_saved_on_every_request` asserts the configured session backend, alias, expiry, and disabled per-request saves.
 - Remaining risk: Redis availability must be supplied and monitored in production. The full suite has pre-existing failures unrelated to this settings change.
+
+## P0-2 — Polling storms (2026-09-19)
+
+- Finding: countdown cards, properties, registration fields, users, and groups repeatedly downloaded full collections every 3–15 seconds.
+- Change: Added ETag/`If-None-Match` support to cached JSON responses. Updated the polling clients to retain ETags, accept `304 Not Modified`, and use a 30-second visible-page interval instead of 3, 10, or 15 seconds.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`, `templates/system_index.html`, `templates/properties.html`, `templates/groups.html`.
+- Evidence: `CachedJsonResponseTests.test_matching_etag_returns_not_modified_without_building_payload` passed; it confirms the response is 304 and skips the payload builder.
+- Remaining risk: polling uses a fixed 30-second fallback interval; exponential retry backoff remains to be added before this item can be marked fully fixed.
+
+## P0-3 — Tenant provisioning in web requests (2026-09-19)
+
+- Finding: Tenant signup ran schema creation and migrations during the owner-signup transaction. A disabled synchronous flag only wrote a log line, leaving tenants without a provisioning path.
+- Change: Added a durable database-backed provisioning queue and a tenant lifecycle (`pending`, `provisioning`, `ready`, `failed`). New tenants enqueue exactly one provisioning job and are not routable until the worker has completed schema provisioning and its migration-table health check. The `provision_tenants` management command atomically claims jobs, retries failures with bounded exponential delay, and recovers stale worker locks after a crash.
+- Files touched: `mysite/customers/models.py`, `mysite/customers/migrations/0007_tenant_provisioning_lifecycle.py`, `mysite/customers/management/commands/provision_tenants.py`, `mysite/customers/tests.py`, `mysite/mysite/tenant_middleware.py`.
+- Evidence: focused `customers.tests` provisioning suite covers queued creation, no schema work in the request, a worker success transition, retry state, and rejection of a pending tenant path.
+- Remaining risk: production must run one dedicated worker process using `python manage.py provision_tenants`; until it does, newly registered tenants intentionally remain pending rather than receiving unsafe public-schema traffic.

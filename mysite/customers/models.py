@@ -4,7 +4,7 @@ import logging
 import time
 from datetime import timedelta
 
-from django.db import models
+from django.db import connection, models
 from django.core.management import call_command
 from django.utils import timezone
 from django.utils.text import slugify
@@ -60,6 +60,27 @@ def ensure_tenant_schema_ready(tenant, verbosity=0):
     except Exception:
         logger.exception("ensure_tenant_schema_ready: migrate_schemas failed for %s", schema_name)
         raise
+
+
+def tenant_schema_is_healthy(tenant):
+    """Return whether the tenant schema has Django's migration table."""
+    schema_name = getattr(tenant, "schema_name", None)
+    if not schema_name:
+        return False
+
+    set_schema = getattr(connection, "set_schema", None)
+    set_schema_to_public = getattr(connection, "set_schema_to_public", None)
+    if not callable(set_schema) or not callable(set_schema_to_public):
+        return False
+
+    set_schema(schema_name, include_public=True)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM django_migrations LIMIT 1")
+            cursor.fetchone()
+        return True
+    finally:
+        set_schema_to_public()
 
 
 def _build_unique_identifier(raw_value, existing_values=None, separator="_"):
@@ -156,7 +177,28 @@ class CRTenant(TenantMixin):
         blank=True,
     )
 
-    auto_create_schema = not uses_path_tenant_routing()
+    # Schema creation belongs to the provisioning worker, never an HTTP request.
+    auto_create_schema = False
+
+    PROVISIONING_PENDING = "pending"
+    PROVISIONING_IN_PROGRESS = "provisioning"
+    PROVISIONING_READY = "ready"
+    PROVISIONING_FAILED = "failed"
+    PROVISIONING_CHOICES = [
+        (PROVISIONING_PENDING, "Pending"),
+        (PROVISIONING_IN_PROGRESS, "Provisioning"),
+        (PROVISIONING_READY, "Ready"),
+        (PROVISIONING_FAILED, "Failed"),
+    ]
+    provisioning_state = models.CharField(
+        max_length=20,
+        choices=PROVISIONING_CHOICES,
+        default=PROVISIONING_PENDING,
+        db_index=True,
+    )
+    provisioning_error = models.TextField(blank=True)
+    provisioning_started_at = models.DateTimeField(null=True, blank=True)
+    provisioning_completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "tenants"
@@ -198,6 +240,43 @@ class Domain(DomainMixin):
 
     def __str__(self):
         return self.domain
+
+
+class TenantProvisioningJob(models.Model):
+    """Durable, idempotent queue entry for tenant schema provisioning."""
+
+    STATUS_QUEUED = "queued"
+    STATUS_RUNNING = "running"
+    STATUS_RETRY = "retry"
+    STATUS_SUCCEEDED = "succeeded"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_QUEUED, "Queued"),
+        (STATUS_RUNNING, "Running"),
+        (STATUS_RETRY, "Retry"),
+        (STATUS_SUCCEEDED, "Succeeded"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
+    tenant = models.OneToOneField(
+        CRTenant,
+        on_delete=models.CASCADE,
+        related_name="provisioning_job",
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED, db_index=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
+    locked_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "tenant_provisioning_jobs"
+        ordering = ["next_attempt_at", "id"]
+
+    def __str__(self):
+        return f"Provision {self.tenant.schema_name} ({self.status})"
 
 
 class TenantSubscription(models.Model):
@@ -345,14 +424,11 @@ def create_owner_tenant(owner, base_domain=None):
         deactivate_existing=False,
     )
 
-    # Provision schema/tables. This can be expensive (runs migrations for the
-    # tenant). In high-throughput signup flows it's useful to avoid blocking the
-    # HTTP request while the schema is provisioned. Control via
-    # TENANT_PROVISION_SYNC env var (default: 'true').
-    provision_sync = os.getenv('TENANT_PROVISION_SYNC', 'true').strip().lower() == 'true'
-    if provision_sync:
-        ensure_tenant_schema_ready(tenant, verbosity=0)
-    else:
-        logger.info("create_owner_tenant: deferred provisioning for tenant %s (schema=%s)", tenant.name, tenant.schema_name)
+    TenantProvisioningJob.objects.create(tenant=tenant)
+    logger.info(
+        "create_owner_tenant: queued provisioning for tenant id=%s schema=%s",
+        tenant.id,
+        tenant.schema_name,
+    )
 
     return tenant
