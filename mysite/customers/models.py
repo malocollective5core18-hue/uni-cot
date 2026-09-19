@@ -292,6 +292,27 @@ class TenantProvisioningJob(models.Model):
         return f"Provision {self.tenant.schema_name} ({self.status})"
 
 
+class TenantDashboardMetric(models.Model):
+    """Public-schema snapshot used by the founder dashboard."""
+
+    tenant = models.OneToOneField(
+        CRTenant,
+        on_delete=models.CASCADE,
+        related_name="dashboard_metric",
+    )
+    member_count = models.PositiveIntegerField(default=0)
+    review_count = models.PositiveIntegerField(default=0)
+    pending_review_count = models.PositiveIntegerField(default=0)
+    average_rating = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
+    refreshed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "tenant_dashboard_metrics"
+
+    def __str__(self):
+        return f"Dashboard metrics for {self.tenant.schema_name}"
+
+
 class TenantSubscription(models.Model):
     STATUS_TRIAL = "trial"
     STATUS_ACTIVE = "active"

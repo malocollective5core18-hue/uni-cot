@@ -61,3 +61,11 @@
 - Files touched: `mysite/customers/models.py`.
 - Evidence: `TenantDomainConfigTests.test_public_tenant_domain_strips_protocol` exercises the required normalization.
 - Remaining risk: Database-backed test execution is still required.
+
+## P0-5 — Founder dashboard tenant fan-out (2026-09-19)
+
+- Finding: Founder dashboard rendering performed tenant-local aggregation and extra public-schema queries for every tenant.
+- Change: Added a public metrics snapshot table and an offline refresh command. The dashboard now loads 25 tenants per page with bulk public metadata, domains, subscriptions, and metric snapshots; it performs no tenant schema switch during rendering.
+- Files touched: `mysite/customers/models.py`, `mysite/customers/migrations/0008_tenantdashboardmetric.py`, `mysite/customers/management/commands/refresh_tenant_dashboard_metrics.py`, `mysite/core/views.py`, `templates/admin_only/founder_SAAS_system_control.html`.
+- Evidence: `core.tests.FounderDashboardQueryTests` passed with 10 SQL statements for a 25-tenant page: five bounded public data queries plus django-tenants' five required `SET search_path` statements. The count does not grow with tenant count.
+- Remaining risk: Production must schedule `python manage.py refresh_tenant_dashboard_metrics` so metrics remain current; snapshots are intentionally eventually consistent.

@@ -13,7 +13,7 @@ from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import DatabaseError, OperationalError, ProgrammingError, connection, transaction
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, Count, Prefetch, Q, Sum
 from django.http import HttpResponseNotModified, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -37,6 +37,7 @@ from .models import (
 from customers.models import (
     CRTenant,
     Domain,
+    TenantDashboardMetric,
     TenantSubscription,
     create_owner_tenant,
     create_tenant_subscription,
@@ -251,6 +252,29 @@ def _get_tenant_data_summary(tenant):
         summary['schema_error'] = str(error)
 
     return summary
+
+
+def _founder_tenant_page(page_number):
+    """Return one bounded founder dashboard page without schema fan-out."""
+    tenant_qs = (
+        CRTenant.objects
+        .select_related('owner')
+        .prefetch_related(
+            Prefetch('domains', queryset=Domain.objects.order_by('-is_primary', 'domain'), to_attr='ordered_domains'),
+            Prefetch(
+                'subscriptions',
+                queryset=TenantSubscription.objects.filter(is_active=True).order_by('-created_at'),
+                to_attr='active_subscriptions',
+            ),
+        )
+        .order_by('-created_on', '-id')
+    )
+    page = Paginator(tenant_qs, 25).get_page(page_number)
+    metric_by_tenant_id = {
+        metric.tenant_id: metric
+        for metric in TenantDashboardMetric.objects.filter(tenant_id__in=[tenant.id for tenant in page])
+    }
+    return page, metric_by_tenant_id
 
 
 def _scope_users_queryset(request):
@@ -749,33 +773,25 @@ def founder_saas_system_control(request, *args, **kwargs):
     expired_tenants = CRTenant.objects.filter(
         Q(is_active=False) | Q(paid_until__lt=timezone.now().date())
     ).distinct().count()
-    public_total_reviews = Comment.objects.count()
-    public_pending_reviews = Comment.objects.filter(status='pending').count()
-    tenant_total_reviews = 0
-    tenant_pending_reviews = 0
-
-    tenants = []
-    owner_rows = []
-    tenant_qs = (
-        CRTenant.objects
-        .select_related('owner')
-        .prefetch_related('domains', 'subscriptions')
-        .order_by('-created_on')
+    metric_totals = TenantDashboardMetric.objects.aggregate(
+        total_reviews=Sum('review_count'),
+        pending_reviews=Sum('pending_review_count'),
     )
-    for tenant in tenant_qs:
-        owner = _get_tenant_owner(tenant)
-        owner_comments = Comment.objects.filter(owner=owner) if owner else Comment.objects.none()
-        tenant_summary = _get_tenant_data_summary(tenant)
-        tenant.latest_subscription = tenant.subscriptions.filter(is_active=True).order_by('-created_at').first()
-        tenant.all_domains = list(tenant.domains.order_by('-is_primary', 'domain'))
-        tenant.member_count = tenant_summary['member_count'] or (owner.members.count() if owner else 0)
-        tenant.review_count = tenant_summary['review_count'] or owner_comments.count()
-        tenant.pending_review_count = tenant_summary['pending_review_count'] or owner_comments.filter(status='pending').count()
-        tenant.avg_rating = tenant_summary['avg_rating'] if tenant_summary['avg_rating'] is not None else owner_comments.aggregate(avg=Avg('rating'))['avg']
-        tenant.schema_data_error = tenant_summary['schema_error']
-        tenant_total_reviews += tenant.review_count
-        tenant_pending_reviews += tenant.pending_review_count
-        tenant.access_domain = _build_access_domain(tenant.primary_domain_url or tenant.subdomain)
+    tenant_page, metric_by_tenant_id = _founder_tenant_page(request.GET.get('page'))
+    tenants = list(tenant_page)
+    owner_rows = []
+    for tenant in tenants:
+        owner = tenant.owner
+        metrics = metric_by_tenant_id.get(tenant.id)
+        tenant.latest_subscription = (tenant.active_subscriptions or [None])[0]
+        tenant.all_domains = tenant.ordered_domains
+        tenant.member_count = metrics.member_count if metrics else 0
+        tenant.review_count = metrics.review_count if metrics else 0
+        tenant.pending_review_count = metrics.pending_review_count if metrics else 0
+        tenant.avg_rating = metrics.average_rating if metrics else None
+        tenant.schema_data_error = ''
+        primary_domain = next((domain.domain for domain in tenant.all_domains if domain.is_primary), None)
+        tenant.access_domain = _build_access_domain(primary_domain or tenant.subdomain)
         tenants.append(tenant)
         owner_rows.append({
             'tenant_id': tenant.id,
@@ -811,9 +827,10 @@ def founder_saas_system_control(request, *args, **kwargs):
         'active_tenants': active_tenants,
         'paid_tenants': paid_tenants,
         'expired_tenants': expired_tenants,
-        'total_reviews': tenant_total_reviews or public_total_reviews,
-        'pending_reviews': tenant_pending_reviews or public_pending_reviews,
+        'total_reviews': metric_totals['total_reviews'] or 0,
+        'pending_reviews': metric_totals['pending_reviews'] or 0,
         'tenants': tenants,
+        'tenant_page': tenant_page,
         'owner_rows': owner_rows,
         'reviews': reviews,
         'review_signals': review_signals,

@@ -1839,6 +1839,13 @@ body.fc-active {
               No tenants match the current search or selected filters. Try broadening your criteria.
             </div>
           </div>
+          {% if tenant_page.has_other_pages %}
+          <nav class="fc-btn-row" aria-label="Tenant pages">
+            {% if tenant_page.has_previous %}<a class="btn btn-ghost" href="?page={{ tenant_page.previous_page_number }}">Previous</a>{% endif %}
+            <span class="chip chip-info">Page {{ tenant_page.number }} of {{ tenant_page.paginator.num_pages }}</span>
+            {% if tenant_page.has_next %}<a class="btn btn-ghost" href="?page={{ tenant_page.next_page_number }}">Next</a>{% endif %}
+          </nav>
+          {% endif %}
         </div>
       </div><!-- /page-tenants -->
 

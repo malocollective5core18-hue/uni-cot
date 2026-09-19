@@ -7,6 +7,7 @@ from django.test import RequestFactory, SimpleTestCase, TestCase, override_setti
 
 from core import views
 from core.models import User
+from customers.models import CRTenant, TenantDashboardMetric
 from service.models import OwnerUser
 
 
@@ -60,6 +61,31 @@ class FounderLoginTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Founder Control")
+
+
+class FounderDashboardQueryTests(TestCase):
+    def test_tenant_page_uses_a_bounded_number_of_public_queries(self):
+        for index in range(26):
+            owner = OwnerUser.objects.create(
+                email=f"owner-{index}@example.com",
+                program_name=f"Program {index}",
+                password="hashed",
+            )
+            tenant = CRTenant.objects.create(
+                name=owner.program_name,
+                schema_name=f"program_{index}",
+                subdomain=f"program-{index}",
+                tenant_key=f"tenantkey{index:011d}",
+                owner=owner,
+            )
+            TenantDashboardMetric.objects.create(tenant=tenant, member_count=index)
+
+        # django-tenants emits SET search_path before each of the five bounded
+        # public queries (count, tenants, domains, subscriptions, metrics).
+        with self.assertNumQueries(10):
+            page, metrics = views._founder_tenant_page(1)
+            self.assertEqual(len(page.object_list), 25)
+            self.assertEqual(len(metrics), 25)
 
 
 @override_settings(
