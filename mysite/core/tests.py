@@ -36,6 +36,17 @@ class CachedJsonResponseTests(SimpleTestCase):
         self.assertEqual(response['ETag'], etag)
         cache.clear()
 
+
+class PaginationTests(SimpleTestCase):
+    def test_page_size_is_capped_at_one_hundred(self):
+        request = RequestFactory().get('/api/users/?page_size=1000')
+
+        page, meta = views._paginate_queryset(request, list(range(101)))
+
+        self.assertEqual(len(page.object_list), 100)
+        self.assertEqual(meta['page_size'], 100)
+        self.assertEqual(meta['total_pages'], 2)
+
 @override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",

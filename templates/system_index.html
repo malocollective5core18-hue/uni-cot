@@ -7828,17 +7828,35 @@ function clearExternalTablesCache() {
   localStorage.removeItem('ring0_external_table_id');
 }
 
-async function syncExternalTablesCacheFromApi() {
-  try {
-    const response = await fetch('/api/external-tables/?page_size=1000&include_records=1&records_page_size=1000');
+async function fetchAllApiPages(path) {
+  const url = new URL(path, window.location.origin);
+  url.searchParams.set('page_size', '100');
+  const data = [];
+  let page = 1;
+  let totalPages = 1;
+  while (page <= totalPages) {
+    url.searchParams.set('page', String(page));
+    const response = await fetch(url.pathname + url.search);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
     if (!result.success || !Array.isArray(result.data)) {
-      throw new Error('Unexpected external tables response');
+      throw new Error(result.error || 'Unexpected paginated API response');
     }
+    data.push(...result.data);
+    totalPages = Number(result.meta?.total_pages || 1);
+    page += 1;
+  }
+  return { success: true, data };
+}
 
-    const tables = result.data.map(table => {
-      const tableRecords = Array.isArray(table.records) ? table.records : [];
+async function syncExternalTablesCacheFromApi() {
+  try {
+    const result = await fetchAllApiPages('/api/external-tables/');
+
+    const tables = [];
+    for (const table of result.data) {
+      const recordsResult = await fetchAllApiPages(`/api/external-tables/${table.id}/records/`);
+      const tableRecords = recordsResult.data;
       const members = tableRecords.map(record => {
         const recordData = record.record_data || (() => {
           try {
@@ -7848,7 +7866,7 @@ async function syncExternalTablesCacheFromApi() {
         return { id: String(record.id), ...recordData };
       });
 
-      return {
+      tables.push({
         id: String(table.id),
         name: table.table_name || table.name,
         createdAt: table.created_at || new Date().toISOString(),
@@ -7857,8 +7875,8 @@ async function syncExternalTablesCacheFromApi() {
         hidden_columns: Array.isArray(table.hidden_columns) ? table.hidden_columns : [],
         is_visible: table.is_visible !== false,
         source: 'api'
-      };
-    });
+      });
+    }
 
     saveExternalTablesToStorage(tables);
     return tables;
@@ -8219,20 +8237,7 @@ function getFieldInputHTML(field, value = '') {
 async function loadUserData(options = {}) {
   const { silent = false } = options;
   try {
-    const response = await fetch('/api/users/?page_size=1000');
-    const contentType = response.headers.get('content-type') || '';
-    let result = null;
-
-    if (contentType.includes('application/json')) {
-      result = await response.json();
-    } else {
-      const rawText = await response.text();
-      throw new Error(response.ok ? 'User API returned a non-JSON response.' : `User API failed with HTTP ${response.status}. ${rawText.slice(0, 120)}`);
-    }
-
-    if (!response.ok) {
-      throw new Error(result?.error || `User API failed with HTTP ${response.status}`);
-    }
+    const result = await fetchAllApiPages('/api/users/');
     
     if (result.success) {
       const incomingUsers = result.data && result.data.length ? result.data : [];
@@ -8979,9 +8984,7 @@ function escapeHtml(value) {
 async function loadGroups(options = {}) {
   const { silent = false } = options;
   try {
-    const response = await fetch('/api/groups/?include_members=1&page_size=1000');
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const result = await response.json();
+    const result = await fetchAllApiPages('/api/groups/?include_members=1');
 
     if (!result.success) {
       groups = [];
@@ -9836,9 +9839,7 @@ async function setUserAsLeader(userId, groupId) {
     if (!gResult.success) throw new Error(gResult.error || 'Failed to update group leader');
 
     // 2. Fetch all members and clear is_leader flags in parallel.
-    const membersRes    = await fetch(`/api/group-members/?group_id=${groupId}&page_size=1000`);
-    const membersResult = await membersRes.json();
-    if (!membersResult.success) throw new Error(membersResult.error || 'Failed to fetch members');
+    const membersResult = await fetchAllApiPages(`/api/group-members/?group_id=${groupId}`);
 
     await Promise.all(
       (membersResult.data || [])
@@ -10804,8 +10805,7 @@ async function submitExternalTableRegistrationByRegNumber(registrationNumber) {
 
   let users = [];
   try {
-    const usersResponse = await fetch('/api/users/?page_size=1000');
-    const usersResult = await usersResponse.json();
+    const usersResult = await fetchAllApiPages('/api/users/');
     if (!usersResult.success) {
       showTemporaryMessage('Unable to verify your account right now. Please try again later.', 'warning');
       return;
@@ -10849,11 +10849,8 @@ async function submitExternalTableRegistrationByRegNumber(registrationNumber) {
 
   let existingRecords = [];
   try {
-    const recordsResponse = await fetch(`/api/external-tables/${targetTable.id}/records/?page_size=1000`);
-    const recordsResult = await recordsResponse.json();
-    if (!recordsResponse.ok || !recordsResult.success) {
-      throw new Error(recordsResult.error || `HTTP ${recordsResponse.status}`);
-    }
+    const recordsResult = await fetchAllApiPages(`/api/external-tables/${targetTable.id}/records/`);
+    if (!recordsResult.success) throw new Error(recordsResult.error || 'Failed to load records');
     existingRecords = Array.isArray(recordsResult.data) ? recordsResult.data : [];
   } catch (error) {
     console.error('Could not fetch external table records:', error);

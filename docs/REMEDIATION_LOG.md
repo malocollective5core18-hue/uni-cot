@@ -93,3 +93,11 @@
 - Files touched: `mysite/customers/models.py`, `mysite/customers/tests.py`.
 - Evidence: Pending focused collision-retry test.
 - Remaining risk: Concurrent identical program names also use the bounded retry path; a sustained collision beyond five attempts is surfaced rather than silently misrouting a tenant.
+
+## P1-1 — Unbounded collection responses (2026-09-19)
+
+- Finding: List APIs accepted up to 1,000 rows and the external-table list endpoint scanned records for every returned table.
+- Change: Capped all shared list pagination at 100. Updated user/group/table clients to follow paginated responses. External-table metadata no longer embeds records; clients fetch records through the dedicated paginated records endpoint.
+- Files touched: `mysite/core/views.py`, `templates/system_index.html`, `templates/groups.html`, `templates/external_tables.html`.
+- Evidence: Pending API and browser-flow verification.
+- Remaining risk: The affected screens still assemble all pages in browser memory for their existing all-record interfaces; a follow-up UI redesign should add visible-page rendering and explicit load-more controls.

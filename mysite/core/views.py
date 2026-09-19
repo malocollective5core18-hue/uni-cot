@@ -521,7 +521,7 @@ def _user_schema_error_response(error):
 def _paginate_queryset(request, queryset, default_page_size=100):
     """Return a page of results based on ?page= and ?page_size= query params."""
     try:
-        page_size = max(1, min(int(request.GET.get('page_size', default_page_size)), 1000))
+        page_size = max(1, min(int(request.GET.get('page_size', default_page_size)), 100))
     except (ValueError, TypeError):
         page_size = default_page_size
     paginator = Paginator(queryset, page_size)
@@ -2379,41 +2379,6 @@ def api_external_tables(request, *args, **kwargs):
             page, meta = _paginate_queryset(request, tables)
             page_tables = list(page)
             data = [_serialize_external_table(table) for table in page_tables]
-
-            include_records = request.GET.get('include_records') in {'1', 'true', 'yes'}
-            if include_records and page_tables:
-                try:
-                    records_page_size = max(1, min(int(request.GET.get('records_page_size', 1000)), 1000))
-                except (ValueError, TypeError):
-                    records_page_size = 1000
-
-                schemas_by_table = {
-                    table.id: table.get_fields_list() if hasattr(table, 'get_fields_list') else []
-                    for table in page_tables
-                }
-                records_by_table = {table.id: [] for table in page_tables}
-                table_ids = list(records_by_table.keys())
-
-                records = (
-                    ExternalTableRecord.objects
-                    .filter(table_id__in=table_ids)
-                    .only('id', 'table_id', 'data', 'created_at')
-                    .order_by('table_id', '-created_at')
-                )
-
-                for record in records:
-                    table_records = records_by_table.get(record.table_id)
-                    if table_records is None or len(table_records) >= records_page_size:
-                        continue
-                    serialized = _serialize_external_record(record)
-                    serialized['data'] = normalize_record(
-                        schemas_by_table.get(record.table_id, []),
-                        serialized.get('data', {}),
-                    )
-                    table_records.append(serialized)
-
-                for table_payload in data:
-                    table_payload['records'] = records_by_table.get(table_payload['id'], [])
 
             return {'success': True, 'data': data, 'meta': meta}
 

@@ -1867,6 +1867,27 @@
             return displayFields;
         }
 
+        async function fetchAllApiPages(path) {
+            const url = new URL(path, window.location.origin);
+            url.searchParams.set('page_size', '100');
+            const data = [];
+            let page = 1;
+            let totalPages = 1;
+            while (page <= totalPages) {
+                url.searchParams.set('page', String(page));
+                const response = await fetch(url.pathname + url.search);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const result = await response.json();
+                if (!result.success || !Array.isArray(result.data)) {
+                    throw new Error(result.error || 'Unexpected paginated API response');
+                }
+                data.push(...result.data);
+                totalPages = Number(result.meta?.total_pages || 1);
+                page += 1;
+            }
+            return { success: true, data };
+        }
+
         // Load data from database
         async function loadData() {
             try {
@@ -1878,8 +1899,8 @@
 
                 const [frameworkResult, usersResult, groupsResult] = await Promise.allSettled([
                     fetch('/api/registration-fields/').then(response => response.json()),
-                    fetch('/api/users/').then(response => response.json()),
-                    fetch('/api/groups/?page_size=1000&include_members=1').then(response => response.json()),
+                    fetchAllApiPages('/api/users/'),
+                    fetchAllApiPages('/api/groups/?include_members=1'),
                 ]);
 
                 if (frameworkResult.status === 'fulfilled' && frameworkResult.value.success) {
