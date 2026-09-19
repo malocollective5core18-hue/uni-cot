@@ -452,7 +452,6 @@ body.fc-active {
 
 /* ── PAGE HERO ── */
 .fc-hero {
-  position: relative;
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
@@ -462,13 +461,7 @@ body.fc-active {
   padding: 40px;
 }
 .fc-hero::after {
-  content: '';
-  position: absolute;
-  right: -60px; top: -60px;
-  width: 320px; height: 320px;
-  border-radius: 50%;
-  background: radial-gradient(circle,rgba(79,142,247,0.1) 0%,transparent 70%);
-  pointer-events: none;
+  content: none;
 }
 .fc-hero-grid {
   display: grid;

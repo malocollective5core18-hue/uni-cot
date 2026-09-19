@@ -133,3 +133,11 @@
 - Files touched: `mysite/core/views.py`, `mysite/core/tests.py`.
 - Evidence: `core.tests.FounderDashboardQueryTests` passed: the rendering test completes with a tenant and the existing bounded-query test remains green.
 - Remaining risk: Render must deploy this commit before the public 502 is resolved. The app currently uses one Free-tier Gunicorn worker, so any other slow request can still block concurrent requests; production sizing and worker configuration need a separate deployment task.
+
+## Founder dashboard hero layout (2026-09-19)
+
+- Finding: The positioned hero and its absolutely positioned decorative pseudo-element produced an unwanted visual result.
+- Change: Removed `position: relative` from `.fc-hero` and disabled the dependent decorative pseudo-element. The hero retains its width constraints, padding, and requested `overflow: auto` behavior.
+- Files touched: `templates/admin_only/founder_SAAS_system_control.html`.
+- Evidence: The CSS no longer establishes `.fc-hero` as a positioning context or renders its out-of-flow decorative circle.
+- Remaining risk: Visual verification after Render deploy is still required across desktop and mobile widths.
