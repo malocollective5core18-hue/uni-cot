@@ -99,5 +99,5 @@
 - Finding: List APIs accepted up to 1,000 rows and the external-table list endpoint scanned records for every returned table.
 - Change: Capped all shared list pagination at 100. Updated user/group/table clients to follow paginated responses. External-table metadata no longer embeds records; clients fetch records through the dedicated paginated records endpoint.
 - Files touched: `mysite/core/views.py`, `templates/system_index.html`, `templates/groups.html`, `templates/external_tables.html`.
-- Evidence: Pending API and browser-flow verification.
+- Evidence: `core.tests.PaginationTests.test_page_size_is_capped_at_one_hundred` passed. `compileall` and `git diff --check` also passed.
 - Remaining risk: The affected screens still assemble all pages in browser memory for their existing all-record interfaces; a follow-up UI redesign should add visible-page rendering and explicit load-more controls.
