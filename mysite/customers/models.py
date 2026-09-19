@@ -496,6 +496,7 @@ def create_owner_tenant(owner, base_domain=None):
     )
 
     TenantProvisioningJob.objects.create(tenant=tenant)
+    transaction.on_commit(lambda: _kick_in_process_provisioner())
     logger.info(
         "create_owner_tenant: queued provisioning for tenant id=%s schema=%s",
         tenant.id,
@@ -503,3 +504,9 @@ def create_owner_tenant(owner, base_domain=None):
     )
 
     return tenant
+
+
+def _kick_in_process_provisioner():
+    from customers.provisioning import kick_provisioner
+
+    kick_provisioner()

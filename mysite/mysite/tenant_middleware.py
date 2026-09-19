@@ -7,7 +7,7 @@ This middleware extracts subdomain from request and sets up tenant context.
 import re
 from types import SimpleNamespace
 
-from django.http import HttpResponseNotFound, JsonResponse
+from django.http import HttpResponse, HttpResponseNotFound, JsonResponse
 from django.urls import reverse
 from django.shortcuts import redirect
 from django.contrib import messages
@@ -106,6 +106,27 @@ class TenantMiddleware:
             return self.get_response(request)
         finally:
             self._activate_public_schema()
+
+    def _provisioning_response(self, tenant):
+        """Keep unfinished workspaces in the public schema.
+
+        A tenant row is created before its schema.  Routing one of those rows
+        into ``_run_with_schema`` would expose a partially provisioned schema
+        (or fail while selecting it).  Return a deliberately generic public
+        response instead; provisioning details stay in the worker logs.
+        """
+        if tenant.provisioning_state == tenant.PROVISIONING_FAILED:
+            return HttpResponse(
+                "<h1>Workspace setup could not be completed</h1>"
+                "<p>Please contact support or try again later.</p>",
+                status=503,
+            )
+
+        return HttpResponse(
+            "<h1>Workspace is being set up</h1>"
+            "<p>Please try again in a moment.</p>",
+            status=202,
+        )
         
     def __call__(self, request):
         # Get the host from request
@@ -118,6 +139,10 @@ class TenantMiddleware:
             tenant = self._resolve_path_tenant(path_tenant)
             if not tenant:
                 return HttpResponseNotFound('Tenant not found')
+
+            if tenant.provisioning_state != tenant.PROVISIONING_READY:
+                return self._provisioning_response(tenant)
+
             request.tenant = tenant
 
             if tenant and not tenant.is_subscription_active:

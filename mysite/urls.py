@@ -7,8 +7,13 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from service.views import system_demo
+from mysite.health import healthz, readyz
+from customers.provisioning import provision_tick
 
 urlpatterns = [
+    path('healthz/', healthz, name='healthz'),
+    path('readyz/', readyz, name='readyz'),
+    path('internal/provision-tick/', provision_tick, name='provision_tick'),
     path('admin/', admin.site.urls),
     path('t/<slug:tenant_slug>/<int:tenant_id>/<str:tenant_key>/', include(('service.urls', 'service'), namespace='tenant_service')),
     path('t/<slug:tenant_slug>/<int:tenant_id>/<str:tenant_key>/', include('core.urls')),

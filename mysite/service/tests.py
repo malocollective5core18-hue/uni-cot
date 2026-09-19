@@ -215,7 +215,7 @@ class CsrfApiFlowTests(CacheIsolationMixin, TestCase):
     def test_welcome_sets_csrf_cookie_and_owner_api_post_accepts_it(self):
         client = Client(enforce_csrf_checks=True)
 
-        welcome_response = client.get("/service/welcome/")
+        welcome_response = client.get("/service/welcome/", secure=True)
         self.assertEqual(welcome_response.status_code, 200)
         self.assertIn("csrftoken", client.cookies)
 
@@ -230,7 +230,9 @@ class CsrfApiFlowTests(CacheIsolationMixin, TestCase):
                 "confirm_password": "secret123",
             },
             HTTP_X_CSRFTOKEN=csrf_token,
+            HTTP_REFERER="https://testserver/service/welcome/",
             follow=False,
+            secure=True,
         )
 
         self.assertEqual(register_response.status_code, 302)
@@ -242,6 +244,8 @@ class CsrfApiFlowTests(CacheIsolationMixin, TestCase):
             content_type="application/json",
             HTTP_X_CSRFTOKEN=csrf_token,
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            HTTP_REFERER="https://testserver/service/welcome/",
+            secure=True,
         )
 
         self.assertEqual(api_response.status_code, 201)
@@ -254,6 +258,7 @@ class CsrfApiFlowTests(CacheIsolationMixin, TestCase):
             data='{"full_name":"No Token","registration_number":"BCIT-999"}',
             content_type="application/json",
             HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            secure=True,
         )
 
         self.assertEqual(response.status_code, 403)
@@ -271,7 +276,7 @@ class CsrfApiFlowTests(CacheIsolationMixin, TestCase):
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
-class MemberRegistrationPersistenceTests(TestCase):
+class MemberRegistrationPersistenceTests(CacheIsolationMixin, TestCase):
     def test_api_create_member_creates_missing_main_registry_record(self):
         owner = OwnerUser.objects.create(
             email="owner@example.com",
@@ -312,7 +317,7 @@ class MemberRegistrationPersistenceTests(TestCase):
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
-class OwnerMemberManagementTests(TestCase):
+class OwnerMemberManagementTests(CacheIsolationMixin, TestCase):
     def setUp(self):
         self.owner = OwnerUser.objects.create(
             email="owner@example.com",
@@ -412,7 +417,7 @@ class OwnerMemberManagementTests(TestCase):
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
-class ReplyCommentTests(TestCase):
+class ReplyCommentTests(CacheIsolationMixin, TestCase):
     def test_member_can_reply_to_approved_comment(self):
         owner = OwnerUser.objects.create(
             email="owner@example.com",

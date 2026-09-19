@@ -1,7 +1,9 @@
 from datetime import timedelta
 from types import SimpleNamespace
+from importlib import import_module
 from unittest.mock import Mock, call, patch
 
+from django.apps import apps
 from django.core.management import call_command
 from django.test import RequestFactory, TestCase
 from django_tenants.models import TenantMixin
@@ -18,10 +20,11 @@ from customers.models import (
     create_owner_tenant,
 )
 from mysite.tenant_middleware import TenantMiddleware
+from mysite.tests.helpers import CacheIsolationMixin
 from service.models import OwnerUser
 
 
-class PathTenantProvisioningTests(TestCase):
+class PathTenantProvisioningTests(CacheIsolationMixin, TestCase):
     @patch("customers.management.commands.provision_tenants.run_job")
     @patch("customers.management.commands.provision_tenants.claim_next_job")
     @patch("customers.management.commands.provision_tenants.recover_stale_jobs", return_value=0)
@@ -79,6 +82,33 @@ class PathTenantProvisioningTests(TestCase):
 
         self.assertEqual(tenant.tenant_key, "B" * 20)
         self.assertEqual(mocked_key.call_count, 2)
+
+    def test_existing_tenants_are_marked_ready_by_provisioning_migration(self):
+        mark_existing_tenants_ready = import_module(
+            "customers.migrations.0007_tenant_provisioning_lifecycle"
+        ).mark_existing_tenants_ready
+
+        owner = OwnerUser.objects.create(
+            email="migration-owner@example.com",
+            program_name="Migration Check",
+            password="hashed",
+            is_owner=True,
+            is_active=True,
+        )
+        tenant = CRTenant.objects.create(
+            name="Preexisting",
+            schema_name="preexisting",
+            subdomain="preexisting",
+            tenant_key="A" * 20,
+            owner=owner,
+            provisioning_state=CRTenant.PROVISIONING_PENDING,
+        )
+
+        with connection.schema_editor() as schema_editor:
+            mark_existing_tenants_ready(apps, schema_editor)
+
+        tenant.refresh_from_db()
+        self.assertEqual(tenant.provisioning_state, CRTenant.PROVISIONING_READY)
 
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
     def test_create_owner_tenant_skips_domain_creation_in_path_mode(self):
@@ -185,20 +215,74 @@ class PathTenantProvisioningTests(TestCase):
         self.assertIn("lock expired", job.last_error)
 
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
-    def test_pending_tenant_path_resolves_for_public_page_access(self):
+    def _tenant_for_routing_state(self, state):
         owner = OwnerUser.objects.create(
-            email="pending@example.com",
-            program_name="Pending Tenant",
+            email=f"{state}@example.com",
+            program_name=f"{state.title()} Tenant",
             password="hashed",
             is_owner=True,
             is_active=True,
         )
-        tenant = create_owner_tenant(owner)
-        get_response = Mock(return_value=SimpleNamespace(status_code=200))
-        middleware = TenantMiddleware(get_response)
-        request = RequestFactory().get(
+        return CRTenant.objects.create(
+            name=f"{state.title()} Tenant",
+            schema_name=f"{state}_tenant",
+            subdomain=f"{state}-tenant",
+            tenant_key=(state[0].upper() * 20),
+            owner=owner,
+            is_active=True,
+            provisioning_state=state,
+        )
+
+    def _path_request_for(self, tenant):
+        return RequestFactory().get(
             f"/t/{tenant.subdomain}/{tenant.id}/{tenant.tenant_key}/system/"
         )
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    def test_pending_tenant_path_shows_setup_page_without_activating_schema(self):
+        tenant = self._tenant_for_routing_state(CRTenant.PROVISIONING_PENDING)
+        get_response = Mock()
+        middleware = TenantMiddleware(get_response)
+        request = self._path_request_for(tenant)
+        response = middleware(request)
+
+        self.assertEqual(response.status_code, 202)
+        self.assertContains(response, "Workspace is being set up", status_code=202)
+        self.assertFalse(hasattr(request, "tenant"))
+        get_response.assert_not_called()
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    def test_provisioning_tenant_path_shows_setup_page_without_activating_schema(self):
+        tenant = self._tenant_for_routing_state(CRTenant.PROVISIONING_IN_PROGRESS)
+        get_response = Mock()
+        middleware = TenantMiddleware(get_response)
+
+        response = middleware(self._path_request_for(tenant))
+
+        self.assertEqual(response.status_code, 202)
+        self.assertContains(response, "Workspace is being set up", status_code=202)
+        get_response.assert_not_called()
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    def test_failed_tenant_path_shows_generic_error_without_activating_schema(self):
+        tenant = self._tenant_for_routing_state(CRTenant.PROVISIONING_FAILED)
+        get_response = Mock()
+        middleware = TenantMiddleware(get_response)
+
+        response = middleware(self._path_request_for(tenant))
+
+        self.assertEqual(response.status_code, 503)
+        self.assertContains(response, "Workspace setup could not be completed", status_code=503)
+        self.assertNotContains(response, "provisioning_error", status_code=503)
+        get_response.assert_not_called()
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    def test_ready_tenant_path_activates_the_tenant_schema(self):
+        tenant = self._tenant_for_routing_state(CRTenant.PROVISIONING_READY)
+        get_response = Mock(return_value=SimpleNamespace(status_code=200))
+        middleware = TenantMiddleware(get_response)
+        request = self._path_request_for(tenant)
+
         response = middleware(request)
 
         self.assertEqual(response.status_code, 200)

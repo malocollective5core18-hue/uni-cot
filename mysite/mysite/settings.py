@@ -226,6 +226,7 @@ CLOUDINARY_STORAGE = {
 # ============================================================
 
 MIDDLEWARE = [
+    'mysite.operational_middleware.OperationalEndpointMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -239,10 +240,9 @@ MIDDLEWARE = [
 ]
 
 if USE_TENANT_INFRA:
-    MIDDLEWARE = [
-        'django_tenants.middleware.main.TenantMainMiddleware',
-        *MIDDLEWARE,
-    ]
+    # Keep operational endpoints such as /healthz/ and /internal/provision-tick/
+    # ahead of tenant resolution so they do not trigger tenant schema queries.
+    MIDDLEWARE.insert(1, 'django_tenants.middleware.main.TenantMainMiddleware')
 
 
 # ============================================================

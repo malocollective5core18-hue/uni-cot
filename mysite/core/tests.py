@@ -26,6 +26,59 @@ class SessionConfigurationTests(SimpleTestCase):
         self.assertEqual(settings.SESSION_COOKIE_AGE, 60 * 60 * 24 * 7)
 
 
+class HealthEndpointTests(CacheIsolationMixin, TestCase):
+    def test_healthz_makes_no_database_queries_or_session_cookie(self):
+        with self.assertNumQueries(0):
+            response = self.client.get('/healthz/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'ok')
+        self.assertNotIn('sessionid', response.cookies)
+
+    def test_readyz_checks_database_and_cache_without_session_cookie(self):
+        # django-tenants activates the public schema before readyz performs
+        # its single database probe.
+        with self.assertNumQueries(2):
+            response = self.client.get('/readyz/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ready'])
+        self.assertNotIn('sessionid', response.cookies)
+
+    @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "health-tests"}})
+    def test_readyz_reports_unhealthy_when_cache_probe_fails(self):
+        with patch('mysite.health.cache.get', return_value=None):
+            response = self.client.get('/readyz/')
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.json()['ready'])
+
+
+class ProvisionTickEndpointTests(CacheIsolationMixin, SimpleTestCase):
+    @patch.dict('os.environ', {'PROVISION_TICK_ALLOW_QUERY_TOKEN': 'false'}, clear=False)
+    def test_provision_tick_is_404_when_disabled(self):
+        response = self.client.get('/internal/provision-tick/?token=secret')
+
+        self.assertEqual(response.status_code, 404)
+
+    @patch.dict('os.environ', {'PROVISION_TICK_ALLOW_QUERY_TOKEN': 'true', 'PROVISION_TICK_TOKEN': 'secret'}, clear=False)
+    @patch('customers.provisioning.start_provisioner')
+    @patch('customers.provisioning.kick_provisioner')
+    def test_provision_tick_accepts_valid_token(self, kick_mock, start_mock):
+        response = self.client.get('/internal/provision-tick/?token=secret')
+
+        self.assertEqual(response.status_code, 202)
+        self.assertTrue(response.json()['accepted'])
+        start_mock.assert_called_once()
+        kick_mock.assert_called_once()
+
+    @patch.dict('os.environ', {'PROVISION_TICK_ALLOW_QUERY_TOKEN': 'true', 'PROVISION_TICK_TOKEN': 'secret'}, clear=False)
+    def test_provision_tick_rejects_invalid_token(self):
+        response = self.client.get('/internal/provision-tick/?token=wrong')
+
+        self.assertEqual(response.status_code, 401)
+
+
 class CachedJsonResponseTests(SimpleTestCase):
     def test_matching_etag_returns_not_modified_without_building_payload(self):
         factory = RequestFactory()
@@ -79,7 +132,7 @@ class SharedRateLimitTests(CacheIsolationMixin, SimpleTestCase):
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
-class FounderLoginTests(TestCase):
+class FounderLoginTests(CacheIsolationMixin, TestCase):
     def test_founder_can_log_in_with_email_and_password(self):
         founder = get_user_model().objects.create_user(
             username="founder",
@@ -102,7 +155,7 @@ class FounderLoginTests(TestCase):
         self.assertContains(response, "Founder Control")
 
 
-class FounderDashboardQueryTests(TestCase):
+class FounderDashboardQueryTests(CacheIsolationMixin, TestCase):
     def test_tenant_page_uses_a_bounded_number_of_public_queries(self):
         for index in range(26):
             owner = OwnerUser.objects.create(

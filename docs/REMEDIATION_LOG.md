@@ -165,3 +165,19 @@
 - Files touched: `manage.py`, `mysite/test_settings.py`, `mysite/tests/helpers.py`, `mysite/core/tests.py`, `mysite/service/tests.py`, `docs/REMEDIATION_LOG.md`.
 - Evidence: 49 tests passed in normal, reverse, and two shuffled orders. The previously failing rollback test passes alone and the service module passes all 17 tests. `manage.py check` reports no issues and `makemigrations --check --dry-run` reports no changes.
 - Remaining risk: Existing non-failing warnings remain for the missing staticfiles directory, unordered external-table pagination, and naive property datetime input.
+
+## Render free-tier health and worker contract (2026-09-19)
+
+- Finding: Render free-tier deploys need a lightweight, always-available health probe and a dedicated worker for queued tenant provisioning. The app was already serving `healthz/` and `readyz/`, but the repository still lacked the documented contract and explicit coverage for the provisioning tick endpoint.
+- Change: Added focused Django coverage for the health and provisioning probes, documented the Render-free deployment model, and kept the in-process wake-up + 120s polling fallback plus the optional `internal/provision-tick/` tokenized safety net.
+- Files touched: `mysite/core/tests.py`, `mysite/health.py`, `mysite/customers/provisioning.py`, `mysite/customers/models.py`, `docs/DEPLOY_RENDER_FREE.md`, `docs/REMEDIATION_LOG.md`.
+- Evidence: `healthz/` performs zero database queries and sets no session cookie; `readyz/` validates the database and cache before returning `503` when either check fails; `internal/provision-tick/` requires a matching token when enabled and accepts a valid token with HTTP 202.
+- Remaining risk: Render free-tier resources are intentionally limited, so Postgres sleep, cold starts, and background worker restrictions must still be monitored in production. The app should remain paired with a dedicated worker service and a UptimeRobot healthcheck for real deployment availability.
+
+## Release gate — tenant lifecycle routing and local verification (2026-09-20)
+
+- Finding: Path-based tenant routing resolved active tenants in `pending`, `provisioning`, and `failed` states, then activated their schemas. This could expose an unfinished workspace or cause a schema-selection failure. The release gate also had stale HTTP/CSRF test setup that did not exercise the enabled HTTPS protections.
+- Change: Path routes now return a generic public setup page (`202`) for pending/in-progress tenants and a generic public error page (`503`) for failed tenants before schema activation. Ready tenants retain normal schema routing. Test clients use HTTPS, CSRF tests send a same-origin referrer, and cache-sensitive tests use the test-only LocMemCache isolation mixin.
+- Files touched: `mysite/mysite/tenant_middleware.py`, `mysite/customers/tests.py`, `mysite/tests/helpers.py`, `mysite/service/tests.py`, `mysite/core/tests.py`, `docs/RELEASE_READINESS.md`, `docs/PROJECT_STATUS.md`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Local PostgreSQL test database only (`DATABASE_HOST=(local socket)`, `DATABASE_NAME=uni_cot_dev`). The focused lifecycle/operational suite passed 27 tests; `PathTenantProvisioningTests.test_existing_tenants_are_marked_ready_by_provisioning_migration` passed. Full suite passed 59 tests in normal, reverse, and shuffled orders with seeds `20260920` and `20260921`. Compile, system, deploy, and migration-drift checks exited 0.
+- Remaining risk: The deploy check reports the expected `security.W009` for its intentionally short command-scoped placeholder secret. Non-failing warnings remain for a missing local `staticfiles/` directory, unordered external-table pagination, and a naive datetime fixture. Production deployment, Redis availability, and tenant worker operation still require an environment-specific review.
