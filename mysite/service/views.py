@@ -359,49 +359,38 @@ def _find_member_login_record(login_identifier, password, tenant=None):
     if not login_identifier or not password:
         return None
 
-    candidate_tenants = []
-    if tenant and getattr(tenant, 'schema_name', None) not in {None, '', 'public'}:
-        candidate_tenants.append(tenant)
-    else:
-        with schema_context(getattr(settings, 'PUBLIC_SCHEMA_NAME', 'public')):
-            candidate_tenants = list(CRTenant.objects.filter(is_active=True).order_by('id'))
+    if not tenant or getattr(tenant, 'schema_name', None) in {None, '', 'public'}:
+        return None
 
-    for candidate_tenant in candidate_tenants:
-        schema_name = getattr(candidate_tenant, 'schema_name', None)
-        if not schema_name or schema_name == 'public':
-            continue
+    schema_name = tenant.schema_name
+    with schema_context(schema_name):
+        reg_number = login_identifier
+        if '@' in login_identifier:
+            core_user = CoreUser.objects.filter(
+                email__iexact=login_identifier,
+                is_active=True,
+                is_verified=True,
+                role='member',
+            ).first()
+            if not core_user:
+                return None
+            reg_number = core_user.registration_number
 
-        with schema_context(schema_name):
-            reg_number = login_identifier
-            if '@' in login_identifier:
-                core_user = CoreUser.objects.filter(
-                    email__iexact=login_identifier,
-                    is_active=True,
-                    is_verified=True,
-                    role='member',
-                ).first()
-                if not core_user:
-                    continue
-                reg_number = core_user.registration_number
+        member = Member.objects.filter(reg_number=reg_number, is_active=True).first()
+        if not member or not check_password(password, member.password):
+            return None
 
-            member = Member.objects.filter(reg_number=reg_number, is_active=True).first()
-            if not member or not check_password(password, member.password):
-                continue
+        owner = _get_owner_by_id(member.owner_id, include_inactive=True)
+        if not owner or not _get_owner_core_user(owner, reg_number):
+            return None
 
-            owner = _get_owner_by_id(member.owner_id, include_inactive=True)
-            if not owner:
-                continue
-
-            if not _get_owner_core_user(owner, reg_number):
-                continue
-
-            return {
-                'member_id': member.id,
-                'reg_number': member.reg_number,
-                'program_name': member.program_name,
-                'owner_id': owner.id,
-                'tenant': candidate_tenant,
-            }
+        return {
+            'member_id': member.id,
+            'reg_number': member.reg_number,
+            'program_name': member.program_name,
+            'owner_id': owner.id,
+            'tenant': tenant,
+        }
 
     return None
 
@@ -793,10 +782,8 @@ def login_view(request, *args, **kwargs):
 
             messages.error(request, 'Invalid email or password.')
         else:
-            # Member login - allow from any device. If tenant context is present
-            # ensure it matches the member's tenant; otherwise attach the member's
-            # tenant to the session so they can access their dashboard from any
-            # device.
+            # Member authentication is tenant-scoped. Public requests must first
+            # use the tenant workspace URL; never scan tenant schemas here.
             tenant = _get_tenant_from_request(request)
             reg_number = login_identifier
             member_record = _find_member_login_record(reg_number, password, tenant=tenant)
@@ -832,7 +819,10 @@ def login_view(request, *args, **kwargs):
                 messages.success(request, f'Welcome back, {member_record["reg_number"]}!')
                 return _tenant_redirect(request, 'service:member_dashboard', tenant=member_tenant)
             else:
-                messages.error(request, 'Invalid registration number or password.')
+                if not tenant or getattr(tenant, 'schema_name', None) in {None, '', 'public'}:
+                    messages.error(request, 'Please log in from your owner domain.')
+                else:
+                    messages.error(request, 'Invalid registration number or password.')
     
     return _tenant_redirect(request, 'service:welcome')
 

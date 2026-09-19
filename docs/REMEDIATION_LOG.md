@@ -45,3 +45,19 @@
 - Files touched: `mysite/customers/models.py`, `mysite/customers/migrations/0007_tenant_provisioning_lifecycle.py`, `mysite/customers/management/commands/provision_tenants.py`, `mysite/customers/tests.py`, `mysite/mysite/tenant_middleware.py`.
 - Evidence: focused `customers.tests` provisioning suite covers queued creation, no schema work in the request, a worker success transition, retry state, and rejection of a pending tenant path.
 - Remaining risk: production must run one dedicated worker process using `python manage.py provision_tenants`; until it does, newly registered tenants intentionally remain pending rather than receiving unsafe public-schema traffic.
+
+## P0-4 — Cross-schema member login scan (2026-09-19)
+
+- Finding: A member login without a tenant context loaded every active tenant and checked member credentials in each tenant schema.
+- Change: Member authentication now requires a resolved tenant workspace. The login helper returns immediately for a public/no-tenant request and only opens the one resolved tenant schema; public member login retains its established tenant-URL guidance.
+- Files touched: `mysite/service/views.py`, `mysite/service/tests.py`.
+- Evidence: `CrossDeviceLoginTests.test_public_member_login_lookup_does_not_query_tenants` asserts that a public-context lookup executes zero database queries.
+- Remaining risk: Members must use their tenant URL (the intended existing flow). A future public identity registry could support tenant-independent member login without reintroducing cross-schema scans.
+
+## Test blocker — Public tenant host helper (2026-09-19)
+
+- Finding: `service.tests` imported a removed `customers.models.get_public_tenant_domain` helper, preventing the whole test module from loading.
+- Change: Restored the helper with explicit URL parsing so a configured public host is returned without scheme, port, or path.
+- Files touched: `mysite/customers/models.py`.
+- Evidence: `TenantDomainConfigTests.test_public_tenant_domain_strips_protocol` exercises the required normalization.
+- Remaining risk: Database-backed test execution is still required.

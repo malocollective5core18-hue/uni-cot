@@ -9,6 +9,7 @@ from django.contrib.auth.hashers import check_password, make_password
 from customers.models import get_public_tenant_domain
 from core.models import User as CoreUser, UserGroup, UserGroupMember
 from service.models import OwnerUser, Member, Comment
+from service.views import _find_member_login_record
 
 
 @override_settings(
@@ -69,6 +70,12 @@ class TenantDomainConfigTests(TestCase):
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
 class CrossDeviceLoginTests(TestCase):
+    def test_public_member_login_lookup_does_not_query_tenants(self):
+        with self.assertNumQueries(0):
+            record = _find_member_login_record("BCIT-001", "member123")
+
+        self.assertIsNone(record)
+
     def test_owner_can_log_in_from_public_service_page(self):
         owner = OwnerUser.objects.create(
             email="owner@example.com",

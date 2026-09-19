@@ -3,6 +3,7 @@ import secrets
 import logging
 import time
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 from django.db import connection, models
 from django.core.management import call_command
@@ -128,6 +129,18 @@ def get_base_domain():
     if len(parts) >= 2:
         return ".".join(parts[1:])
     return domain
+
+
+def get_public_tenant_domain():
+    """Return the configured public host without a scheme, port, or path."""
+    configured_domain = (os.getenv("PUBLIC_TENANT_DOMAIN") or "").strip()
+    render_domain = (os.getenv("RENDER_EXTERNAL_HOSTNAME") or "").strip()
+    raw_domain = configured_domain or render_domain
+    if not raw_domain:
+        return "localhost"
+
+    parsed = urlsplit(raw_domain if "://" in raw_domain else f"//{raw_domain}")
+    return (parsed.hostname or "localhost").lower()
 
 
 class CRTenant(TenantMixin):
