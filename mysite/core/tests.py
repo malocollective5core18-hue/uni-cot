@@ -2,8 +2,10 @@ import json
 
 from django.contrib.auth import get_user_model
 from django.conf import settings
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.core.cache import cache
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
+from core import views
 from core.models import User
 from service.models import OwnerUser
 
@@ -14,6 +16,24 @@ class SessionConfigurationTests(SimpleTestCase):
         self.assertEqual(settings.SESSION_CACHE_ALIAS, 'default')
         self.assertFalse(settings.SESSION_SAVE_EVERY_REQUEST)
         self.assertEqual(settings.SESSION_COOKIE_AGE, 60 * 60 * 24 * 7)
+
+
+class CachedJsonResponseTests(SimpleTestCase):
+    def test_matching_etag_returns_not_modified_without_building_payload(self):
+        factory = RequestFactory()
+        first = views._cached_json_response(
+            factory.get('/api/properties/'), 'etag-test', lambda: {'success': True}
+        )
+        etag = first['ETag']
+        response = views._cached_json_response(
+            factory.get('/api/properties/', HTTP_IF_NONE_MATCH=etag),
+            'etag-test',
+            lambda: self.fail('payload builder must not run for a matching ETag'),
+        )
+
+        self.assertEqual(response.status_code, 304)
+        self.assertEqual(response['ETag'], etag)
+        cache.clear()
 
 @override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],

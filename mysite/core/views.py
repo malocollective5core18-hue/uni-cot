@@ -14,7 +14,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import DatabaseError, OperationalError, ProgrammingError, connection, transaction
 from django.db.models import Avg, Count, Q
-from django.http import JsonResponse
+from django.http import HttpResponseNotModified, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -144,12 +144,21 @@ def _cached_json_response(request, family, payload_builder, ttl=None):
     if request.method != 'GET' or request.GET.get('cache') == 'refresh':
         return JsonResponse(payload_builder())
 
+    version = str(cache.get(_cache_version_key(request, family), 1))
+    etag = f'"{sha256(f"{_cache_scope(request)}:{family}:{version}:{request.GET.urlencode()}".encode()).hexdigest()}"'
+    if request.headers.get('If-None-Match') == etag:
+        response = HttpResponseNotModified()
+        response['ETag'] = etag
+        return response
+
     cache_key = _cache_payload_key(request, family)
     payload = cache.get(cache_key)
     if payload is None:
         payload = payload_builder()
         cache.set(cache_key, payload, ttl or getattr(settings, 'RING0_API_CACHE_TTL', 20))
-    return JsonResponse(payload)
+    response = JsonResponse(payload)
+    response['ETag'] = etag
+    return response
 
 
 def _invalidate_api_cache(request, *families):

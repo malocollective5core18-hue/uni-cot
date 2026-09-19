@@ -2376,6 +2376,7 @@
     <script>
     // Data storage
     let properties = [];
+    let propertiesEtag = null;
     let filteredProperties = [];
     let currentPropertyId = null;
     let selectedCategory = 'id';
@@ -2677,7 +2678,7 @@ function startAdminUpdatesPolling() {
     if (adminUpdatesTimer || document.hidden) {
         return;
     }
-    adminUpdatesTimer = setInterval(checkForPropertyUpdates, 3000);
+    adminUpdatesTimer = setInterval(checkForPropertyUpdates, 30000);
 }
 
 function stopAdminUpdatesPolling() {
@@ -2731,7 +2732,10 @@ document.addEventListener('visibilitychange', function() {
     // Check for updates from database and refresh UI if changed
     async function checkForPropertyUpdates() {
         try {
-            const response = await fetch(`${API_BASE_URL}/properties/`, { cache: 'no-store' });
+            const headers = propertiesEtag ? { 'If-None-Match': propertiesEtag } : {};
+            const response = await fetch(`${API_BASE_URL}/properties/`, { headers });
+            if (response.status === 304) return;
+            propertiesEtag = response.headers.get('ETag') || propertiesEtag;
             const result = await response.json().catch(() => ({}));
             if (!response.ok || result.success === false) return;
 

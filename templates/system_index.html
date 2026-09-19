@@ -12885,10 +12885,14 @@ function stopLightweightTimers() {
 
 // ==================== REAL-TIME CARD SYNC ====================
 let systemRealtimeTimer = null;
+let countdownCardsEtag = null;
 
 async function checkForCardUpdates() {
   try {
-    const response = await fetch('/api/countdown-cards/', { cache: 'no-store' });
+    const headers = countdownCardsEtag ? { 'If-None-Match': countdownCardsEtag } : {};
+    const response = await fetch('/api/countdown-cards/', { headers });
+    if (response.status === 304) return;
+    countdownCardsEtag = response.headers.get('ETag') || countdownCardsEtag;
     const result = await response.json().catch(() => ({}));
     if (!response.ok || result.success === false) return;
 
@@ -12919,7 +12923,7 @@ async function checkForCardUpdates() {
 
 function startSystemRealtimeSync() {
   if (systemRealtimeTimer || document.hidden) return;
-  systemRealtimeTimer = setInterval(checkForCardUpdates, 10000);
+  systemRealtimeTimer = setInterval(checkForCardUpdates, 30000);
 }
 
 function stopSystemRealtimeSync() {

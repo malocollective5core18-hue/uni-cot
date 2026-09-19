@@ -1387,6 +1387,7 @@
         let currentCaseId = null;
         let dataFramework = [];
         let registrationsRefreshTimer = null;
+        const registrationsEtags = { framework: null, users: null, groups: null };
 
         function normalizeFilterText(value) {
             return String(value || '').toLowerCase().trim();
@@ -2808,7 +2809,11 @@
 
             // Check if data framework has been updated
             try {
-                const frameworkResponse = await fetch('/api/registration-fields/');
+                const frameworkResponse = await fetch('/api/registration-fields/', {
+                    headers: registrationsEtags.framework ? { 'If-None-Match': registrationsEtags.framework } : {}
+                });
+                if (frameworkResponse.status === 304) throw new Error('not-modified');
+                registrationsEtags.framework = frameworkResponse.headers.get('ETag') || registrationsEtags.framework;
                 const frameworkResult = await frameworkResponse.json();
                 if (frameworkResult.success) {
                     const newFramework = frameworkResult.data.map(field => ({
@@ -2830,12 +2835,18 @@
                     }
                 }
             } catch (e) {
-                console.warn('Could not check for framework updates:', e);
+                if (e.message !== 'not-modified') {
+                    console.warn('Could not check for framework updates:', e);
+                }
             }
 
             // Check if user data has been updated
             try {
-                const usersResponse = await fetch('/api/users/');
+                const usersResponse = await fetch('/api/users/', {
+                    headers: registrationsEtags.users ? { 'If-None-Match': registrationsEtags.users } : {}
+                });
+                if (usersResponse.status === 304) throw new Error('not-modified');
+                registrationsEtags.users = usersResponse.headers.get('ETag') || registrationsEtags.users;
                 const usersResult = await usersResponse.json();
                 if (usersResult.success) {
                         const newMembers = usersResult.data.map(user => ({
@@ -2857,12 +2868,18 @@
                     }
                 }
             } catch (e) {
-                console.warn('Could not check for user updates:', e);
+                if (e.message !== 'not-modified') {
+                    console.warn('Could not check for user updates:', e);
+                }
             }
 
 // Check if groups data has been updated
              try {
-                 const groupsResponse = await fetch('/api/groups/');
+                 const groupsResponse = await fetch('/api/groups/', {
+                     headers: registrationsEtags.groups ? { 'If-None-Match': registrationsEtags.groups } : {}
+                 });
+                 if (groupsResponse.status === 304) throw new Error('not-modified');
+                 registrationsEtags.groups = groupsResponse.headers.get('ETag') || registrationsEtags.groups;
                  const groupsResult = await groupsResponse.json();
                  if (groupsResult.success) {
                      // Preserve existing member data while updating group info
@@ -2887,7 +2904,9 @@
                      }
                  }
              } catch (e) {
-                 console.warn('Could not check for groups updates:', e);
+                 if (e.message !== 'not-modified') {
+                     console.warn('Could not check for groups updates:', e);
+                 }
              }
         }
 
@@ -2900,7 +2919,7 @@
             if (registrationsRefreshTimer || document.hidden) {
                 return;
             }
-            registrationsRefreshTimer = setInterval(checkForNewRegistrations, 15000);
+            registrationsRefreshTimer = setInterval(checkForNewRegistrations, 30000);
         }
 
         function stopRealtimeSync() {
