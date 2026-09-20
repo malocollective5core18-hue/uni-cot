@@ -62,12 +62,12 @@
 .showcase-card:hover { border-color: #33453C; box-shadow: var(--showcase-shadow-sm); transform: translateY(-2px); }
 .showcase-card__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
 .showcase-card h3 { margin: 0; color: #fff; font-family: var(--showcase-disp); font-size: 17px; font-weight: 700; line-height: 1.25; }
-.showcase-card__link { position: relative; z-index: 1; color: #fff !important; }
-.showcase-card__link::after { position: absolute; z-index: 0; inset: -22px; content: ''; }
+.showcase-card__link { position: relative; z-index: 2; color: #fff !important; pointer-events: auto; }
+.showcase-card__link::after { display: none; }
 .showcase-card p { margin: 0; color: var(--showcase-text-dim); font-size: 13px; }
 .showcase-tag { position: relative; z-index: 1; display: inline-flex; flex: 0 0 auto; align-items: center; border: 1px solid var(--showcase-teal-dim); border-radius: 20px; background: rgba(45, 212, 191, .08); color: var(--showcase-teal); font-family: var(--showcase-mono); font-size: 10px; line-height: 1.3; padding: 3px 10px; }
 .showcase-tag--plain { color: var(--showcase-text-dim); border-color: var(--showcase-border); background: var(--showcase-panel-2); }
-.showcase-cta { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 7px; margin-top: 12px; color: var(--showcase-amber); font-family: var(--showcase-mono); font-size: 11.5px; font-weight: 500; }
+.showcase-cta { position: relative; z-index: 2; display: inline-flex; align-items: center; gap: 7px; margin-top: 12px; color: var(--showcase-amber); font-family: var(--showcase-mono); font-size: 11.5px; font-weight: 500; pointer-events: auto; }
 .showcase-cta::after { content: '→'; transition: transform .16s ease; }
 .showcase-card:hover .showcase-cta::after { transform: translateX(2px); }
 
@@ -88,7 +88,7 @@
   .showcase-section { padding: 48px 20px; }
   .showcase-row--start, .showcase-row--end { justify-content: stretch; }
   .showcase-card { width: 100%; padding: 16px; }
-  .showcase-card__link::after { inset: -16px; }
+  .showcase-card__link::after { display: none; }
   .showcase-card__top { flex-direction: column; }
 }
 
