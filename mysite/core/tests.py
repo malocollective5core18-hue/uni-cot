@@ -224,7 +224,8 @@ class MemberPollingTemplateTests(SimpleTestCase):
         self.assertIn("membersLoadState === 'loading'", groups_source)
         self.assertIn("membersLoadState === 'error'", groups_source)
         self.assertIn("membersLoadState === 'empty'", groups_source)
-        self.assertIn('Owner sign-in is required', groups_source)
+        self.assertNotIn('Owner sign-in is required', groups_source)
+        self.assertIn('Loaded public group members from database', groups_source)
         self.assertIn('Could not load members, retry.', groups_source)
         self.assertIn('Too many requests, retrying shortly.', groups_source)
         self.assertIn('window.TenantSync.subscribe', groups_source)
@@ -567,7 +568,8 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
 
         self.assertEqual(page_response.status_code, 200)
         self.assertContains(page_response, 'const OWNER_DIRECTORY_ACCESS = false;')
-        self.assertContains(page_response, 'Group summaries are available')
+        self.assertNotContains(page_response, 'Group summaries are available')
+        self.assertNotContains(page_response, 'Owner sign-in is required')
         self.assertEqual(api_response.status_code, 200)
         payload = json.loads(api_response.content)
         self.assertTrue(payload["success"])
@@ -603,7 +605,7 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         self.assertEqual(groups_response.status_code, 200)
         self.assertEqual(groups_response.json()["data"][0]["members"][0]["display_name"], "System Member")
 
-    def test_public_group_member_summary_has_name_without_directory_pii(self):
+    def test_public_group_member_summary_has_contact_details_for_group_members(self):
         group = UserGroup.objects.create(
             group_name="Public Group", max_members=10, created_by=self.owner.id
         )
@@ -631,9 +633,9 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         member = response.json()["data"][0]["members"][0]
         self.assertEqual(member["display_name"], "Visible Group Member")
-        self.assertEqual(
-            set(member), {"id", "user_id", "is_leader", "joined_at", "display_name"}
-        )
+        self.assertEqual(member["registration_number"], "PUBLIC-GROUP-001")
+        self.assertEqual(member["phone"], "123456")
+        self.assertEqual(member["group_name"], "Public Group")
 
     def test_properties_and_external_tables_pages_are_public(self):
         self.client.post(f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/logout/", follow=True)

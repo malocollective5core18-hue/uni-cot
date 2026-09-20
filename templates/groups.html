@@ -1162,12 +1162,6 @@
 
     <!-- Main Content -->
     <div class="main-container">
-        {% if not owner_directory_access %}
-        <div id="ownerDirectoryNotice" role="status" style="margin-bottom:20px; padding:14px 16px; border:1px solid rgba(91,140,255,.35); border-radius:10px; background:rgba(91,140,255,.10); color:var(--text); line-height:1.5;">
-            Group summaries are available, but the full member directory is private. Open the tenant system page and sign in as this tenant's owner to view all members, including unassigned registrations.
-            {% if tenant_base_path %}<a href="{{ tenant_base_path }}/system/" style="color:#8eb0ff; font-weight:700;">Open tenant system</a>{% endif %}
-        </div>
-        {% endif %}
         <!-- Stats Overview -->
         <div class="stats-container">
             <div class="stat-item">
@@ -1419,8 +1413,8 @@
         const INDEX_URL = TENANT_BASE_PATH ? `${TENANT_BASE_PATH}/system/` : "/system/";
         const API_BASE_URL = TENANT_BASE_PATH ? `${TENANT_BASE_PATH}/api` : '/api';
         const OWNER_DIRECTORY_ACCESS = {{ owner_directory_access|yesno:"true,false" }};
-        let membersLoadState = OWNER_DIRECTORY_ACCESS ? 'loading' : 'error';
-        let membersLoadError = OWNER_DIRECTORY_ACCESS ? null : { status: 403 };
+        let membersLoadState = 'loading';
+        let membersLoadError = null;
         let membersLastUpdatedAt = null;
 
         function setMembersLoadState(state, error = null) {
@@ -1429,10 +1423,6 @@
             const hint = document.getElementById('membersLastUpdated');
             if (hint && membersLastUpdatedAt) hint.textContent = `Last updated ${membersLastUpdatedAt.toLocaleTimeString()}`;
             loadMembersTable();
-        }
-
-        function membersSystemLink() {
-            return INDEX_URL ? `<a href="${INDEX_URL}">Open tenant system</a>` : '';
         }
 
         function publishTenantMutation(path) {
@@ -1936,9 +1926,7 @@
 
         function explainMemberAccessError(error) {
             const status = Number(error?.status || 0);
-            if (status === 401 || status === 403) {
-                return `Owner sign-in is required to view the private member directory. ${membersSystemLink()}`;
-            }
+            if (status === 401 || status === 403) return 'Members are unavailable on this page.';
             if (status === 429) {
                 return 'Too many requests, retrying shortly.';
             }
@@ -1992,6 +1980,9 @@
                         placeholder: field.placeholder || '',
                         options: field.options || ''
                     }));
+                    if (!OWNER_DIRECTORY_ACCESS) {
+                        dataFramework = dataFramework.filter(field => !['email', 'email_address'].includes(String(field.key || '').toLowerCase()));
+                    }
                 } else {
                     dataFramework = defaultFramework;
                     if (frameworkResult.status === 'rejected') {
@@ -2014,7 +2005,7 @@
                     membersLastUpdatedAt = new Date();
                     setMembersLoadState(members.length ? 'data' : 'empty');
                     console.log('Loaded members from database:', members.length);
-                } else {
+                } else if (OWNER_DIRECTORY_ACCESS) {
                     const error = usersResult.reason;
                     const accessError = error || (usersResult.value?.accessDenied ? { status: 403 } : null);
                     setMembersLoadState('error', accessError || { status: 500 });
@@ -2025,17 +2016,28 @@
                 if (groupsResult.status === 'fulfilled' && groupsResult.value.success) {
                     const rawGroups = groupsResult.value.data || [];
                     groupMemberDetails = new Map();
+                    const publicMembers = [];
                     groups = rawGroups.map((group) => {
                         const membersData = Array.isArray(group.members) ? group.members : [];
                         membersData.forEach((member) => {
                             const memberId = Number(member.user_id);
                             if (!Number.isFinite(memberId) || !member.display_name) return;
-                            groupMemberDetails.set(memberId, {
+                            const publicMember = {
                                 id: memberId,
                                 full_name: member.display_name,
-                                status: 'active',
+                                registration_number: member.registration_number || '',
+                                phone: member.phone || '',
+                                email: '',
+                                group: member.group_name || group.group_name || '',
+                                group_name: member.group_name || group.group_name || '',
+                                case_info: member.case_info || '',
+                                status: member.status || 'active',
                                 public_group_member: true,
-                            });
+                            };
+                            groupMemberDetails.set(memberId, publicMember);
+                            if (!OWNER_DIRECTORY_ACCESS && !publicMembers.some(item => item.id === memberId)) {
+                                publicMembers.push(publicMember);
+                            }
                         });
                         const leaderMember = membersData.find(m => m.is_leader === true);
                         const groupData = {
@@ -2050,6 +2052,12 @@
 
                         return groupData;
                     });
+                    if (!OWNER_DIRECTORY_ACCESS) {
+                        members = publicMembers;
+                        membersLastUpdatedAt = new Date();
+                        setMembersLoadState(members.length ? 'data' : 'empty');
+                        console.log('Loaded public group members from database:', members.length);
+                    }
                     console.log('Loaded groups from database:', groups.length);
                 } else {
                     groups = [];
@@ -2270,7 +2278,7 @@
             if (membersLoadState === 'error') {
                 const status = Number(membersLoadError?.status || 0);
                 const message = status === 403 || status === 401
-                    ? `Owner sign-in is required to view the private member directory. ${membersSystemLink()}`
+                        ? 'Members are unavailable on this page.'
                     : status === 429
                         ? 'Too many requests, retrying shortly.'
                         : 'Could not load members, retry.';
@@ -2293,7 +2301,7 @@
                                 ? 'No members match the current search or filters.'
                                 : (OWNER_DIRECTORY_ACCESS
                                     ? 'No members have been registered yet.'
-                                    : 'Owner sign-in is required to view the private member directory.')}</p>
+                                    : 'No members have been assigned to a group yet.')}</p>
                         </td>
                     </tr>
                 `;
@@ -2424,7 +2432,7 @@
                 
                 // Get group leader info
                 const leaderName = getGroupLeaderName(group);
-                const leaderEmail = group.leader ? getMemberById(group.leader)?.email || 'N/A' : 'N/A';
+                const leaderPhone = group.leader ? getMemberById(group.leader)?.phone || 'Not provided' : 'Not provided';
                 
                 // Get group members (first 5 for preview)
                 const previewMembers = group.members.slice(0, 5).map(memberId => {
@@ -2446,7 +2454,7 @@
                     <div class="leader-section">
                         <span class="leader-label">Group Leader:</span>
                         ${group.leader ? 
-                            `<div class="leader-name">${leaderName} (${leaderEmail})</div>` : 
+                            `<div class="leader-name">${leaderName} (${leaderPhone})</div>` :
                             `<div class="no-leader-indicator">⚠️ No leader assigned</div>`
                         }
                     </div>
@@ -2496,7 +2504,7 @@
             if (!group) return;
             
             const leaderName = getGroupLeaderName(group);
-            const leaderEmail = group.leader ? getMemberById(group.leader)?.email || 'N/A' : 'N/A';
+            const leaderPhone = group.leader ? getMemberById(group.leader)?.phone || 'Not provided' : 'Not provided';
             
             // Get all members with details
             const groupMembers = group.members.map(memberId => {
@@ -2528,7 +2536,7 @@
                             ${group.leader ? 
                                 `<div style="display: flex; flex-direction: column;">
                                     <span class="leader-name">${leaderName}</span>
-                                    <span style="font-size: 0.8rem; color: var(--muted);">${leaderEmail}</span>
+                                    <span style="font-size: 0.8rem; color: var(--muted);">${leaderPhone}</span>
                                 </div>` : 
                                 `<div class="no-leader-indicator">⚠️ No leader assigned</div>`
                             }
@@ -2544,7 +2552,8 @@
                                             ${member.status === 'flagged' ? ' ⚠️' : ''}
                                         </span>
                                         <span class="member-details">
-                                            ${member.registration_number} • ${member.email} • ${member.phone}
+                                            ${member.registration_number || 'No registration number'} • ${member.phone || 'Phone not provided'} • ${member.group_name || group.name}
+                                            ${member.case_info ? ` • Case: ${member.case_info}` : ''}
                                         </span>
                                     </div>
                                     <div class="member-actions">
@@ -2877,6 +2886,48 @@
             return;
         }
 
+        function applyPublicGroupsPayload(rawGroups) {
+            const publicMembers = [];
+            groupMemberDetails = new Map();
+            groups = (Array.isArray(rawGroups) ? rawGroups : []).map(group => {
+                const membersData = Array.isArray(group.members) ? group.members : [];
+                membersData.forEach(member => {
+                    const memberId = Number(member.user_id);
+                    if (!Number.isFinite(memberId) || !member.display_name) return;
+                    const publicMember = {
+                        id: memberId,
+                        full_name: member.display_name,
+                        registration_number: member.registration_number || '',
+                        phone: member.phone || '',
+                        email: '',
+                        group: member.group_name || group.group_name || '',
+                        group_name: member.group_name || group.group_name || '',
+                        case_info: member.case_info || '',
+                        status: member.status || 'active',
+                        public_group_member: true,
+                    };
+                    groupMemberDetails.set(memberId, publicMember);
+                    if (!publicMembers.some(item => item.id === memberId)) publicMembers.push(publicMember);
+                });
+                return {
+                    id: Number(group.id), name: group.group_name || `Group ${group.id}`,
+                    group_name: group.group_name || `Group ${group.id}`,
+                    size: group.max_members || 0,
+                    current_members: Number(group.current_members) || membersData.length,
+                    leader: (membersData.find(m => m.is_leader === true)?.user_id) || group.leader_id || null,
+                    members: membersData.map(member => Number(member.user_id)),
+                };
+            });
+            members = publicMembers;
+            membersLastUpdatedAt = new Date();
+            setMembersLoadState(members.length ? 'data' : 'empty');
+            flaggedMembers = members.filter(member => member.status === 'flagged');
+            updateFlaggedCount();
+            updateStats();
+            initializeFilters();
+            loadGroupsDisplay();
+        }
+
         // Show message
         function showMessage(message, type) {
             const messageDiv = document.createElement('div');
@@ -2941,6 +2992,22 @@
         // Check for newly registered users from database and update tables dynamically
         async function checkForNewRegistrations() {
             console.log('Checking for new registrations from database...');
+
+            if (!OWNER_DIRECTORY_ACCESS) {
+                try {
+                    const response = await fetch('/api/groups/?include_members=1', {
+                        headers: registrationsEtags.groups ? { 'If-None-Match': registrationsEtags.groups } : {}
+                    });
+                    if (response.status === 304) return true;
+                    if (!response.ok) return true;
+                    registrationsEtags.groups = response.headers.get('ETag') || registrationsEtags.groups;
+                    const result = await response.json();
+                    if (result.success) applyPublicGroupsPayload(result.data);
+                } catch (error) {
+                    console.warn('Could not check public group members:', error);
+                }
+                return true;
+            }
 
             // Check if data framework has been updated
             try {

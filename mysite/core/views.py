@@ -1624,7 +1624,10 @@ def api_groups(request, *args, **kwargs):
                     legacy_users = (
                         _scope_users_queryset(request)
                         .filter(group_name__in=list(names_to_ids.keys()), is_active=True)
-                        .only('id', 'group_name')
+                        .only(
+                            'id', 'full_name', 'registration_number', 'phone',
+                            'group_name', 'case_info', 'status',
+                        )
                         .order_by('group_name', 'id')
                     )
                     for user in legacy_users:
@@ -1639,24 +1642,34 @@ def api_groups(request, *args, **kwargs):
                             'joined_at': None,
                         })
 
-                # The public groups screen may show names for members already
-                # exposed by that group, but never the protected user-directory
-                # fields (email, phone, or registration number). One bulk
-                # lookup prevents an N+1 query per group member.
+                # The groups page is a public, tenant-scoped directory of
+                # members assigned to a group. Keep unassigned users private,
+                # but include the public contact/details needed by fellow
+                # members. One bulk lookup prevents an N+1 query per member.
                 member_ids = {
                     entry['user_id']
                     for entries in members_by_group.values()
                     for entry in entries
                 }
                 display_names = {
-                    user.id: user.full_name
+                    user.id: user
                     for user in _scope_users_queryset(request)
                     .filter(id__in=member_ids, is_active=True)
-                    .only('id', 'full_name')
+                    .only(
+                        'id', 'full_name', 'registration_number', 'phone',
+                        'group_name', 'case_info', 'status',
+                    )
                 }
                 for entries in members_by_group.values():
                     for entry in entries:
-                        entry['display_name'] = display_names.get(entry['user_id'], 'Member')
+                        user = display_names.get(entry['user_id'])
+                        entry['display_name'] = getattr(user, 'full_name', None) or 'Member'
+                        entry['full_name'] = entry['display_name']
+                        entry['registration_number'] = getattr(user, 'registration_number', '') or ''
+                        entry['phone'] = getattr(user, 'phone', '') or ''
+                        entry['group_name'] = getattr(user, 'group_name', '') or ''
+                        entry['case_info'] = getattr(user, 'case_info', '') or ''
+                        entry['status'] = getattr(user, 'status', 'active') or 'active'
 
             data = [
                 _serialize_group(

@@ -286,3 +286,11 @@
 - Files touched: `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Existing initialization guard plus the new function guard prevent public/member 403 calls; browser verification remains pending.
 - Remaining risk: Owner-admin state is evaluated when the page is rendered; an owner must complete the in-page admin login before private management actions.
+
+## Correctness — public grouped-member visibility (2026-09-20)
+
+- Finding: The public groups page depended on the private owner users endpoint, so visitors saw a 403 and an owner sign-in notice instead of members already assigned to groups. Missing summary fields also rendered as `undefined`.
+- Change: Created `fix/groups-public-member-visibility` from `fix/groups-member-display` and merged `fix/groups-owner-data-sync`. The public `include_members=1` group response now includes tenant-scoped name, registration number, phone, group, case, and status for assigned members only. The groups page builds its public member table from those summaries, removes the owner-directory notice, and uses fallbacks for missing values.
+- Files touched: `mysite/core/views.py`, `templates/groups.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Local PostgreSQL tests passed 84 tests in normal, reverse, and shuffled orders. Focused public groups tests passed. `check` and `makemigrations --check --dry-run` passed; `check --deploy` passed with the expected placeholder-secret warning. Browser verification and production deployment were not run.
+- Remaining risk: This intentionally makes contact and case fields public to members assigned to a group. Unassigned registrations remain private. Review the tenant’s privacy policy before deployment.
