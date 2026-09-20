@@ -9,6 +9,10 @@ CACHES = {
     },
 }
 
+CHANNEL_LAYERS = {
+    "default": {"BACKEND": "channels.layers.InMemoryChannelLayer"},
+}
+
 # Tests render templates directly without a preceding collectstatic step.
 # Production retains the manifest-backed WhiteNoise configuration in settings.py.
 STORAGES = {

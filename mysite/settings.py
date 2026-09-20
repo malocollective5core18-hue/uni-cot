@@ -23,6 +23,7 @@ except ImportError:
 # settings module agree on shared-vs-tenant placement when Django imports this
 # wrapper in production.
 COMMON_APPS_CORRECTED = [
+    'channels',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',

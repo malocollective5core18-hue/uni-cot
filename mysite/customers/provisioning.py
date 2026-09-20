@@ -1,15 +1,19 @@
 import hmac
+import logging
 import os
 import sys
 import threading
 from urllib.parse import parse_qs
 
 from django.http import JsonResponse
+from django.db import connection, close_old_connections
 
 
 _WAKE_EVENT = threading.Event()
 _RUNNER_STARTED = False
 _RUNNER_LOCK = threading.Lock()
+logger = logging.getLogger(__name__)
+_ADVISORY_LOCK_ID = 912847301
 
 
 def kick_provisioner():
@@ -41,36 +45,42 @@ def _process_due_jobs(output=None):
 
 
 def _runner_loop():
-    _process_due_jobs()
-    while True:
-        _WAKE_EVENT.wait(timeout=120)
-        _WAKE_EVENT.clear()
+    """Drain once, then keep one process-wide PostgreSQL-locked runner alive."""
+    close_old_connections()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", [_ADVISORY_LOCK_ID])
+            acquired = cursor.fetchone()[0]
+        if not acquired:
+            logger.info("Tenant provisioner not started: another web worker owns the advisory lock.")
+            return
+
+        # The first pass drains work queued while the web process was down.
         _process_due_jobs()
+        while True:
+            _WAKE_EVENT.wait(timeout=120)
+            _WAKE_EVENT.clear()
+            _process_due_jobs()
+    except Exception:
+        logger.exception("In-process tenant provisioner stopped unexpectedly.")
 
 
 def start_provisioner():
     """Start one daemon worker for the web process, if enabled."""
     global _RUNNER_STARTED
+    if not should_start_provisioner():
+        return False
     with _RUNNER_LOCK:
         if _RUNNER_STARTED:
             return
         _RUNNER_STARTED = True
     thread = threading.Thread(target=_runner_loop, name="tenant-provisioner", daemon=True)
     thread.start()
+    return True
 
 
 def should_start_provisioner():
-    if os.getenv("IN_PROCESS_TENANT_PROVISIONER", "true").strip().lower() not in {"1", "true", "yes", "on"}:
-        return False
-    command = sys.argv[1] if len(sys.argv) > 1 else ""
-    return command not in {
-        "check",
-        " makemigrations",
-        "makemigrations",
-        "migrate",
-        "shell",
-        "test",
-    }
+    return os.getenv("TENANT_PROVISION_INPROCESS", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def provision_tick(request):

@@ -1,6 +1,6 @@
 # Render Free deployment guide
 
-This project supports a Render free-tier deployment with a web service and a separate worker service. The web service remains alive via a monitored keepalive and exposes lightweight health endpoints, while tenant provisioning continues in the worker process instead of depending on a single Gunicorn web process.
+This project supports a Render free-tier deployment with one web service. The web service remains alive via a monitored keepalive, exposes lightweight health endpoints, and can run the bounded in-process tenant provisioner after its Gunicorn worker forks.
 
 ## Required services
 
@@ -10,10 +10,10 @@ This project supports a Render free-tier deployment with a web service and a sep
    - Uses the same environment variables as the standard app.
    - Must be kept alive by an external monitor such as UptimeRobot or Render's own health checks.
 
-2. Worker service
-   - Runs `python manage.py provision_tenants --interval 5`.
-   - Processes queued tenant provisioning jobs in the database.
-   - May also run `python manage.py bootstrap_render` as a one-shot deployment bootstrap step if you need to reconcile the public tenant and queued jobs during a manual deploy.
+2. In-process provisioner
+   - Enabled only with `TENANT_PROVISION_INPROCESS=true`.
+   - Starts from Gunicorn's `post_fork` hook, drains due jobs once, then wakes every 120 seconds.
+   - Uses a PostgreSQL advisory lock, so only one web worker performs provisioning if the service is scaled later.
 
 ## Health endpoints
 
@@ -39,14 +39,14 @@ The token must be supplied as a URL query parameter. Keep the token private and 
 
 The in-process fell-back worker is enabled by default when the app is running in a normal web process. It wakes up after a tenant enqueue and polls every 120 seconds when idle.
 
-The intended production contract is:
+The Free-tier production contract is:
 
 - Owner registration enqueues a provisioning job.
-- `python manage.py provision_tenants` works the queue.
+- Gunicorn's in-process provisioner works the queue when `TENANT_PROVISION_INPROCESS=true`.
 - Once the tenant is ready, the owner can access the tenant workspace through the routed path.
 - A pending tenant remains intentionally blocked until provisioning succeeds.
 
-Do not rely on the web service alone to perform provisioning work in free-tier Render. A single Gunicorn process is not a safe place for long-lived tenant schema work.
+This is a Free-tier fallback, not a high-throughput worker architecture. Provisioning remains serialized, and long schema migrations can still consume the one web worker's resources.
 
 ## Render-specific notes
 
@@ -63,11 +63,7 @@ Web service:
 gunicorn mysite.wsgi:application --bind 0.0.0.0:$PORT --workers 1
 ```
 
-Worker service:
-
-```bash
-python manage.py provision_tenants --interval 5
-```
+Keep this WSGI command as the deployed command until the Phase 1 ASGI socket benchmark is recorded as acceptable. The planned ASGI command is documented in `docs/REALTIME_DESIGN.md` and must not be deployed yet.
 
 Bootstrap/manual deployment step:
 
@@ -75,4 +71,4 @@ Bootstrap/manual deployment step:
 python manage.py bootstrap_render
 ```
 
-This is the operational contract: health checks must pass, the dedicated worker must drain queued jobs, and the tenant registry should reach a ready state before owners are expected to sign in.
+This is the operational contract: health checks must pass, the in-process provisioner must drain queued jobs, and the tenant registry should reach a ready state before owners are expected to sign in.

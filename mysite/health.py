@@ -31,6 +31,17 @@ def readyz(request):
         except Exception:
             checks["cache"] = "error"
 
+        # Realtime has a separate Redis connection pool from django-redis.
+        # Probe it explicitly so readyz catches a channel-layer outage.
+        try:
+            from mysite.realtime import channel_layer_is_healthy
+
+            if not channel_layer_is_healthy():
+                raise RuntimeError("channel layer probe failed")
+            checks["channel_layer"] = "ok"
+        except Exception:
+            checks["channel_layer"] = "error"
+
     ready = all(value == "ok" for value in checks.values())
     return JsonResponse(
         {"ready": ready, "checks": checks},

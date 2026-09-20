@@ -75,6 +75,11 @@ t:<tenant_key>:properties
 t:<tenant_key>:table-records
 ```
 
+Channels itself rejects colon characters in physical group names. The deployed
+representation is therefore `t.<tenant_key>.<resource>`; it retains the exact
+tenant key and resource components while satisfying the channel-layer name
+validator. The colon form above is the logical contract notation.
+
 Only this minimal event is sent:
 
 ```json

@@ -109,6 +109,7 @@ else:
 # ============================================================
 
 COMMON_APPS = [
+    'channels',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -315,6 +316,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'mysite.wsgi.application'
+ASGI_APPLICATION = 'mysite.asgi.application'
 
 
 # Cache settings
@@ -348,6 +350,28 @@ else:
     }
 
 RING0_API_CACHE_TTL = int(os.getenv('RING0_API_CACHE_TTL', '20'))
+
+# Realtime uses Redis in production and an isolated in-memory layer for local
+# development. This is independent from the HTTP cache configuration above.
+REALTIME_MAX_SOCKETS_PER_USER = int(os.getenv('REALTIME_MAX_SOCKETS_PER_USER', '5'))
+REALTIME_MAX_SOCKETS_TOTAL = int(os.getenv('REALTIME_MAX_SOCKETS_TOTAL', '100'))
+REALTIME_HEARTBEAT_SECONDS = int(os.getenv('REALTIME_HEARTBEAT_SECONDS', '25'))
+REALTIME_IDLE_SECONDS = int(os.getenv('REALTIME_IDLE_SECONDS', '75'))
+REALTIME_CONNECTION_WINDOW_SECONDS = int(os.getenv('REALTIME_CONNECTION_WINDOW_SECONDS', '60'))
+REALTIME_CONNECTION_LIMIT = int(os.getenv('REALTIME_CONNECTION_LIMIT', '20'))
+REALTIME_ACCESS_CACHE_SECONDS = int(os.getenv('REALTIME_ACCESS_CACHE_SECONDS', '60'))
+
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {'hosts': [REDIS_URL]},
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}
+    }
 
 
 # Password validation
