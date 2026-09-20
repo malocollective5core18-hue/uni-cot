@@ -1,5 +1,19 @@
 # Remediation Log
 
+## Slider realtime regression follow-up (2026-09-21)
+
+- Finding: the shared TenantLive slider adapter treated the public slider as
+  inactive unless its overlay or admin section was open, so an open tenant
+  page could remain stale after an image was posted on another device.
+- Change: kept the slider resource active whenever the visible tenant page is
+  loaded; TenantLive still enforces visibility pause, single-flight requests,
+  ETags, and backoff.
+- Files touched: `templates/system_index.html`.
+- Evidence: targeted template tests (2) and full suite (107) pass; compileall
+  and Django check pass.
+- Remaining risk: cross-device browser verification remains manual; polling
+  delay is normally up to 30 seconds.
+
 ## Live updates: mutation reconciliation (2026-09-21)
 
 - Finding: update/delete mutations invalidated only some cache families and
