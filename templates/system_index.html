@@ -13416,6 +13416,7 @@ const autoRefreshInFlight = {
 
 let usersPollingDisabled = false;
 let usersPollingDelay = FAST_REFRESH_MS;
+let groupsPollingDelay = FAST_REFRESH_MS;
 
 function userPollingMessage(error) {
   const status = Number(error?.status || 0);
@@ -13566,11 +13567,17 @@ function startUsersAutoRefresh() {
 // Auto-refresh groups on the adaptive interval.
 function startGroupsAutoRefresh() {
   if (autoRefreshTimers.groups) {
-    clearInterval(autoRefreshTimers.groups);
+    clearTimeout(autoRefreshTimers.groups);
+    autoRefreshTimers.groups = null;
   }
-  
-  autoRefreshTimers.groups = setInterval(async () => {
-    if (autoRefreshInFlight.groups) return;
+  if (document.hidden) return;
+
+  const pollGroups = async () => {
+    autoRefreshTimers.groups = null;
+    if (autoRefreshInFlight.groups) {
+      autoRefreshTimers.groups = window.setTimeout(pollGroups, groupsPollingDelay);
+      return;
+    }
     autoRefreshInFlight.groups = true;
     try {
       // Only refresh if we're in the user management section on groups tab
@@ -13584,14 +13591,20 @@ function startGroupsAutoRefresh() {
         }
         console.log('[Auto-Refresh] Groups updated');
       }
+      groupsPollingDelay = FAST_REFRESH_MS;
     } catch (error) {
       console.error('[Auto-Refresh] Error refreshing groups:', error);
+      groupsPollingDelay = Math.min(Math.max(FAST_REFRESH_MS, groupsPollingDelay * 2), 300000);
     } finally {
       autoRefreshInFlight.groups = false;
+      if (!document.hidden && !autoRefreshTimers.groups) {
+        autoRefreshTimers.groups = window.setTimeout(pollGroups, groupsPollingDelay);
+      }
     }
-  }, getAutoRefreshInterval());
+  };
+  autoRefreshTimers.groups = window.setTimeout(pollGroups, Math.max(FAST_REFRESH_MS, groupsPollingDelay));
   
-  console.log(`[Auto-Refresh] Groups auto-refresh started (${getAutoRefreshInterval()}ms interval)`);
+  console.log(`[Auto-Refresh] Groups auto-refresh scheduled (${Math.max(FAST_REFRESH_MS, groupsPollingDelay)}ms)`);
 }
 
 // Stop all auto-refresh timers
@@ -13636,6 +13649,10 @@ document.addEventListener('visibilitychange', function() {
   } else {
     startLightweightTimers();
     startAllAutoRefresh();
+    if (OWNER_ADMIN_AUTHENTICATED_ON_LOAD) {
+      void refreshSystemResource('users');
+      void refreshSystemResource('groups');
+    }
     console.log('[Auto-Refresh] Page visible, auto-refresh resumed');
   }
 });

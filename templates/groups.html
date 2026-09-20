@@ -3139,6 +3139,7 @@
                 stopRealtimeSync();
             } else {
                 if (!registrationsPollingDisabled) startRealtimeSync();
+                if (OWNER_DIRECTORY_ACCESS) checkForNewRegistrations().catch(error => console.warn('Visible refresh failed:', error));
                 if (!memberEditorActive()) {
                     tenantSyncPending.forEach(resource => receiveTenantSync({ resource, ts: Date.now() }));
                     tenantSyncPending.clear();

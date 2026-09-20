@@ -262,6 +262,14 @@
 - Evidence: Static notifier is 1.3 KB; source-level mutation hooks and subscriptions are present. Browser two-tab verification is NOT RUN.
 - Remaining risk: Other devices still depend on the existing 30-second polling path until the later WebSocket phase.
 
+## Correctness — visible-page ETag polling contract (2026-09-20)
+
+- Finding: The system groups resource used a repeating interval and did not perform an immediate ETag check when a hidden tab became visible.
+- Change: Groups polling now uses one recursive timeout with a 30-second floor, exponential error backoff, hidden-tab pause, and visible-tab checks. Users/groups refreshes are triggered immediately on visibility return.
+- Files touched: `templates/system_index.html`, `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Source inspection shows no `setInterval` in the users/groups resource schedulers; browser timing verification is NOT RUN.
+- Remaining risk: Existing unrelated clock/slider/card animation timers remain intervals; the tenant resource schedulers are the ones converted.
+
 ## Correctness — public system owner-directory guard (2026-09-20)
 
 - Finding: Public registration completion could call the private users loader because the user table exists in the shared system template.
