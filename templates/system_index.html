@@ -4846,19 +4846,15 @@ footer img:hover {
     
     <div class="image-slider">
       <div class="slider-image-container">
-        {% get_static_prefix as STATIC_PREFIX %}
-        <img src="{{ STATIC_PREFIX }}time_table.jpg" alt="University Timetable" class="slider-image" id="currentImage">
+        <img alt="No images available" class="slider-image" id="currentImage">
       </div>
       <div class="slider-nav-buttons">
         <button class="slider-nav prev" onclick="prevImage()">❮</button>
-        <div class="slider-counter" id="sliderCounter">1/2</div>
+        <div class="slider-counter" id="sliderCounter">0/0</div>
         <button class="slider-nav next" onclick="nextImage()">❯</button>
       </div>
     </div>
-    <div class="slider-indicator">
-      <span class="indicator-dot active" onclick="goToImage(0)"></span>
-      <span class="indicator-dot" onclick="goToImage(1)"></span>
-    </div>
+    <div class="slider-indicator"></div>
   </div>
 </div>
 
@@ -11187,7 +11183,7 @@ let imageAutoAdvanceEnabled = true;
 let imageAutoSlidePaused = false;
 let activeAutoAdvanceDelayMs = null;
 
-// No default images - all data comes from database (MySQL)
+// No default images - all data comes from the tenant-scoped API.
 const defaultImages = [];
 
 async function openImageContentManagement() {
@@ -12504,17 +12500,6 @@ function backToDashboard() {
   resetImageForm();
 }
 
-// ================= EXISTING FUNCTIONALITY =================
-const images = [
-  "time_table.jpg",
-  "modure_summery.jpg"
-];
-
-const altTexts = [
-  "University Timetable",
-  "Module Summary Points"
-];
-
 const imageSlider = document.getElementById('imageSlider');
 const toggleBtn = document.querySelector('.toggle-slider-btn');
 const mainContent = document.querySelector('main');
@@ -12836,14 +12821,22 @@ async function initializePage() {
     updateSliderImages();
     updateSliderIndicators();
 
-    await Promise.all([
+    const publicStartupLoads = [
       loadDataFramework({ silent: true }),
-      loadUserData({ silent: true }),
       loadGroups({ silent: true }),
       loadStorageLinks({ silent: true }),
-    ]);
+    ];
+    // The directory includes private contact/registration fields.  A public
+    // or member system page must not request it and mistake its deliberate
+    // 403 response for a page-wide initialization failure.
+    if (OWNER_ADMIN_AUTHENTICATED_ON_LOAD) {
+      publicStartupLoads.push(loadUserData({ silent: true }));
+    }
+    await Promise.all(publicStartupLoads);
     updateRegistrationSwitch();
-    populateUserTable();
+    if (OWNER_ADMIN_AUTHENTICATED_ON_LOAD) {
+      populateUserTable();
+    }
     initializeExternalTableModeUI();
     updateRegistrationSettingsUI();
     updateMainMenu();
@@ -13304,7 +13297,7 @@ function getCSRFToken() {
 
 // Initialize - Load data when page loads
 document.addEventListener('DOMContentLoaded', async function() {
-    console.log('Django API Connected - Loading data from MySQL...');
+    console.log('Django API connected - loading tenant-scoped data.');
     
     // Load slider images and render them dynamically
     const images = await fetchSliderImages();

@@ -209,6 +209,13 @@ class MemberPollingTemplateTests(SimpleTestCase):
         self.assertIn('error.retryAfter', system_source)
         self.assertIn('window.setTimeout(pollUsers, usersPollingDelay)', system_source)
 
+    def test_system_startup_does_not_request_owner_directory_for_public_visitors(self):
+        system_source = (settings.BASE_DIR / 'templates/system_index.html').read_text()
+
+        self.assertNotIn('src="{{ STATIC_PREFIX }}time_table.jpg"', system_source)
+        self.assertIn('if (OWNER_ADMIN_AUTHENTICATED_ON_LOAD) {\n      publicStartupLoads.push(loadUserData({ silent: true }));', system_source)
+        self.assertIn('member system page must not request it', system_source)
+
 @override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
