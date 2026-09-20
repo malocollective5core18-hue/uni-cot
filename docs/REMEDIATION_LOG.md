@@ -333,3 +333,11 @@
 - Files touched: `docs/PUBLIC_REALTIME_DIAGNOSIS.md`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Source line references verified with `rg`; no application or production behavior changed.
 - Remaining risk: Cross-device public updates remain unavailable until a reviewed public notification policy or accepted polling implementation is added.
+
+## Realtime — shared tenant live polling Phase A (2026-09-21)
+
+- Finding: The four tenant pages used separate timers and could remain stale on another device; some resource timers skipped inactive sections or used intervals.
+- Change: Added `TenantLive`, a shared ETag-aware single-flight recursive poller with visibility pause/resume, jitter, backoff, `Retry-After`, same-browser event integration, and edit-safe updates. Adopted it independently in the system, groups, external-tables, and properties templates. No anonymous WebSocket or authentication change was made.
+- Files touched: `static/js/tenant-live.js`, `static/js/tenant-live.test.js`, `templates/system_index.html`, `templates/groups.html`, `templates/external_tables.html`, `templates/properties.html`, `mysite/core/tests.py`, `docs/LIVE_UPDATES_REPORT.md`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Baseline and final suites contain 85 tests; normal, reverse, and shuffle seeds `20260930`/`20260931` passed. Node timer tests passed. Browser cross-device verification is NOT RUN.
+- Remaining risk: Visible pages may lag up to about 30 seconds; anonymous WebSocket Phase B remains deferred. WSGI remains the deployed command.
