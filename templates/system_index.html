@@ -8244,7 +8244,7 @@ function getFieldInputHTML(field, value = '') {
 // ================= USER MANAGEMENT =================
 async function loadUserData(options = {}) {
   const { silent = false } = options;
-  if (!OWNER_ADMIN_AUTHENTICATED_ON_LOAD) {
+  if (!ownerAdminIsAuthenticated()) {
     userData = [];
     return true;
   }
@@ -10992,7 +10992,7 @@ async function submitMemberRegistration(event) {
       closeRegistrationForm();
 
       // If admin user table exists, refresh it
-      if (OWNER_ADMIN_AUTHENTICATED_ON_LOAD && document.getElementById('userTableBody')) {
+      if (ownerAdminIsAuthenticated() && document.getElementById('userTableBody')) {
         await loadUserData();
         populateUserTable();
       }
@@ -13122,14 +13122,18 @@ const CURRENT_TENANT_SLUG = '{{ tenant.subdomain|default:""|escapejs }}';
 const TENANT_SYSTEM_REQUIRES_ADMIN_GATE = {{ tenant_requires_owner_admin_gate|yesno:"true,false" }};
 const OWNER_ADMIN_AUTHENTICATED_ON_LOAD = {{ owner_admin_authenticated|yesno:"true,false" }};
 
+function ownerAdminIsAuthenticated() {
+  return OWNER_ADMIN_AUTHENTICATED_ON_LOAD || ownerAdminSessionState.authenticated === true;
+}
+
 function publishTenantResource(resource) {
-  if (OWNER_ADMIN_AUTHENTICATED_ON_LOAD && window.TenantSync) {
+  if (ownerAdminIsAuthenticated() && window.TenantSync) {
     window.TenantSync.publish(resource);
   }
 }
 
 function publishTenantMutation(path) {
-  if (!OWNER_ADMIN_AUTHENTICATED_ON_LOAD || !/\/api\//.test(path)) return;
+  if (!ownerAdminIsAuthenticated() || !/\/api\//.test(path)) return;
   if (/\/api\/(users|users\/clear-all)/.test(path)) publishTenantResource('users');
   if (/\/api\/(groups|group-members)/.test(path)) publishTenantResource('groups');
   if (/\/api\/groups\/move-member/.test(path)) publishTenantResource('users');
@@ -13141,7 +13145,7 @@ function systemEditorActive() {
   return Boolean(active && (active.matches('input, textarea, select') || active.closest('form, .modal, [role="dialog"]')));
 }
 async function refreshSystemResource(resource) {
-  if (!OWNER_ADMIN_AUTHENTICATED_ON_LOAD || document.hidden) return;
+  if (!ownerAdminIsAuthenticated() || document.hidden) return;
   if (systemEditorActive()) {
     systemSyncPending.add(resource);
     showTemporaryMessage('Updated — refresh will run when ready.', 'info');

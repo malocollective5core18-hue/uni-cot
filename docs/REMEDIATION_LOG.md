@@ -261,6 +261,7 @@
 - Files touched: `static/js/tenant-sync.js`, `templates/system_index.html`, `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Static notifier is 1.3 KB; source-level mutation hooks and subscriptions are present. Browser two-tab verification is NOT RUN.
 - Remaining risk: Other devices still depend on the existing 30-second polling path until the later WebSocket phase.
+- Follow-up: The publisher and user-directory refresh also recognize an owner who authenticates through the in-page owner-admin modal after initial render.
 
 ## Correctness — visible-page ETag polling contract (2026-09-20)
 
