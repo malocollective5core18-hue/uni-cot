@@ -1,19 +1,19 @@
 import json
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.contrib.auth.hashers import make_password
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.template.loader import render_to_string
 from django.urls import reverse
 
 from core import views
-from core.models import ExternalTable, ExternalTableRecord, Property, User, UserGroup, UserGroupMember
+from core.models import CountdownCard, ExternalTable, ExternalTableRecord, Property, User, UserGroup, UserGroupMember
 from customers.models import CRTenant, TenantDashboardMetric
 from service.models import OwnerUser
 from mysite.mysite.rate_limit import client_ip, is_rate_limited
@@ -846,3 +846,105 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         self.assertEqual(prop.claimant_name, "Claimant")
         self.assertEqual(prop.item_name, "Original Wallet")
         self.assertEqual(prop.location, "Reception")
+
+
+class LiveMutationMatrixTests(TenantSystemIsolationTests):
+    """Fail-first coverage for mutation cache and publication contracts."""
+
+    def _path(self, suffix):
+        return f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/api/{suffix}"
+
+    def _etag(self, path):
+        response = self.client.get(path, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.headers["ETag"]
+
+    def test_cached_api_responses_revalidate_and_vary_by_cookie(self):
+        request = RequestFactory().get("/api/properties/")
+        response = views._cached_json_response(request, "properties", lambda: {"success": True})
+        self.assertEqual(response["Cache-Control"], "no-cache")
+        self.assertEqual(response["Vary"], "Cookie")
+
+    def test_countdown_update_publishes_after_commit_and_changes_etag(self):
+        card = CountdownCard.objects.create(
+            title="Before", description="old", created_by=str(self.owner.id),
+            file_url="", start_time=datetime.now(timezone.utc), end_time=datetime.now(timezone.utc) + timedelta(days=1),
+            is_published=True, status="active",
+        )
+        path = self._path("countdown-cards/")
+        before = self._etag(path)
+        with patch("core.views._publish_tenant_resource") as publish:
+            with transaction.atomic():
+                with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                    response = self.client.put(
+                        f"{path}{card.id}/", data=json.dumps({"title": "After"}),
+                        content_type="application/json", HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                    )
+                    self.assertEqual(response.status_code, 200, response.content)
+                    self.assertEqual(callbacks, [], "publication must be deferred until commit")
+            self.assertTrue(callbacks, "mutation must schedule an after-commit publication")
+            for callback in callbacks:
+                callback()
+            self.assertEqual(publish.call_args[0][1], "countdown-cards")
+        after = self._etag(path)
+        self.assertNotEqual(before, after)
+        self.assertEqual(self.client.get(path).json()["data"][0]["title"], "After")
+
+    def test_user_delete_invalidates_public_families_and_publishes(self):
+        group = UserGroup.objects.create(group_name="Delete Group", max_members=10, created_by=self.owner.id)
+        user = User.objects.create(
+            full_name="Delete Me", registration_number="DEL-001", created_by=self.owner.id,
+            group_name=group.group_name,
+        )
+        UserGroupMember.objects.create(user_id=user.id, group_id=group.id, status="active")
+        users_path = self._path("users/")
+        public_path = self._path("public-members/")
+        groups_path = self._path("groups/?include_members=1")
+        before = {name: self._etag(path) for name, path in {
+            "users": users_path, "public-members": public_path, "groups": groups_path,
+        }.items()}
+        with patch("core.views._publish_tenant_resource") as publish:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.delete(
+                    f"{users_path}{user.id}/", HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                )
+            self.assertEqual(response.status_code, 200, response.content)
+            published = {call.args[1] for call in publish.call_args_list}
+        self.assertTrue({"members", "groups"}.issubset(published))
+        after = {name: self._etag(path) for name, path in {
+            "users": users_path, "public-members": public_path, "groups": groups_path,
+        }.items()}
+        for name in before:
+            self.assertNotEqual(before[name], after[name])
+        self.assertNotIn("Delete Me", json.dumps(self.client.get(public_path).json()))
+
+    def test_property_delete_publishes_and_removes_row(self):
+        prop = Property.objects.create(item_name="To remove", created_by=self.owner.id)
+        list_path = self._path("properties/")
+        before = self._etag(list_path)
+        with patch("core.views._publish_tenant_resource") as publish:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.delete(
+                    f"{list_path}{prop.id}/", HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                )
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertTrue(publish.called)
+        self.assertNotEqual(before, self._etag(list_path))
+        self.assertNotIn("To remove", json.dumps(self.client.get(list_path).json()))
+
+    def test_external_record_update_publishes_table_and_record_families(self):
+        table = ExternalTable.objects.create(table_name="Live table", created_by=self.owner.id)
+        record = ExternalTableRecord.objects.create(table=table, data={"name": "old"})
+        record_path = self._path(f"external-tables/{table.id}/records/")
+        before = self._etag(record_path)
+        with patch("core.views._publish_tenant_resource") as publish:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    f"{record_path}{record.id}/", data=json.dumps({"data": {"name": "new"}}),
+                    content_type="application/json", HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                )
+            self.assertEqual(response.status_code, 200, response.content)
+            published = {call.args[1] for call in publish.call_args_list}
+        self.assertIn("table-records", published)
+        self.assertNotEqual(before, self._etag(record_path))
+        self.assertEqual(self.client.get(record_path).json()["data"][0]["data"]["name"], "new")

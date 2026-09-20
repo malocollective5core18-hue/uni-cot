@@ -1,5 +1,27 @@
 # Remediation Log
 
+## Live updates: mutation reconciliation (2026-09-21)
+
+- Finding: update/delete mutations invalidated only some cache families and
+  often published no tenant notification; cached JSON lacked explicit
+  revalidation/session variance headers; client refreshers could clear good
+  state on transient errors or leave deleted records rendered.
+- Change: centralized post-commit cache-version invalidation and resource
+  publication in `core.views`; mapped user/group/table mutations to the
+  affected live families; added `Cache-Control: no-cache` and `Vary: Cookie`;
+  made system, groups, external-table, and properties adapters reconcile full
+  successful lists and preserve state on failures; owner writes now refresh
+  their TenantLive resource immediately.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`,
+  `templates/system_index.html`, `templates/groups.html`,
+  `templates/external_tables.html`, `templates/properties.html`,
+  `docs/LIVE_UPDATES_FIX_REPORT.md`.
+- Evidence: fail-first matrix recorded five pre-fix failures; focused mutation
+  tests pass; full normal/reverse/shuffle suites pass with 107 tests; checks,
+  compileall, migration check, and TenantLive Node tests pass.
+- Remaining risk: browser two-device verification was not available; polling
+  remains eventual (normally up to about 30 seconds), not instantaneous.
+
 ## STEP 0 — Baseline (2026-09-19)
 
 - Finding: Baseline required before remediation.

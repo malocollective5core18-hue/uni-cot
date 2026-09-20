@@ -149,6 +149,8 @@ def _cached_json_response(request, family, payload_builder, ttl=None):
     if request.headers.get('If-None-Match') == etag:
         response = HttpResponseNotModified()
         response['ETag'] = etag
+        response['Cache-Control'] = 'no-cache'
+        response['Vary'] = 'Cookie'
         return response
 
     cache_key = _cache_payload_key(request, family)
@@ -158,12 +160,33 @@ def _cached_json_response(request, family, payload_builder, ttl=None):
         cache.set(cache_key, payload, ttl or getattr(settings, 'RING0_API_CACHE_TTL', 20))
     response = JsonResponse(payload)
     response['ETag'] = etag
+    response['Cache-Control'] = 'no-cache'
+    response['Vary'] = 'Cookie'
     return response
 
 
 def _invalidate_api_cache(request, *families):
-    for family in families:
-        cache.set(_cache_version_key(request, family), time(), None)
+    """Invalidate affected cache families and notify clients after commit."""
+    resource_by_family = {
+        'slider_images': 'slider-images',
+        'countdown_cards': 'countdown-cards',
+        'users': 'members',
+        'groups': 'groups',
+        'external_tables': 'table-records',
+        'properties': 'properties',
+    }
+
+    def apply_change():
+        for family in families:
+            cache.set(_cache_version_key(request, family), time(), None)
+        for family in families:
+            resource = resource_by_family.get(family)
+            if family.startswith('external_table_records:'):
+                resource = 'table-records'
+            if resource:
+                _publish_tenant_resource(request, resource)
+
+    transaction.on_commit(apply_change)
 
 
 def _publish_tenant_resource(request, resource):
