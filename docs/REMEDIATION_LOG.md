@@ -197,3 +197,11 @@
 - Files touched: `mysite/core/views.py`, `mysite/core/tests.py`, `templates/system_index.html`, `templates/external_tables.html`, `templates/properties.html`, `docs/REMEDIATION_LOG.md`.
 - Evidence: `TenantSystemIsolationTests` passed all 10 tests, including creation, move, update, and removal of a member group relationship plus a public claim overwrite attempt. Full local-only verification passed 63 tests. `compileall`, system check, deploy check, and migration-drift check all exited 0 with `DATABASE_HOST=(local socket)` and `DATABASE_NAME=uni_cot_dev`.
 - Remaining risk: The three large client templates still need manual owner/member browser testing at the tenant URL. Non-failing existing warnings remain for the missing local `staticfiles/` directory, unordered external-table pagination, and a naive property-date fixture.
+
+## Realtime updates — Phase 0 design (2026-09-20)
+
+- Finding: Existing pages retain browser-local API results, so another user's committed change is not visible until a reload or periodic poll. The project has ETag cache versions and path tenant routing but no WebSocket routing, channel layer, or socket authorization.
+- Change: Documented the constrained Channels/Redis design, minimal no-PII event contract, path-derived tenant resolution, custom-session authorization, connection limits, catch-up behavior, and phased rollout in `docs/REALTIME_DESIGN.md`. The document also records that this checkout has no `gunicorn.conf.py`, so the provisioning hook must be added and verified in Phase 1 rather than assumed.
+- Files touched: `docs/REALTIME_DESIGN.md`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Design inspection found the existing ETag version source in `core.views._cache_version_key`/`_invalidate_api_cache`, exact path routing and ready-state checks in `mysite.tenant_middleware.TenantMiddleware`, and custom `service_user` session fields in service login flows.
+- Remaining risk: No socket server, dependency, or benchmark harness exists yet. Socket memory and ASGI latency measurements are NOT RUN; Phase 1 must provide infrastructure and isolation tests before client or business events are added.
