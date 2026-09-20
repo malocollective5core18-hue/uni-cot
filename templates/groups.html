@@ -3084,6 +3084,13 @@
 
         async function refreshGroupsFromTenantSync() {
             const result = await fetchAllApiPages('/api/groups/?include_members=1');
+            groupMemberDetails = new Map();
+            result.data.forEach(group => (Array.isArray(group.members) ? group.members : []).forEach(member => {
+                const memberId = Number(member.user_id);
+                if (Number.isFinite(memberId) && member.display_name) {
+                    groupMemberDetails.set(memberId, { id: memberId, full_name: member.display_name, status: 'active', public_group_member: true });
+                }
+            }));
             groups = result.data.map(group => ({
                 id: Number(group.id), name: group.group_name || `Group ${group.id}`,
                 group_name: group.group_name || `Group ${group.id}`,
