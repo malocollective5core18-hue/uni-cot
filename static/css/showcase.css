@@ -71,6 +71,19 @@
 .showcase-cta::after { content: '→'; transition: transform .16s ease; }
 .showcase-card:hover .showcase-cta::after { transform: translateX(2px); }
 
+/* Cards reveal gently as each row enters the viewport. The class is added by
+ * showcase.js, so pages without JavaScript retain the fully visible layout. */
+.showcase-scope.showcase-reveal-ready .showcase-card {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity .55s ease, transform .55s ease, border-color .2s ease, box-shadow .2s ease;
+  transition-delay: var(--showcase-reveal-delay, 0ms);
+}
+.showcase-scope.showcase-reveal-ready .showcase-card.showcase-card--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 @media (max-width: 720px) {
   .showcase-section { padding: 48px 20px; }
   .showcase-row--start, .showcase-row--end { justify-content: stretch; }
@@ -81,5 +94,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .showcase-card, .showcase-cta::after { transition: none; }
+  .showcase-scope.showcase-reveal-ready .showcase-card {
+    opacity: 1;
+    transform: none;
+  }
   .showcase-card:hover { transform: none; }
 }

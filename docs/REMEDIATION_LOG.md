@@ -318,3 +318,10 @@
 - Files touched: `mysite/core/views.py`, `mysite/core/urls.py`, `templates/groups.html`, `templates/system_index.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Full local suite passed 85 tests; focused public-member and template tests passed; compile, check, and migration checks passed. Cross-device WebSocket timing is NOT RUN because anonymous public sockets are not enabled by the current security policy.
 - Remaining risk: A different device sees a new member through the existing ETag polling interval (at least 30 seconds), not instantaneously. Same-browser tabs receive the `members` event immediately.
+
+## UI — showcase card scroll reveal (2026-09-20)
+
+- Finding: The Our vision and Company & collaborations cards were static while scrolling.
+- Change: Added a scoped IntersectionObserver reveal animation to both shared showcase partials through `static/js/showcase.js`; reduced-motion users retain an immediate visible layout.
+- Files touched: `static/css/showcase.css`, `static/js/showcase.js`, `templates/index.html`, `templates/welcome.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Static source and template checks completed; browser visual verification is NOT RUN.
