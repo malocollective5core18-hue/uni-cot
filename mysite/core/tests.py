@@ -75,6 +75,29 @@ class CompanyShowcaseTemplateTests(TestCase):
         self._assert_showcase("welcome.html")
 
 
+class TenantLivePollingTemplateTests(SimpleTestCase):
+    def test_shared_live_client_is_small_and_all_tenant_pages_include_it(self):
+        live_path = settings.BASE_DIR / "static" / "js" / "tenant-live.js"
+        self.assertLess(live_path.stat().st_size, 3 * 1024)
+        for template_name in ("system_index.html", "groups.html", "external_tables.html", "properties.html"):
+            source = (settings.BASE_DIR / "templates" / template_name).read_text()
+            self.assertIn("js/tenant-live.js", source)
+
+    def test_tenant_pages_register_only_recursive_live_resources(self):
+        system = (settings.BASE_DIR / "templates" / "system_index.html").read_text()
+        groups = (settings.BASE_DIR / "templates" / "groups.html").read_text()
+        external = (settings.BASE_DIR / "templates" / "external_tables.html").read_text()
+        properties = (settings.BASE_DIR / "templates" / "properties.html").read_text()
+        for resource in ("slider-images", "countdown-cards", "members", "groups"):
+            self.assertIn(f"resource: '{resource}'", system)
+        self.assertIn("resource: 'members'", groups)
+        self.assertIn("resource: 'groups'", groups)
+        self.assertIn("resource: 'table-records'", external)
+        self.assertIn("resource: 'properties'", properties)
+        self.assertNotIn("setInterval", external[external.index("function startExternalTablesRefreshTimer"):external.index("function renderTablesList")])
+        self.assertNotIn("setInterval", properties[properties.index("function startAdminUpdatesPolling"):properties.index("function stopAdminUpdatesPolling")])
+
+
 class HealthEndpointTests(CacheIsolationMixin, TestCase):
     def test_healthz_makes_no_database_queries_or_session_cookie(self):
         with self.assertNumQueries(0):
