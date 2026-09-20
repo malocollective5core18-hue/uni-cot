@@ -236,6 +236,7 @@ class MemberPollingTemplateTests(SimpleTestCase):
         system_source = (settings.BASE_DIR / 'templates/system_index.html').read_text()
 
         self.assertNotIn('src="{{ STATIC_PREFIX }}time_table.jpg"', system_source)
+        self.assertIn("src=\"{% static 'UNI-COT.png' %}\"", system_source)
         self.assertIn('if (OWNER_ADMIN_AUTHENTICATED_ON_LOAD) {\n      publicStartupLoads.push(loadUserData({ silent: true }));', system_source)
         self.assertIn('member system page must not request it', system_source)
 

@@ -1814,8 +1814,7 @@
 
     <!-- Hero Section with Animation -->
     <div class="hero-section">
-        {% get_static_prefix as STATIC_PREFIX %}
-        <img src="{{ STATIC_PREFIX }}UNI-COT.png" 
+        <img src="{% static 'UNI-COT.png' %}"
              alt="Lost and Found" class="hero-image">
         <div class="hero-text">Future of the Best Smile</div>
     </div>
