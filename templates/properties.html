@@ -2693,7 +2693,7 @@ function startAdminUpdatesPolling() {
             updateStats();
             loadGallery();
         },
-        onError: error => { if (error.type !== 'updated') console.warn('[TenantLive] properties', error); }
+        onError: error => { if (error.type === 'updated') showMessage('Updated — refresh will run when ready.', 'info'); else console.warn('[TenantLive] properties', error); }
     });
 }
 
