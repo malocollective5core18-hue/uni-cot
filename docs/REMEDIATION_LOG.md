@@ -294,3 +294,11 @@
 - Files touched: `mysite/core/views.py`, `templates/groups.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Local PostgreSQL tests passed 84 tests in normal, reverse, and shuffled orders. Focused public groups tests passed. `check` and `makemigrations --check --dry-run` passed; `check --deploy` passed with the expected placeholder-secret warning. Browser verification and production deployment were not run.
 - Remaining risk: This intentionally makes contact and case fields public to members assigned to a group. Unassigned registrations remain private. Review the tenant’s privacy policy before deployment.
+
+## UI — compact public member table (2026-09-20)
+
+- Finding: The public members table used wide cell padding and truncated full names with ellipses.
+- Change: Reduced table cell spacing and minimum width; the full-name column now wraps instead of truncating.
+- Files touched: `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: CSS source check completed; browser viewport verification remains NOT RUN.
+- Remaining risk: Instant cross-device card/image updates are not provided by polling alone. They require publishing tenant-scoped change events and subscribing public pages through the existing realtime infrastructure, with ETag GET fallback.

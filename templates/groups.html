@@ -317,14 +317,15 @@
         .data-table {
             width: 100%;
             border-collapse: collapse;
+            table-layout: auto;
             font-size: 0.7rem; /* 70% font size */
-            min-width: 1000px;
+            min-width: 760px;
         }
         
         .data-table th {
             background: rgba(91, 140, 255, 0.1);
             color: var(--accent);
-            padding: 8px 6px;
+            padding: 6px 4px;
             text-align: left;
             font-weight: 600;
             border-bottom: 2px solid rgba(91, 140, 255, 0.3);
@@ -335,13 +336,24 @@
         }
         
         .data-table td {
-            padding: 8px 6px;
+            padding: 6px 4px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             vertical-align: middle;
             word-break: break-word;
             max-width: 120px;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+
+        /* Keep the public directory compact while allowing full names to wrap. */
+        #membersTable th:nth-child(2),
+        #membersTable td:nth-child(2) {
+            min-width: 160px;
+            max-width: 260px;
+            white-space: normal;
+            overflow: visible;
+            text-overflow: clip;
+            word-break: normal;
         }
         
         .data-table tr:hover {
