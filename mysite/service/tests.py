@@ -504,6 +504,17 @@ class ReplyCommentTests(CacheIsolationMixin, TestCase):
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
 class OwnerAdminLoginTests(CacheIsolationMixin, TestCase):
+    @patch("service.views._rate_limit", return_value=True)
+    def test_owner_admin_rate_limit_returns_retry_after(self, rate_limit):
+        response = self.client.post(
+            reverse("service:api_owner_admin_login"),
+            data='{}',
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response["Retry-After"], "60")
+
     @patch("service.views._get_tenant_from_request")
     def test_owner_admin_login_uses_current_tenant_context(self, mocked_get_tenant):
         owner = OwnerUser.objects.create(

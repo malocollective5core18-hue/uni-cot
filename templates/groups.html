@@ -1388,6 +1388,8 @@
         let currentCaseId = null;
         let dataFramework = [];
         let registrationsRefreshTimer = null;
+        let registrationsRetryDelay = 30000;
+        let registrationsPollingDisabled = false;
         const registrationsEtags = { framework: null, users: null, groups: null };
 
         function normalizeFilterText(value) {
@@ -1877,7 +1879,12 @@
             while (page <= totalPages) {
                 url.searchParams.set('page', String(page));
                 const response = await fetch(url.pathname + url.search);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) {
+                    const error = new Error(`HTTP ${response.status}`);
+                    error.status = response.status;
+                    error.retryAfter = Number(response.headers.get('Retry-After') || 0);
+                    throw error;
+                }
                 const result = await response.json();
                 if (!result.success || !Array.isArray(result.data)) {
                     throw new Error(result.error || 'Unexpected paginated API response');
@@ -1887,6 +1894,35 @@
                 page += 1;
             }
             return { success: true, data };
+        }
+
+        function explainMemberAccessError(error) {
+            const status = Number(error?.status || 0);
+            if (status === 401 || status === 403) {
+                return 'You do not have access to the member directory. Sign in as this tenant\'s owner.';
+            }
+            if (status === 429) {
+                return 'Too many requests, retrying shortly.';
+            }
+            return 'Unable to load members right now.';
+        }
+
+        function handleMemberPollingError(error) {
+            const status = Number(error?.status || 0);
+            if (![401, 403, 429].includes(status)) return true;
+
+            stopRealtimeSync();
+            showMessage(explainMemberAccessError(error), 'error');
+            if (status === 429) {
+                registrationsRetryDelay = Math.max(30000, (error.retryAfter || 30) * 1000);
+                registrationsRefreshTimer = window.setTimeout(() => {
+                    registrationsRefreshTimer = null;
+                    startRealtimeSync(registrationsRetryDelay);
+                }, registrationsRetryDelay);
+            } else {
+                registrationsPollingDisabled = true;
+            }
+            return false;
         }
 
         // Load data from database
@@ -1937,7 +1973,11 @@
                     console.log('Loaded members from database:', members.length);
                 } else {
                     members = [];
-                    console.warn('No members found in database');
+                    const error = usersResult.reason;
+                    console.warn('Unable to load members from the API:', error);
+                    if (error && !handleMemberPollingError(error)) {
+                        showMessage(explainMemberAccessError(error), 'error');
+                    }
                 }
 
                 if (groupsResult.status === 'fulfilled' && groupsResult.value.success) {
@@ -2878,7 +2918,13 @@
                 const usersResponse = await fetch('/api/users/', {
                     headers: registrationsEtags.users ? { 'If-None-Match': registrationsEtags.users } : {}
                 });
-                if (usersResponse.status === 304) throw new Error('not-modified');
+                if (usersResponse.status === 304) return true;
+                if (!usersResponse.ok) {
+                    const error = new Error(`HTTP ${usersResponse.status}`);
+                    error.status = usersResponse.status;
+                    error.retryAfter = Number(usersResponse.headers.get('Retry-After') || 0);
+                    return handleMemberPollingError(error);
+                }
                 registrationsEtags.users = usersResponse.headers.get('ETag') || registrationsEtags.users;
                 const usersResult = await usersResponse.json();
                 if (usersResult.success) {
@@ -2941,6 +2987,7 @@
                      console.warn('Could not check for groups updates:', e);
                  }
              }
+            return true;
         }
 
         // Set up real-time synchronization
@@ -2948,11 +2995,18 @@
             startRealtimeSync();
         }
 
-        function startRealtimeSync() {
-            if (registrationsRefreshTimer || document.hidden) {
+        function startRealtimeSync(delay = 30000) {
+            if (registrationsRefreshTimer || document.hidden || registrationsPollingDisabled) {
                 return;
             }
-            registrationsRefreshTimer = setInterval(checkForNewRegistrations, 30000);
+            registrationsRefreshTimer = window.setTimeout(async () => {
+                registrationsRefreshTimer = null;
+                const keepPolling = await checkForNewRegistrations();
+                if (keepPolling !== false) {
+                    registrationsRetryDelay = 30000;
+                    startRealtimeSync(registrationsRetryDelay);
+                }
+            }, Math.max(30000, delay));
         }
 
         function stopRealtimeSync() {
@@ -2967,7 +3021,7 @@
             if (document.hidden) {
                 stopRealtimeSync();
             } else {
-                startRealtimeSync();
+                if (!registrationsPollingDisabled) startRealtimeSync();
             }
         });
     </script>

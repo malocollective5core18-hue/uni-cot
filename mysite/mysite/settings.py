@@ -466,6 +466,11 @@ X_FRAME_OPTIONS = 'DENY'
 SECURE_REFERRER_POLICY = 'same-origin'
 SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL_REDIRECT', default=not DEBUG)
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+# Render proxies connect to the web process locally.  Only a request received
+# from one of these configured peers may use X-Forwarded-For for rate limits.
+# Deployments with another proxy must set this explicitly; direct clients can
+# never select their own rate-limit bucket through that header.
+TRUSTED_PROXY_IPS = tuple(env_list('DJANGO_TRUSTED_PROXY_IPS', '127.0.0.1,::1'))
 SECURE_HSTS_SECONDS = int(os.getenv('DJANGO_SECURE_HSTS_SECONDS', '31536000' if not DEBUG else '0'))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS', default=not DEBUG)
 SECURE_HSTS_PRELOAD = env_bool('DJANGO_SECURE_HSTS_PRELOAD', default=not DEBUG)

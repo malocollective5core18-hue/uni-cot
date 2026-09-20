@@ -51,6 +51,9 @@ This is a Free-tier fallback, not a high-throughput worker architecture. Provisi
 ## Render-specific notes
 
 - Free-tier services are not a substitute for a production-ready always-on worker.
+- Set `DJANGO_TRUSTED_PROXY_IPS=127.0.0.1` for Render.  The app accepts
+  `X-Forwarded-For` for rate-limit identity only when the direct connection is
+  from this configured proxy peer; do not add public client networks here.
 - Keep the web service alive with an external monitor so the app is not silently suspended by a cold start.
 - Monitor Postgres expiry, database connectivity, and queue backlog after each deploy.
 - Back up tenant data and schema changes outside the free-tier plan if the service is used for real customer workloads.

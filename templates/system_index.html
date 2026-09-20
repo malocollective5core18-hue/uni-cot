@@ -7837,7 +7837,12 @@ async function fetchAllApiPages(path) {
   while (page <= totalPages) {
     url.searchParams.set('page', String(page));
     const response = await fetch(url.pathname + url.search);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      const error = new Error(`HTTP ${response.status}`);
+      error.status = response.status;
+      error.retryAfter = Number(response.headers.get('Retry-After') || 0);
+      throw error;
+    }
     const result = await response.json();
     if (!result.success || !Array.isArray(result.data)) {
       throw new Error(result.error || 'Unexpected paginated API response');
@@ -8251,6 +8256,7 @@ async function loadUserData(options = {}) {
       userData = dedupeById(userData);
 
       console.log('Loaded', userData.length, 'users from database');
+      return true;
     } else {
       userData = [];
       throw new Error(result.error || 'Unable to load users right now.');
@@ -8259,8 +8265,10 @@ async function loadUserData(options = {}) {
     console.error('Error loading user data:', error);
     userData = [];
     if (!silent) {
-      showTemporaryMessage(error.message || 'Unable to load users right now.', 'warning');
+      showTemporaryMessage(userPollingMessage(error), 'warning');
     }
+    if (silent) throw error;
+    return false;
   }
 }
 
@@ -13328,8 +13336,8 @@ document.addEventListener('DOMContentLoaded', async function() {
 
 // ================= AUTO-REFRESH TIMERS =================
 // Smart auto-refresh to keep fast devices fresh while protecting slow connections
-const FAST_REFRESH_MS = 15000;
-const SLOW_REFRESH_MS = 45000;
+const FAST_REFRESH_MS = 30000;
+const SLOW_REFRESH_MS = 60000;
 
 function getAutoRefreshInterval() {
   const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
@@ -13357,6 +13365,18 @@ const autoRefreshInFlight = {
   users: false,
   groups: false
 };
+
+let usersPollingDisabled = false;
+let usersPollingDelay = FAST_REFRESH_MS;
+
+function userPollingMessage(error) {
+  const status = Number(error?.status || 0);
+  if (status === 401 || status === 403) {
+    return 'You do not have access to the member directory. Sign in as this tenant\'s owner.';
+  }
+  if (status === 429) return 'Too many requests, retrying shortly.';
+  return 'Unable to load members right now.';
+}
 
 function isAdminDashboardActive() {
   return document.getElementById('adminDashboard')?.classList.contains('active');
@@ -13445,10 +13465,16 @@ function startCountdownCardsAutoRefresh() {
 function startUsersAutoRefresh() {
   if (autoRefreshTimers.users) {
     clearInterval(autoRefreshTimers.users);
+    autoRefreshTimers.users = null;
   }
-  
-  autoRefreshTimers.users = setInterval(async () => {
-    if (autoRefreshInFlight.users) return;
+  if (document.hidden || usersPollingDisabled) return;
+
+  const pollUsers = async () => {
+    autoRefreshTimers.users = null;
+    if (autoRefreshInFlight.users) {
+      autoRefreshTimers.users = window.setTimeout(pollUsers, usersPollingDelay);
+      return;
+    }
     autoRefreshInFlight.users = true;
     try {
       // Only refresh if we're in the user management section
@@ -13456,20 +13482,37 @@ function startUsersAutoRefresh() {
       const isInUsersTab = document.getElementById('usersTab')?.classList.contains('active');
       
       if (isInUserManagement && isInUsersTab && typeof loadUserData === 'function') {
-        await loadUserData();
+        await loadUserData({ silent: true });
         if (typeof populateUserTable === 'function') {
           populateUserTable();
         }
         console.log('[Auto-Refresh] Users table updated');
       }
+      usersPollingDelay = FAST_REFRESH_MS;
     } catch (error) {
       console.error('[Auto-Refresh] Error refreshing users:', error);
+      const status = Number(error?.status || 0);
+      if (status === 401 || status === 403) {
+        usersPollingDisabled = true;
+        showTemporaryMessage(userPollingMessage(error), 'warning');
+        return;
+      }
+      if (status === 429) {
+        usersPollingDelay = Math.max(FAST_REFRESH_MS, (error.retryAfter || 30) * 1000);
+        showTemporaryMessage(userPollingMessage(error), 'warning');
+      } else {
+        usersPollingDelay = Math.min(Math.max(FAST_REFRESH_MS, usersPollingDelay * 2), 300000);
+      }
     } finally {
       autoRefreshInFlight.users = false;
+      if (!document.hidden && !usersPollingDisabled && !autoRefreshTimers.users) {
+        autoRefreshTimers.users = window.setTimeout(pollUsers, usersPollingDelay);
+      }
     }
-  }, getAutoRefreshInterval());
+  };
+  autoRefreshTimers.users = window.setTimeout(pollUsers, Math.max(FAST_REFRESH_MS, usersPollingDelay));
   
-  console.log(`[Auto-Refresh] Users auto-refresh started (${getAutoRefreshInterval()}ms interval)`);
+  console.log(`[Auto-Refresh] Users table polling scheduled (${Math.max(FAST_REFRESH_MS, usersPollingDelay)}ms)`);
 }
 
 // Auto-refresh groups on the adaptive interval.

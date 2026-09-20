@@ -75,6 +75,12 @@ def _rate_limit(request, key, limit=10, window_seconds=60, account=""):
     )
 
 
+def _rate_limited_json_response(message, window_seconds):
+    response = JsonResponse({'success': False, 'error': message}, status=429)
+    response['Retry-After'] = str(window_seconds)
+    return response
+
+
 def _tenant_owner_session_error(request):
     if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.path.startswith('/t/'):
         return JsonResponse({'success': False, 'error': 'Owner login required for this tenant system'}, status=403)
@@ -2701,7 +2707,9 @@ def api_validate_registration(request, *args, **kwargs):
         return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
     if _rate_limit(request, 'validate_registration', limit=20, window_seconds=300):
-        return JsonResponse({'success': False, 'error': 'Too many validation attempts. Please wait and try again.'}, status=429)
+        return _rate_limited_json_response(
+            'Too many validation attempts. Please wait and try again.', 300
+        )
 
     try:
         body = json.loads(request.body)
@@ -2737,7 +2745,9 @@ def api_external_table_signup(request, *args, **kwargs):
         return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
     if _rate_limit(request, 'external_table_signup', limit=10, window_seconds=300):
-        return JsonResponse({'success': False, 'error': 'Too many signup attempts. Please wait and try again.'}, status=429)
+        return _rate_limited_json_response(
+            'Too many signup attempts. Please wait and try again.', 300
+        )
 
     try:
         body = json.loads(request.body)

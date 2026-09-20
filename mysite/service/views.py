@@ -37,8 +37,11 @@ WELCOME_PAGE_COMMENT_LIMIT = 5
 OWNER_VAULT_NOTE_KEY = 'owner_file_manager_vault_note'
 
 
-def _json_error(message, status=400):
-    return JsonResponse({'error': message}, status=status)
+def _json_error(message, status=400, retry_after=None):
+    response = JsonResponse({'error': message}, status=status)
+    if retry_after is not None:
+        response['Retry-After'] = str(retry_after)
+    return response
 
 
 def _owner_vault_payload(setting=None):
@@ -1471,7 +1474,11 @@ def api_create_tenant(request, *args, **kwargs):
     API endpoint to create a new tenant (Owner signup via API)
     """
     if _rate_limit(request, 'api_create_tenant', limit=5, window_seconds=300):
-        return _json_error('Too many tenant registration attempts. Please wait and try again.', status=429)
+        return _json_error(
+            'Too many tenant registration attempts. Please wait and try again.',
+            status=429,
+            retry_after=300,
+        )
 
     data = _parse_json_body(request)
     if data is None:
@@ -1535,7 +1542,11 @@ def api_owner_admin_login(request, *args, **kwargs):
     Only allows login using the credentials of the tenant owner for that specific tenant.
     """
     if _rate_limit(request, 'owner_admin_login', limit=8, window_seconds=60):
-        return _json_error('Too many attempts. Please wait a minute and try again.', status=429)
+        return _json_error(
+            'Too many attempts. Please wait a minute and try again.',
+            status=429,
+            retry_after=60,
+        )
     data = _parse_json_body(request)
     if data is None:
         return _json_error('Invalid JSON')

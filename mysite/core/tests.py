@@ -16,7 +16,7 @@ from core import views
 from core.models import ExternalTable, ExternalTableRecord, Property, User, UserGroup, UserGroupMember
 from customers.models import CRTenant, TenantDashboardMetric
 from service.models import OwnerUser
-from mysite.mysite.rate_limit import is_rate_limited
+from mysite.mysite.rate_limit import client_ip, is_rate_limited
 from mysite.tests.helpers import CacheIsolationMixin
 
 
@@ -176,6 +176,38 @@ class SharedRateLimitTests(CacheIsolationMixin, SimpleTestCase):
         self.assertFalse(is_rate_limited(request, 'test', limit=2, window_seconds=60, account='user@example.com'))
         self.assertTrue(is_rate_limited(request, 'test', limit=2, window_seconds=60, account='user@example.com'))
         self.assertFalse(hasattr(request, 'session'))
+
+    @override_settings(TRUSTED_PROXY_IPS=('127.0.0.1',))
+    def test_client_ip_uses_forwarded_address_only_from_trusted_proxy(self):
+        proxied_request = RequestFactory().get(
+            '/',
+            REMOTE_ADDR='127.0.0.1',
+            HTTP_X_FORWARDED_FOR='198.51.100.23, 127.0.0.1',
+        )
+        direct_request = RequestFactory().get(
+            '/',
+            REMOTE_ADDR='198.51.100.99',
+            HTTP_X_FORWARDED_FOR='198.51.100.23',
+        )
+
+        self.assertEqual(client_ip(proxied_request), '198.51.100.23')
+        self.assertEqual(client_ip(direct_request), '198.51.100.99')
+
+
+class MemberPollingTemplateTests(SimpleTestCase):
+    def test_member_pollers_are_tenant_safe_and_back_off_on_access_errors(self):
+        groups_source = (settings.BASE_DIR / 'templates/groups.html').read_text()
+        system_source = (settings.BASE_DIR / 'templates/system_index.html').read_text()
+
+        self.assertIn('const API_BASE_URL = TENANT_BASE_PATH ?', groups_source)
+        self.assertIn('registrationsPollingDisabled = true', groups_source)
+        self.assertIn('Too many requests, retrying shortly.', groups_source)
+        self.assertIn('window.setTimeout(async () =>', groups_source)
+
+        self.assertIn('const FAST_REFRESH_MS = 30000;', system_source)
+        self.assertIn('usersPollingDisabled = true', system_source)
+        self.assertIn('error.retryAfter', system_source)
+        self.assertIn('window.setTimeout(pollUsers, usersPollingDelay)', system_source)
 
 @override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
@@ -410,6 +442,32 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
             {"success": False, "error": "Owner login required for this tenant system"},
         )
 
+    def test_tenant_users_api_rejects_member_and_other_tenant_owner_sessions(self):
+        path = f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/api/users/"
+        session = self.client.session
+        session["service_user"] = {"user_type": "member", "member_id": 1, "owner_id": self.owner.id}
+        session.save()
+        member_response = self.client.get(path, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+
+        other_owner = OwnerUser.objects.create(
+            email="different-owner@example.com",
+            program_name="Different",
+            password="hash",
+            is_owner=True,
+            is_active=True,
+        )
+        session = self.client.session
+        session["service_user"] = {"user_type": "owner", "owner_id": other_owner.id}
+        session.save()
+        other_owner_response = self.client.get(path, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+
+        for response in (member_response, other_owner_response):
+            self.assertEqual(response.status_code, 403)
+            self.assertJSONEqual(
+                response.content,
+                {"success": False, "error": "Owner login required for this tenant system"},
+            )
+
     def test_tenant_users_api_returns_only_current_owner_records(self):
         other_owner = OwnerUser.objects.create(
             email="owner-other@example.com",
@@ -430,6 +488,36 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         payload = json.loads(response.content)
         self.assertEqual(len(payload["data"]), 1)
         self.assertEqual(payload["data"][0]["registration_number"], "BCIT-001")
+
+    def test_owner_admin_login_can_create_then_list_users_on_ready_tenant(self):
+        tenant_path = f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}"
+        login_response = self.client.post(
+            f"{tenant_path}/api/owner-admin-login/",
+            data=json.dumps({
+                "email": self.owner.email,
+                "password": "secret123",
+                "tenant_slug": self.tenant.subdomain,
+                "tenant_id": self.tenant.id,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(login_response.status_code, 200, login_response.content)
+
+        create_response = self.client.post(
+            f"{tenant_path}/api/users/",
+            data=json.dumps({
+                "full_name": "Owner Created User",
+                "registration_number": "BCIT-OWNER-001",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(create_response.status_code, 201, create_response.content)
+
+        for suffix in ("", "?page_size=100&page=1"):
+            with self.subTest(suffix=suffix):
+                response = self.client.get(f"{tenant_path}/api/users/{suffix}")
+                self.assertEqual(response.status_code, 200, response.content)
+                self.assertEqual(response.json()["data"][0]["registration_number"], "BCIT-OWNER-001")
 
     def test_tenant_signup_setting_get_is_public(self):
         self.client.post(f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/logout/", follow=True)
