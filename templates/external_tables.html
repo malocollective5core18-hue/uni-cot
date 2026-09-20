@@ -2826,7 +2826,7 @@
                 url: '/api/external-tables/?page_size=100&page=1',
                 isEditing: () => Boolean(document.querySelector('form:focus-within, [role="dialog"]:focus-within')),
                 onData: () => { void refreshExternalTablesData(true); },
-                onError: error => { if (error.type !== 'updated') console.warn('[TenantLive] external tables', error); }
+                onError: error => { if (error.type === 'updated') showMessage('Updated — refresh will run when ready.', 'info'); else console.warn('[TenantLive] external tables', error); }
             });
         }
 
