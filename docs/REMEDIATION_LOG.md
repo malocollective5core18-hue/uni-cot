@@ -254,6 +254,14 @@
 - Evidence: Template state branches are source-checked; runtime browser verification remains pending.
 - Remaining risk: The owner must still authenticate on the matching tenant path for private directory data.
 
+## Correctness — same-browser tenant synchronization (2026-09-20)
+
+- Finding: Separate owner tabs retained stale users/groups data until a refresh.
+- Change: Added a small BroadcastChannel/localStorage tenant resource notifier. Successful owner users/groups mutations publish only `{resource, ts}`; the receiving page refetches its ETagged resource when visible and defers while editing.
+- Files touched: `static/js/tenant-sync.js`, `templates/system_index.html`, `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Static notifier is 1.3 KB; source-level mutation hooks and subscriptions are present. Browser two-tab verification is NOT RUN.
+- Remaining risk: Other devices still depend on the existing 30-second polling path until the later WebSocket phase.
+
 ## Correctness — public system owner-directory guard (2026-09-20)
 
 - Finding: Public registration completion could call the private users loader because the user table exists in the shared system template.

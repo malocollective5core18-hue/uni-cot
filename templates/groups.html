@@ -1260,6 +1260,7 @@
                         <!-- Members will be loaded here -->
                     </tbody>
                 </table>
+                <small id="membersLastUpdated" style="display:block; margin-top:8px; color:var(--muted);" aria-live="polite"></small>
             </div>
         </div>
 
@@ -1425,11 +1426,20 @@
         function setMembersLoadState(state, error = null) {
             membersLoadState = state;
             membersLoadError = error;
+            const hint = document.getElementById('membersLastUpdated');
+            if (hint && membersLastUpdatedAt) hint.textContent = `Last updated ${membersLastUpdatedAt.toLocaleTimeString()}`;
             loadMembersTable();
         }
 
         function membersSystemLink() {
             return INDEX_URL ? `<a href="${INDEX_URL}">Open tenant system</a>` : '';
+        }
+
+        function publishTenantMutation(path) {
+            if (!OWNER_DIRECTORY_ACCESS || !window.TenantSync || !/\/api\//.test(path)) return;
+            if (/\/api\/(users|users\/clear-all)/.test(path)) window.TenantSync.publish('users');
+            if (/\/api\/(groups|group-members)/.test(path)) window.TenantSync.publish('groups');
+            if (/\/api\/groups\/move-member/.test(path)) window.TenantSync.publish('users');
         }
 
         function showPageLoader(message = 'Loading') {
@@ -1463,7 +1473,14 @@
         const nativeFetch = window.fetch.bind(window);
         window.fetch = function(input, init) {
             if (typeof input === 'string') {
-                return nativeFetch(apiUrl(input), init);
+                const resolved = apiUrl(input);
+                const method = String(init?.method || 'GET').toUpperCase();
+                return nativeFetch(resolved, init).then(response => {
+                    if (response.ok && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+                        publishTenantMutation(new URL(resolved, window.location.origin).pathname);
+                    }
+                    return response;
+                });
             }
             return nativeFetch(input, init);
         };
@@ -1994,8 +2011,8 @@
                         status: user.status || 'active',
                         case_info: user.case_info || ''
                     }));
-                    setMembersLoadState(members.length ? 'data' : 'empty');
                     membersLastUpdatedAt = new Date();
+                    setMembersLoadState(members.length ? 'data' : 'empty');
                     console.log('Loaded members from database:', members.length);
                 } else {
                     const error = usersResult.reason;
@@ -3035,6 +3052,61 @@
             return true;
         }
 
+        const tenantSyncPending = new Set();
+        function memberEditorActive() {
+            const active = document.activeElement;
+            return Boolean(active && (active.matches('input, textarea, select') || active.closest('form, .modal, [role="dialog"]')));
+        }
+
+        async function refreshUsersFromTenantSync() {
+            if (!OWNER_DIRECTORY_ACCESS) return;
+            const response = await fetch('/api/users/', {
+                headers: registrationsEtags.users ? { 'If-None-Match': registrationsEtags.users } : {}
+            });
+            if (response.status === 304) return;
+            if (!response.ok) {
+                const error = new Error(`HTTP ${response.status}`);
+                error.status = response.status;
+                error.retryAfter = Number(response.headers.get('Retry-After') || 0);
+                setMembersLoadState('error', error);
+                handleMemberPollingError(error);
+                return;
+            }
+            registrationsEtags.users = response.headers.get('ETag') || registrationsEtags.users;
+            const result = await response.json();
+            if (!result.success || !Array.isArray(result.data)) return;
+            members = result.data.map(user => ({ ...user, phone: user.phone || '', email: user.email || '', group: user.group_name || '', status: user.status || 'active', case_info: user.case_info || '' }));
+            flaggedMembers = members.filter(member => member.status === 'flagged');
+            membersLastUpdatedAt = new Date();
+            setMembersLoadState(members.length ? 'data' : 'empty');
+            updateStats();
+        }
+
+        async function refreshGroupsFromTenantSync() {
+            const result = await fetchAllApiPages('/api/groups/?include_members=1');
+            groups = result.data.map(group => ({
+                id: Number(group.id), name: group.group_name || `Group ${group.id}`,
+                group_name: group.group_name || `Group ${group.id}`,
+                size: group.max_members || 0, current_members: Number(group.current_members) || 0,
+                leader: group.leader_id || null,
+                members: (Array.isArray(group.members) ? group.members : []).map(member => Number(member.user_id))
+            }));
+            loadGroupsDisplay();
+        }
+
+        function receiveTenantSync(message) {
+            if (!OWNER_DIRECTORY_ACCESS || !['users', 'groups'].includes(message.resource)) return;
+            if (document.hidden || memberEditorActive()) {
+                tenantSyncPending.add(message.resource);
+                showMessage('Updated — refresh will run when ready.', 'info');
+                return;
+            }
+            const refresh = message.resource === 'users' ? refreshUsersFromTenantSync : refreshGroupsFromTenantSync;
+            refresh().catch(error => console.warn('Tenant sync refresh failed:', error));
+        }
+
+        if (window.TenantSync) window.TenantSync.subscribe(receiveTenantSync);
+
         // Set up real-time synchronization
         function setupRealTimeSync() {
             startRealtimeSync();
@@ -3067,6 +3139,10 @@
                 stopRealtimeSync();
             } else {
                 if (!registrationsPollingDisabled) startRealtimeSync();
+                if (!memberEditorActive()) {
+                    tenantSyncPending.forEach(resource => receiveTenantSync({ resource, ts: Date.now() }));
+                    tenantSyncPending.clear();
+                }
             }
         });
     </script>
