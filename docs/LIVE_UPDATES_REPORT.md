@@ -30,13 +30,16 @@ alone. No anonymous WebSocket was added; Phase B remains separate.
 
 ## Request-rate estimate
 
-At the normal 30-second floor, each registered resource makes at most about
-2 requests/minute while visible (plus a 0–5 second initial jitter). A page
-with four active resources is therefore about 8 requests/minute in the steady
-state. A 304 still performs the HTTP request but does not re-render. Hidden
-pages make no polling requests; a visible transition performs one immediate
-ETag check. Errors back off up to 5 minutes, and 429 responses honor
-`Retry-After`.
+At the normal 30-second floor, the shared client makes at most about 2
+requests/minute per registered resource while visible (plus a 0–5 second
+initial jitter). A page with four active resources is therefore about 8
+polling requests/minute in the steady state. The existing external-table and
+owner-dashboard adapters may perform their established follow-up record/load
+requests after a changed list response, so their practical request count can
+be higher; those existing loaders were not rewritten. A 304 still performs
+the HTTP request but does not re-render. Hidden pages make no polling requests;
+a visible transition performs one immediate ETag check. Errors back off up to
+5 minutes, and 429 responses honor `Retry-After`.
 
 ## Verification
 
