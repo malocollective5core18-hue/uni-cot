@@ -325,3 +325,11 @@
 - Change: Added a scoped IntersectionObserver reveal animation to both shared showcase partials through `static/js/showcase.js`; reduced-motion users retain an immediate visible layout.
 - Files touched: `static/css/showcase.css`, `static/js/showcase.js`, `templates/index.html`, `templates/welcome.html`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Static source and template checks completed; browser visual verification is NOT RUN.
+
+## Documentation — public realtime scope clarification (2026-09-21)
+
+- Finding: The realtime diagnosis needed to distinguish the four connected tenant templates from the public showcase pages.
+- Change: Updated `docs/PUBLIC_REALTIME_DIAGNOSIS.md` with a per-template matrix for `system_index.html`, `groups.html`, `external_tables.html`, and `properties.html`, including their current polling/same-browser paths and cross-device limitations.
+- Files touched: `docs/PUBLIC_REALTIME_DIAGNOSIS.md`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Source line references verified with `rg`; no application or production behavior changed.
+- Remaining risk: Cross-device public updates remain unavailable until a reviewed public notification policy or accepted polling implementation is added.
