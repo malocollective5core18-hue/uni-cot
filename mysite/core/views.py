@@ -1212,6 +1212,30 @@ def api_property_detail(request, property_id, *args, **kwargs):
                 body.get('status') == 'claimed'
                 and any(key in body for key in ['claimant_name', 'claimant_contact', 'claim_proof', 'claimed_at'])
             )
+            if is_claim_submission:
+                # Public claimants may submit evidence, but must never be able
+                # to alter the owner-managed property details in the same PUT.
+                if prop.status == 'claimed':
+                    return JsonResponse(
+                        {'success': False, 'error': 'Property has already been claimed'},
+                        status=409,
+                    )
+                prop.status = 'claimed'
+                prop.claimant_name = body.get('claimant_name') or ''
+                prop.claimant_contact = body.get('claimant_contact') or ''
+                prop.claim_proof = body.get('claim_proof') or ''
+                prop.claimed_at = _parse_datetime_input(body.get('claimed_at'))
+                prop.save(update_fields=[
+                    'status', 'claimant_name', 'claimant_contact',
+                    'claim_proof', 'claimed_at', 'updated_at',
+                ])
+                _invalidate_api_cache(request, 'properties')
+                return JsonResponse({
+                    'success': True,
+                    'message': 'Property claim submitted successfully',
+                    'data': _serialize_property(prop),
+                })
+
             if not is_claim_submission:
                 denied = _ensure_owner_system_access(request)
                 if denied:
@@ -1361,6 +1385,14 @@ def api_users(request, *args, **kwargs):
             if email and '@' not in email:
                 return JsonResponse({'success': False, 'error': 'Invalid email format'}, status=400)
 
+            requested_group_name = str(body.get('group_name', '')).strip()
+            target_group = None
+            if requested_group_name:
+                try:
+                    target_group = _scope_groups_queryset(request).get(group_name=requested_group_name)
+                except ObjectDoesNotExist:
+                    return JsonResponse({'success': False, 'error': 'Group not found'}, status=400)
+
             # Use get_or_create to avoid TOCTOU race on registration_number
             with transaction.atomic():
                 existing = _scope_users_queryset(request).filter(registration_number=registration_number).first()
@@ -1387,6 +1419,8 @@ def api_users(request, *args, **kwargs):
                         existing_custom.update(_extract_user_custom_fields(body))
                         existing_email_user.custom_fields = existing_custom
                         existing_email_user.save()
+                        if target_group:
+                            _assign_user_to_group(request, existing_email_user, target_group)
                         _invalidate_api_cache(request, 'users', 'groups')
                         return JsonResponse(
                             {'success': True, 'message': 'User updated (duplicate email used)', 'data': _serialize_user(existing_email_user)},
@@ -1404,6 +1438,8 @@ def api_users(request, *args, **kwargs):
                     custom_fields=_extract_user_custom_fields(body),
                     created_by=owner_id,
                 )
+                if target_group:
+                    _assign_user_to_group(request, user, target_group)
             _invalidate_api_cache(request, 'users', 'groups')
             return JsonResponse({
                 'success': True,
@@ -1477,8 +1513,15 @@ def api_user_detail(request, user_id, *args, **kwargs):
                 user.status = body['status']
             if 'role' in body:
                 user.role = body['role']
-            if 'group_name' in body:
-                user.group_name = body['group_name']
+            requested_group_name = body.get('group_name') if 'group_name' in body else None
+            if requested_group_name is not None:
+                requested_group_name = str(requested_group_name).strip()
+            target_group = None
+            if requested_group_name:
+                try:
+                    target_group = _scope_groups_queryset(request).get(group_name=requested_group_name)
+                except ObjectDoesNotExist:
+                    return JsonResponse({'success': False, 'error': 'Group not found'}, status=400)
             if 'case_info' in body:
                 setattr(user, 'case_info', body['case_info'])
             if 'is_verified' in body:
@@ -1488,6 +1531,12 @@ def api_user_detail(request, user_id, *args, **kwargs):
             custom_fields.update(_extract_user_custom_fields(body))
             user.custom_fields = custom_fields
             user.save()
+
+            if target_group:
+                _assign_user_to_group(request, user, target_group)
+            elif requested_group_name == '':
+                _remove_user_from_groups(request, user)
+
             _invalidate_api_cache(request, 'users', 'groups')
             return JsonResponse({
                 'success': True,
@@ -1501,7 +1550,9 @@ def api_user_detail(request, user_id, *args, **kwargs):
             return _unexpected_api_error()
 
     if request.method == 'DELETE':
-        user.delete()
+        with transaction.atomic():
+            _remove_user_from_groups(request, user)
+            user.delete()
         _invalidate_api_cache(request, 'users', 'groups')
         return JsonResponse({'success': True, 'message': 'User deleted successfully'})
 
@@ -1699,6 +1750,48 @@ def _refresh_group_member_count(request, group_id):
     return group
 
 
+def _assign_user_to_group(request, user, target_group):
+    """Make membership rows and User.group_name describe one current group."""
+    memberships = _scope_group_members_queryset(request).filter(user_id=user.id)
+    old_group_ids = list(memberships.filter(status='active').values_list('group_id', flat=True))
+
+    _scope_groups_queryset(request).filter(leader_id=user.id).exclude(id=target_group.id).update(leader_id=None)
+    memberships.exclude(group_id=target_group.id).delete()
+
+    member, _created = UserGroupMember.objects.get_or_create(
+        user_id=user.id,
+        group_id=target_group.id,
+        defaults={'is_leader': False, 'status': 'active'},
+    )
+    if member.status != 'active' or member.is_leader:
+        member.status = 'active'
+        member.is_leader = False
+        member.save(update_fields=['status', 'is_leader'])
+
+    if user.group_name != target_group.group_name:
+        user.group_name = target_group.group_name
+        user.save(update_fields=['group_name', 'updated_at'])
+
+    for group_id in set(old_group_ids + [target_group.id]):
+        if _scope_groups_queryset(request).filter(id=group_id).exists():
+            _refresh_group_member_count(request, group_id)
+    return member
+
+
+def _remove_user_from_groups(request, user):
+    """Remove all group links for a user and keep denormalized state in sync."""
+    memberships = _scope_group_members_queryset(request).filter(user_id=user.id)
+    group_ids = list(memberships.filter(status='active').values_list('group_id', flat=True))
+    memberships.delete()
+    _scope_groups_queryset(request).filter(leader_id=user.id).update(leader_id=None)
+    if user.group_name:
+        user.group_name = ''
+        user.save(update_fields=['group_name', 'updated_at'])
+    for group_id in set(group_ids):
+        if _scope_groups_queryset(request).filter(id=group_id).exists():
+            _refresh_group_member_count(request, group_id)
+
+
 def api_group_move_member(request, *args, **kwargs):
     """Move one member to another group in a single owner-only transaction."""
     denied = _ensure_owner_system_access(request)
@@ -1735,30 +1828,7 @@ def api_group_move_member(request, *args, **kwargs):
             if not already_in_target and target_group.max_members and target_members.count() >= target_group.max_members:
                 return JsonResponse({'success': False, 'error': 'Target group is full'}, status=400)
 
-            old_group_ids = list(
-                _scope_group_members_queryset(request)
-                .filter(user_id=user_id, status='active')
-                .values_list('group_id', flat=True)
-            )
-
-            _scope_groups_queryset(request).filter(leader_id=user_id).update(leader_id=None)
-            _scope_group_members_queryset(request).filter(user_id=user_id).exclude(group_id=target_group_id).delete()
-
-            member, _created = UserGroupMember.objects.get_or_create(
-                user_id=user_id,
-                group_id=target_group_id,
-                defaults={'is_leader': False, 'status': 'active'},
-            )
-            if member.status != 'active' or member.is_leader:
-                member.status = 'active'
-                member.is_leader = False
-                member.save(update_fields=['status', 'is_leader'])
-
-            user.group_name = target_group.group_name
-            user.save(update_fields=['group_name', 'updated_at'])
-
-            for group_id in set(old_group_ids + [target_group_id]):
-                _refresh_group_member_count(request, group_id)
+            _assign_user_to_group(request, user, target_group)
 
         _invalidate_api_cache(request, 'groups', 'users')
         return JsonResponse({
@@ -1916,19 +1986,17 @@ def api_group_members(request, *args, **kwargs):
             except ObjectDoesNotExist:
                 return JsonResponse({'success': False, 'error': 'Group not found'}, status=404)
 
-            if _scope_group_members_queryset(request).filter(user_id=user_id, group_id=group_id).exists():
-                return JsonResponse({'success': False, 'error': 'User is already a member of this group'}, status=400)
+            if status != 'active':
+                return JsonResponse({'success': False, 'error': 'New memberships must be active'}, status=400)
 
-            member = UserGroupMember.objects.create(
-                user_id=user_id,
-                group_id=group_id,
-                is_leader=is_leader,
-                status=status,
-            )
-            user.group_name = group.group_name
-            user.save()
-            group.current_members = _scope_group_members_queryset(request).filter(group_id=group_id, status='active').count()
-            group.save()
+            with transaction.atomic():
+                if _scope_group_members_queryset(request).filter(user_id=user_id, group_id=group_id, status='active').exists():
+                    return JsonResponse({'success': False, 'error': 'User is already a member of this group'}, status=400)
+                member = _assign_user_to_group(request, user, group)
+                if is_leader:
+                    _scope_groups_queryset(request).filter(id=group_id).update(leader_id=user_id)
+                    member.is_leader = True
+                    member.save(update_fields=['is_leader'])
             _invalidate_api_cache(request, 'groups', 'users')
 
             return JsonResponse({
@@ -1986,6 +2054,10 @@ def api_group_member_detail(request, member_id, *args, **kwargs):
             group = _scope_groups_queryset(request).get(id=member.group_id)
             group.current_members = _scope_group_members_queryset(request).filter(group_id=member.group_id, status='active').count()
             group.save()
+            if member.status != 'active':
+                user = _scope_users_queryset(request).filter(id=member.user_id).first()
+                if user and user.group_name == group.group_name:
+                    _remove_user_from_groups(request, user)
             _invalidate_api_cache(request, 'groups', 'users')
 
             return JsonResponse({
@@ -2008,10 +2080,14 @@ def api_group_member_detail(request, member_id, *args, **kwargs):
     if request.method == 'DELETE':
         try:
             group_id = member.group_id
+            user_id = member.user_id
             member.delete()
             group = _scope_groups_queryset(request).get(id=group_id)
             group.current_members = _scope_group_members_queryset(request).filter(group_id=group_id, status='active').count()
             group.save()
+            user = _scope_users_queryset(request).filter(id=user_id).first()
+            if user and user.group_name == group.group_name:
+                _remove_user_from_groups(request, user)
             _invalidate_api_cache(request, 'groups', 'users')
             return JsonResponse({'success': True, 'message': 'Member removed from group successfully'})
         except Exception as e:

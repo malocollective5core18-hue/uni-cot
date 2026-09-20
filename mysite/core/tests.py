@@ -13,7 +13,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 
 from core import views
-from core.models import ExternalTable, ExternalTableRecord, User
+from core.models import ExternalTable, ExternalTableRecord, Property, User, UserGroup, UserGroupMember
 from customers.models import CRTenant, TenantDashboardMetric
 from service.models import OwnerUser
 from mysite.mysite.rate_limit import is_rate_limited
@@ -516,3 +516,107 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         self.assertTrue(payload["success"])
         self.assertEqual(len(payload["data"]), 1)
         self.assertEqual(payload["data"][0]["item_name"], "Black Wallet")
+
+    def test_user_group_assignment_and_move_keep_memberships_in_sync(self):
+        base_path = f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/api"
+        first_group = UserGroup.objects.create(
+            group_name="Group A", max_members=10, created_by=self.owner.id
+        )
+        second_group = UserGroup.objects.create(
+            group_name="Group B", max_members=10, created_by=self.owner.id
+        )
+
+        create_response = self.client.post(
+            f"{base_path}/users/",
+            data=json.dumps({
+                "full_name": "Grouped Member",
+                "registration_number": "GROUP-001",
+                "group_name": first_group.group_name,
+            }),
+            content_type="application/json",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(create_response.status_code, 201)
+        user_id = create_response.json()["data"]["id"]
+
+        first_group.refresh_from_db()
+        self.assertEqual(first_group.current_members, 1)
+        self.assertTrue(UserGroupMember.objects.filter(
+            user_id=user_id, group_id=first_group.id, status="active"
+        ).exists())
+
+        move_response = self.client.post(
+            f"{base_path}/groups/move-member/",
+            data=json.dumps({"user_id": user_id, "target_group_id": second_group.id}),
+            content_type="application/json",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(move_response.status_code, 200)
+        self.assertFalse(UserGroupMember.objects.filter(
+            user_id=user_id, group_id=first_group.id, status="active"
+        ).exists())
+        self.assertTrue(UserGroupMember.objects.filter(
+            user_id=user_id, group_id=second_group.id, status="active"
+        ).exists())
+        self.assertEqual(User.objects.get(id=user_id).group_name, second_group.group_name)
+
+        # The system-index "add member" action uses this user update endpoint.
+        # It must recreate the canonical membership rather than only changing
+        # the legacy group_name string.
+        update_response = self.client.put(
+            f"{base_path}/users/{user_id}/",
+            data=json.dumps({"group_name": first_group.group_name}),
+            content_type="application/json",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(update_response.status_code, 200)
+        membership = UserGroupMember.objects.get(user_id=user_id, group_id=first_group.id)
+        self.assertEqual(User.objects.get(id=user_id).group_name, first_group.group_name)
+
+        # Removing that membership must also clear the denormalized user field
+        # so the groups and user-management screens cannot disagree.
+        remove_response = self.client.delete(
+            f"{base_path}/group-members/{membership.id}/",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(remove_response.status_code, 200)
+        self.assertEqual(User.objects.get(id=user_id).group_name, "")
+
+        groups_response = self.client.get(
+            f"{base_path}/groups/?include_members=1", HTTP_X_REQUESTED_WITH="XMLHttpRequest"
+        )
+        groups_by_id = {group["id"]: group for group in groups_response.json()["data"]}
+        self.assertEqual(groups_by_id[first_group.id]["members"], [])
+        self.assertEqual(groups_by_id[second_group.id]["members"], [])
+
+    def test_public_property_claim_cannot_change_owner_managed_fields(self):
+        prop = Property.objects.create(
+            item_name="Original Wallet",
+            description="Found by reception",
+            category="other",
+            location="Reception",
+            created_by=self.owner.id,
+        )
+        path = f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/api/properties/{prop.id}/"
+        self.client.post(f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/logout/", follow=True)
+
+        response = self.client.put(
+            path,
+            data=json.dumps({
+                "status": "claimed",
+                "claimant_name": "Claimant",
+                "claimant_contact": "claimant@example.com",
+                "claim_proof": "Receipt",
+                "item_name": "Attempted overwrite",
+                "location": "Attempted overwrite",
+            }),
+            content_type="application/json",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        prop.refresh_from_db()
+        self.assertEqual(prop.status, "claimed")
+        self.assertEqual(prop.claimant_name, "Claimant")
+        self.assertEqual(prop.item_name, "Original Wallet")
+        self.assertEqual(prop.location, "Reception")

@@ -5252,14 +5252,14 @@ async function quickRejectMember(tableId, memberId) {
                 });
 
                 if (signupResponse.ok) {
-                    const result = await signupResponse.json();
+                    await signupResponse.json();
                     showMessage('Your application has been submitted successfully! You will be notified once reviewed.', 'success');
                     closeMemberSignupModal();
-                    
-                    // Refresh the table view to show the new pending member
-                    if (selectedTable) {
-                        renderTableView(selectedTable);
-                    }
+
+                    // The signup endpoint persists a new record. Reload it
+                    // before rendering so the selected table does not show a
+                    // stale in-memory member list.
+                    await refreshExternalTablesData(true);
                 } else {
                     const errorData = await signupResponse.json();
                     showMessage(errorData.error || 'Failed to submit application', 'error');

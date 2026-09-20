@@ -9931,23 +9931,16 @@ async function _doAddMember(user, group) {
   stopAllAutoRefresh();  // Pause auto-refresh during member addition
 
   try {
-    const [uRes, mRes] = await Promise.all([
-      fetch(`/api/users/${user.id}/`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-        body: JSON.stringify({ group_name: group.group_name || group.name }),
-      }),
-      fetch('/api/group-members/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-        body: JSON.stringify({ user_id: user.id, group_id: group.id, is_leader: false, status: 'active' }),
-      }),
-    ]);
-
+    // Updating the user group is the authoritative operation. The API creates
+    // the matching membership row in the same transaction; sending both
+    // requests races them and can report a duplicate-membership error.
+    const uRes = await fetch(`/api/users/${user.id}/`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+      body: JSON.stringify({ group_name: group.group_name || group.name }),
+    });
     const uResult = await uRes.json();
-    const mResult = await mRes.json();
     if (!uResult.success) throw new Error(uResult.error || 'Error updating user group');
-    if (!mResult.success) throw new Error(mResult.error || 'Error creating membership');
 
     const userId = toId(user.id);
     const groupId = toId(group.id);

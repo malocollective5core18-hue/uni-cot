@@ -3653,23 +3653,25 @@ function fallbackToLocalPreview(file) {
             return;
         }
         
-        // Update property status
-        const propertyIndex = properties.findIndex(p => p.id === currentPropertyId);
-        if (propertyIndex !== -1) {
-            properties[propertyIndex].status = 'claimed';
-            properties[propertyIndex].claimantName = claimantName;
-            properties[propertyIndex].claimantContact = claimantContact;
-            properties[propertyIndex].claimProof = document.getElementById('claimProof').value.trim();
-            properties[propertyIndex].claimDate = new Date().toISOString().split('T')[0];
-            
+        if (properties.some(p => p.id === currentPropertyId)) {
+            // A public claimant may submit only claim evidence. Owner-managed
+            // property details must remain on the server unchanged.
+            const claimPayload = {
+                status: 'claimed',
+                claimant_name: claimantName,
+                claimant_contact: claimantContact,
+                claim_proof: document.getElementById('claimProof').value.trim(),
+                claimed_at: new Date().toISOString()
+            };
+
             try {
                 const response = await fetch(`${API_BASE_URL}/properties/${currentPropertyId}/`, {
                     method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCSRFToken(),
-                },
-                body: JSON.stringify(buildApiPropertyPayload(properties[propertyIndex]))
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCSRFToken(),
+                    },
+                    body: JSON.stringify(claimPayload)
                 });
                 const result = await response.json();
                 if (!response.ok || !result.success) {
