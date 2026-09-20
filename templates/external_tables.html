@@ -6,6 +6,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>External Data Tables | RING-0</title>
+    <script src="{% static 'js/tenant-sync.js' %}" defer></script>
+    <script src="{% static 'js/tenant-live.js' %}" defer></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcpqnmdas/image/upload/t_uni2/uni1_bmlyut.png">
@@ -2333,6 +2335,7 @@
         const EXTERNAL_TABLES_REFRESH_INTERVAL_MS = 90 * 1000;
         const EXTERNAL_CORE_FIELD_KEYS = ['full_name', 'registration_number', 'phone', 'email'];
         let externalTablesRefreshTimer = null;
+        let externalTenantLiveStarted = false;
         let externalTablesRefreshing = false;
         let currentAddMemberTableId = null;
 
@@ -2737,6 +2740,9 @@
             if (!response.ok || result.success === false) {
                 throw new Error(result.error || `HTTP ${response.status}`);
             }
+            if (window.TenantSync && /\/api\/external-tables\//.test(url) && (options.method || 'GET') !== 'GET') {
+                window.TenantSync.publish('table-records');
+            }
             return result;
         }
 
@@ -2813,28 +2819,21 @@
         }
 
         function startExternalTablesRefreshTimer() {
-            if (document.hidden) {
-                return;
-            }
-            if (externalTablesRefreshTimer) {
-                clearInterval(externalTablesRefreshTimer);
-            }
-
-            externalTablesRefreshTimer = setInterval(async () => {
-                // Refresh registration framework fields first (if changed), then refresh tables
-                try {
-                    await refreshFrameworkFieldsFromApi();
-                } catch (err) {
-                    // ignore framework refresh failures and continue
-                }
-                refreshExternalTablesData(true);
-            }, EXTERNAL_TABLES_REFRESH_INTERVAL_MS);
+            if (externalTenantLiveStarted || !window.TenantLive) return;
+            externalTenantLiveStarted = true;
+            window.TenantLive.register({
+                resource: 'table-records',
+                url: '/api/external-tables/?page_size=100&page=1',
+                isEditing: () => Boolean(document.querySelector('form:focus-within, [role="dialog"]:focus-within')),
+                onData: () => { void refreshExternalTablesData(true); },
+                onError: error => { if (error.type !== 'updated') console.warn('[TenantLive] external tables', error); }
+            });
         }
 
         document.addEventListener('visibilitychange', function() {
             if (document.hidden) {
                 if (externalTablesRefreshTimer) {
-                    clearInterval(externalTablesRefreshTimer);
+                    clearTimeout(externalTablesRefreshTimer);
                     externalTablesRefreshTimer = null;
                 }
             } else {
