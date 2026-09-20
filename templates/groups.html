@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Member Database | Groups</title>
     <script src="{% static 'js/tenant-sync.js' %}" defer></script>
+    <script src="{% static 'js/tenant-live.js' %}" defer></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcpqnmdas/image/upload/t_uni2/uni1_bmlyut.png">
     
@@ -3222,11 +3223,37 @@
             refresh().catch(error => console.warn('Tenant sync refresh failed:', error));
         }
 
-        if (window.TenantSync) window.TenantSync.subscribe(receiveTenantSync);
+        // TenantLive owns the single polling/subscription path for these resources.
 
-        // Set up real-time synchronization
+        // Set up one ETag-aware tenant poller per displayed resource.
         function setupRealTimeSync() {
-            startRealtimeSync();
+            registrationsPollingDisabled = true;
+            if (!window.TenantLive) return;
+            window.TenantLive.register({
+                resource: 'members',
+                url: () => OWNER_DIRECTORY_ACCESS ? '/api/users/?page_size=100&page=1' : '/api/public-members/?page_size=100&page=1',
+                isEditing: memberEditorActive,
+                onData: result => {
+                    if (!result.success || !Array.isArray(result.data)) return;
+                    members = result.data.map(user => ({ ...user, phone: user.phone || '', email: OWNER_DIRECTORY_ACCESS ? (user.email || '') : '', group: user.group_name || '', status: user.status || 'active', case_info: user.case_info || '' }));
+                    flaggedMembers = members.filter(member => member.status === 'flagged');
+                    membersLastUpdatedAt = new Date();
+                    setMembersLoadState(members.length ? 'data' : 'empty');
+                    updateStats();
+                    if (!OWNER_DIRECTORY_ACCESS) refreshGroupUserDisplay();
+                },
+                onError: error => { if (error.type !== 'updated') handleMemberPollingError(error); }
+            });
+            window.TenantLive.register({
+                resource: 'groups', url: '/api/groups/?include_members=1&page_size=100&page=1',
+                isEditing: memberEditorActive,
+                onData: result => {
+                    if (!result.success || !Array.isArray(result.data)) return;
+                    groups = result.data.map(group => ({ id: Number(group.id), name: group.group_name || `Group ${group.id}`, group_name: group.group_name || `Group ${group.id}`, size: group.max_members || 0, current_members: Number(group.current_members) || 0, leader: group.leader_id || null, members: (Array.isArray(group.members) ? group.members : []).map(member => Number(member.user_id)) }));
+                    loadGroupsDisplay();
+                },
+                onError: error => { if (error.type !== 'updated') console.warn('Could not refresh groups:', error); }
+            });
         }
 
         function startRealtimeSync(delay = 30000) {
@@ -3247,7 +3274,7 @@
             if (!registrationsRefreshTimer) {
                 return;
             }
-            clearInterval(registrationsRefreshTimer);
+            clearTimeout(registrationsRefreshTimer);
             registrationsRefreshTimer = null;
         }
 
@@ -3255,8 +3282,10 @@
             if (document.hidden) {
                 stopRealtimeSync();
             } else {
-                if (!registrationsPollingDisabled) startRealtimeSync();
-                if (OWNER_DIRECTORY_ACCESS) checkForNewRegistrations().catch(error => console.warn('Visible refresh failed:', error));
+                if (window.TenantLive) {
+                    window.TenantLive.refreshNow('members');
+                    window.TenantLive.refreshNow('groups');
+                }
                 if (!memberEditorActive()) {
                     tenantSyncPending.forEach(resource => receiveTenantSync({ resource, ts: Date.now() }));
                     tenantSyncPending.clear();
