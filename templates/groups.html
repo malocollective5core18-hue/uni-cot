@@ -1161,6 +1161,12 @@
 
     <!-- Main Content -->
     <div class="main-container">
+        {% if not owner_directory_access %}
+        <div id="ownerDirectoryNotice" role="status" style="margin-bottom:20px; padding:14px 16px; border:1px solid rgba(91,140,255,.35); border-radius:10px; background:rgba(91,140,255,.10); color:var(--text); line-height:1.5;">
+            Group summaries are available, but the full member directory is private. Open the tenant system page and sign in as this tenant's owner to view all members, including unassigned registrations.
+            {% if tenant_base_path %}<a href="{{ tenant_base_path }}/system/" style="color:#8eb0ff; font-weight:700;">Open tenant system</a>{% endif %}
+        </div>
+        {% endif %}
         <!-- Stats Overview -->
         <div class="stats-container">
             <div class="stat-item">
@@ -1410,6 +1416,7 @@
         const TENANT_BASE_PATH = "{{ tenant_base_path|default:'' }}";
         const INDEX_URL = TENANT_BASE_PATH ? `${TENANT_BASE_PATH}/system/` : "/system/";
         const API_BASE_URL = TENANT_BASE_PATH ? `${TENANT_BASE_PATH}/api` : '/api';
+        const OWNER_DIRECTORY_ACCESS = {{ owner_directory_access|yesno:"true,false" }};
 
         function showPageLoader(message = 'Loading') {
             const loader = document.getElementById('pageLoader');
@@ -1936,7 +1943,9 @@
 
                 const [frameworkResult, usersResult, groupsResult] = await Promise.allSettled([
                     fetch('/api/registration-fields/').then(response => response.json()),
-                    fetchAllApiPages('/api/users/'),
+                    OWNER_DIRECTORY_ACCESS
+                        ? fetchAllApiPages('/api/users/')
+                        : Promise.resolve({ success: true, data: [] }),
                     fetchAllApiPages('/api/groups/?include_members=1'),
                 ]);
 
@@ -2231,7 +2240,11 @@
                         <td colspan="${colspan}" class="empty-state">
                             <div class="empty-icon">👤</div>
                             <h3>No Members Found</h3>
-                            <p>${hasActiveMemberFilters() ? 'No members match the current search or filters.' : 'No members have been registered yet.'}</p>
+                            <p>${hasActiveMemberFilters()
+                                ? 'No members match the current search or filters.'
+                                : (OWNER_DIRECTORY_ACCESS
+                                    ? 'No members have been registered yet.'
+                                    : 'Owner sign-in is required to view the private member directory.')}</p>
                         </td>
                     </tr>
                 `;

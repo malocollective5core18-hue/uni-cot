@@ -562,8 +562,15 @@ def index(request, *args, **kwargs):
 
 @ensure_csrf_cookie
 def groups(request, *args, **kwargs):
+    tenant = getattr(request, 'tenant', None)
+    owner_directory_access = bool(
+        tenant
+        and getattr(tenant, 'schema_name', None) not in (None, '', 'public')
+        and _has_owner_system_access(request)
+    )
     return render(request, 'groups.html', {
         'tenant_base_path': _tenant_base_path(request),
+        'owner_directory_access': owner_directory_access,
     })
 
 

@@ -550,9 +550,42 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         )
 
         self.assertEqual(page_response.status_code, 200)
+        self.assertContains(page_response, 'const OWNER_DIRECTORY_ACCESS = false;')
+        self.assertContains(page_response, 'Group summaries are available')
         self.assertEqual(api_response.status_code, 200)
         payload = json.loads(api_response.content)
         self.assertTrue(payload["success"])
+
+    def test_owner_groups_page_receives_same_tenant_directory_and_groups(self):
+        tenant_path = f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}"
+        group_response = self.client.post(
+            f"{tenant_path}/api/groups/",
+            data=json.dumps({"group_name": "System Group", "max_members": 10}),
+            content_type="application/json",
+        )
+        self.assertEqual(group_response.status_code, 201, group_response.content)
+        user_response = self.client.post(
+            f"{tenant_path}/api/users/",
+            data=json.dumps({
+                "full_name": "System Member",
+                "registration_number": "SYSTEM-001",
+                "group_name": "System Group",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(user_response.status_code, 201, user_response.content)
+
+        page_response = self.client.get(f"{tenant_path}/groups/")
+        groups_response = self.client.get(f"{tenant_path}/api/groups/?include_members=1")
+        users_response = self.client.get(f"{tenant_path}/api/users/?page_size=100&page=1")
+
+        self.assertEqual(page_response.status_code, 200)
+        self.assertContains(page_response, 'const OWNER_DIRECTORY_ACCESS = true;')
+        self.assertNotContains(page_response, 'Group summaries are available')
+        self.assertEqual(users_response.status_code, 200)
+        self.assertEqual(users_response.json()["data"][0]["registration_number"], "SYSTEM-001")
+        self.assertEqual(groups_response.status_code, 200)
+        self.assertEqual(groups_response.json()["data"][0]["members"][0]["display_name"], "System Member")
 
     def test_public_group_member_summary_has_name_without_directory_pii(self):
         group = UserGroup.objects.create(
