@@ -216,6 +216,22 @@ class MemberPollingTemplateTests(SimpleTestCase):
         self.assertIn('if (OWNER_ADMIN_AUTHENTICATED_ON_LOAD) {\n      publicStartupLoads.push(loadUserData({ silent: true }));', system_source)
         self.assertIn('member system page must not request it', system_source)
 
+    def test_member_directory_has_explicit_states_and_tenant_tab_sync(self):
+        groups_source = (settings.BASE_DIR / 'templates/groups.html').read_text()
+        system_source = (settings.BASE_DIR / 'templates/system_index.html').read_text()
+        sync_source = (settings.BASE_DIR / 'static/js/tenant-sync.js').read_text()
+
+        self.assertIn("membersLoadState === 'loading'", groups_source)
+        self.assertIn("membersLoadState === 'error'", groups_source)
+        self.assertIn("membersLoadState === 'empty'", groups_source)
+        self.assertIn('Owner sign-in is required', groups_source)
+        self.assertIn('Could not load members, retry.', groups_source)
+        self.assertIn('Too many requests, retrying shortly.', groups_source)
+        self.assertIn('window.TenantSync.subscribe', groups_source)
+        self.assertIn('publishTenantMutation', system_source)
+        self.assertIn('window.TenantSync.subscribe', system_source)
+        self.assertLess(len(sync_source.encode('utf-8')), 2048)
+
 @override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",

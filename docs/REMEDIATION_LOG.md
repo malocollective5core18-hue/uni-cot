@@ -270,6 +270,14 @@
 - Evidence: Source inspection shows no `setInterval` in the users/groups resource schedulers; browser timing verification is NOT RUN.
 - Remaining risk: Existing unrelated clock/slider/card animation timers remain intervals; the tenant resource schedulers are the ones converted.
 
+## Verification — owner groups synchronization (2026-09-20)
+
+- Finding: The state, public-load guard, tab notifier, and resource polling needed regression coverage.
+- Change: Added template/static assertions covering explicit states, owner-only startup, notifier size, and tab subscriptions.
+- Files touched: `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Local PostgreSQL suite passed 84 tests in normal, reverse, and shuffled orders (seeds `9369198075` and `24680`). Compile, `check`, `check --deploy`, and migration-drift checks passed. Browser two-tab verification is NOT RUN because no browser tool is available.
+- Remaining risk: A member registering from another device is visible through ETag polling within about 30 seconds; WebSocket phases remain separate.
+
 ## Correctness — public system owner-directory guard (2026-09-20)
 
 - Finding: Public registration completion could call the private users loader because the user table exists in the shared system template.
