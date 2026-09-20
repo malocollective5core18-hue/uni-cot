@@ -22,14 +22,19 @@ from django_tenants.utils import schema_context
 
 logger = logging.getLogger(__name__)
 
-OWNER_RESOURCES = ('members', 'groups', 'posts', 'properties', 'table-records')
-MEMBER_RESOURCES = ('posts', 'properties')
+OWNER_RESOURCES = (
+    'members', 'groups', 'posts', 'properties', 'table-records',
+    'slider-images', 'countdown-cards',
+)
+MEMBER_RESOURCES = ('posts', 'properties', 'slider-images', 'countdown-cards')
 RESOURCE_FAMILIES = {
     'members': 'users',
     'groups': 'groups',
     'posts': 'posts',
     'properties': 'properties',
     'table-records': 'external_tables',
+    'slider-images': 'slider_images',
+    'countdown-cards': 'countdown_cards',
 }
 
 CLOSE_UNAUTHENTICATED = 4401

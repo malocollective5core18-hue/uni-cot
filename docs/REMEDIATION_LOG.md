@@ -302,3 +302,11 @@
 - Files touched: `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
 - Evidence: CSS source check completed; browser viewport verification remains NOT RUN.
 - Remaining risk: Instant cross-device card/image updates are not provided by polling alone. They require publishing tenant-scoped change events and subscribing public pages through the existing realtime infrastructure, with ETag GET fallback.
+
+## Realtime — public card and image invalidation hooks (2026-09-20)
+
+- Finding: Image/card writes invalidated HTTP caches but did not notify open tenant pages.
+- Change: Added tenant-scoped realtime resources for slider images and countdown cards. Successful owner writes schedule post-commit notifications; same-browser tenant tabs consume the event and refetch only the changed public resource. Events contain no record data.
+- Files touched: `mysite/realtime.py`, `mysite/core/views.py`, `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Realtime-focused tests (15) and Django checks passed locally. Browser and cross-device WebSocket verification are NOT RUN.
+- Remaining risk: The current realtime consumer still requires an authenticated service session. Cross-device anonymous visitors continue using ETag polling until a separately reviewed public-notification WebSocket policy is approved.

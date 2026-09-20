@@ -166,6 +166,19 @@ def _invalidate_api_cache(request, *families):
         cache.set(_cache_version_key(request, family), time(), None)
 
 
+def _publish_tenant_resource(request, resource):
+    """Notify authorized realtime clients after a successful tenant write."""
+    tenant_key = getattr(getattr(request, 'tenant', None), 'tenant_key', None)
+    if not tenant_key:
+        return
+    try:
+        from mysite.realtime import publish_changed
+        publish_changed(tenant_key, resource)
+    except Exception:
+        # Realtime delivery is best-effort; the committed write must win.
+        logger.exception('Could not schedule realtime resource notification.')
+
+
 def _tenant_base_path(request):
     tenant = getattr(request, 'tenant', None)
     if (
@@ -904,6 +917,7 @@ def api_slider_images(request, *args, **kwargs):
                 created_by=_get_product_owner_id(request),
             )
             _invalidate_api_cache(request, 'slider_images')
+            _publish_tenant_resource(request, 'slider-images')
             return JsonResponse({
                 'success': True,
                 'message': 'Image created successfully',
@@ -972,6 +986,7 @@ def api_slider_image_detail(request, image_id, *args, **kwargs):
                 image.status = body['status']
             image.save()
             _invalidate_api_cache(request, 'slider_images')
+            _publish_tenant_resource(request, 'slider-images')
             return JsonResponse({
                 'success': True,
                 'message': 'Image updated successfully',
@@ -993,6 +1008,7 @@ def api_slider_image_detail(request, image_id, *args, **kwargs):
     if request.method == 'DELETE':
         image.delete()
         _invalidate_api_cache(request, 'slider_images')
+        _publish_tenant_resource(request, 'slider-images')
         return JsonResponse({'success': True, 'message': 'Image deleted successfully'})
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
@@ -1044,6 +1060,7 @@ def api_countdown_cards(request, *args, **kwargs):
                 created_by=str(_get_product_owner_id(request) or body.get('created_by', PUBLIC_DEMO_COUNTDOWN_KEY)),
             )
             _invalidate_api_cache(request, 'countdown_cards')
+            _publish_tenant_resource(request, 'countdown-cards')
             return JsonResponse({
                 'success': True,
                 'message': 'Countdown card created successfully',
@@ -1113,6 +1130,7 @@ def api_countdown_card_detail(request, card_id, *args, **kwargs):
                 card.is_published = body['is_published']
             card.save()
             _invalidate_api_cache(request, 'countdown_cards')
+            _publish_tenant_resource(request, 'countdown-cards')
             return JsonResponse({
                 'success': True,
                 'message': 'Countdown card updated successfully',
@@ -1133,6 +1151,7 @@ def api_countdown_card_detail(request, card_id, *args, **kwargs):
     if request.method == 'DELETE':
         card.delete()
         _invalidate_api_cache(request, 'countdown_cards')
+        _publish_tenant_resource(request, 'countdown-cards')
         return JsonResponse({'success': True, 'message': 'Countdown card deleted successfully'})
 
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)

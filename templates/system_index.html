@@ -13137,6 +13137,8 @@ function publishTenantMutation(path) {
   if (/\/api\/(users|users\/clear-all)/.test(path)) publishTenantResource('users');
   if (/\/api\/(groups|group-members)/.test(path)) publishTenantResource('groups');
   if (/\/api\/groups\/move-member/.test(path)) publishTenantResource('users');
+  if (/\/api\/slider-images/.test(path)) publishTenantResource('slider-images');
+  if (/\/api\/countdown-cards/.test(path)) publishTenantResource('countdown-cards');
 }
 
 const systemSyncPending = new Set();
@@ -13162,6 +13164,17 @@ async function refreshSystemResource(resource) {
 }
 if (window.TenantSync) window.TenantSync.subscribe(message => {
   if (['users', 'groups'].includes(message.resource)) void refreshSystemResource(message.resource);
+  if (message.resource === 'slider-images' && !document.hidden && !isSliderActive()) {
+    void fetchSliderImages().then(images => {
+      if (Array.isArray(images)) {
+        allImages = images.map(normalizeSliderImageRecord);
+        updateSliderImages(sliderImages[currentImageIndex]?.id || null);
+      }
+    });
+  }
+  if (message.resource === 'countdown-cards' && !document.hidden && typeof renderActiveCards === 'function') {
+    void renderActiveCards();
+  }
 });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && !systemEditorActive()) {
