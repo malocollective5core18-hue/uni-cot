@@ -231,6 +231,8 @@ class MemberPollingTemplateTests(SimpleTestCase):
         self.assertIn('window.TenantSync.subscribe', groups_source)
         self.assertIn('publishTenantMutation', system_source)
         self.assertIn('window.TenantSync.subscribe', system_source)
+        self.assertIn("fetchAllApiPages(OWNER_DIRECTORY_ACCESS ? '/api/users/' : '/api/public-members/')", groups_source)
+        self.assertIn('The owner form must use the same configured framework', system_source)
         self.assertLess(len(sync_source.encode('utf-8')), 2048)
 
 @override_settings(
@@ -636,6 +638,28 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         self.assertEqual(member["registration_number"], "PUBLIC-GROUP-001")
         self.assertEqual(member["phone"], "123456")
         self.assertEqual(member["group_name"], "Public Group")
+
+    def test_public_members_endpoint_lists_active_member_fields_without_owner_auth(self):
+        User.objects.create(
+            full_name="Public Directory Member",
+            registration_number="PUBLIC-002",
+            phone="5550100",
+            case_info="Needs follow-up",
+            created_by=self.owner.id,
+        )
+        self.client.post(
+            f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/logout/",
+            follow=True,
+        )
+        response = self.client.get(
+            f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/api/public-members/",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(response.status_code, 200)
+        member = response.json()["data"][0]
+        self.assertEqual(member["full_name"], "Public Directory Member")
+        self.assertEqual(member["phone"], "5550100")
+        self.assertEqual(member["case_info"], "Needs follow-up")
 
     def test_properties_and_external_tables_pages_are_public(self):
         self.client.post(f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/logout/", follow=True)

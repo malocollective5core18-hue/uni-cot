@@ -18,6 +18,7 @@ urlpatterns = [
     path('api/properties/', views.api_properties, name='api_properties'),
     path('api/properties/<int:property_id>/', views.api_property_detail, name='api_property_detail'),
     # API endpoints for users
+    path('api/public-members/', views.api_public_members, name='api_public_members'),
     path('api/users/', views.api_users, name='api_users'),
     path('api/users/<int:user_id>/', views.api_user_detail, name='api_user_detail'),
     # API endpoints for groups

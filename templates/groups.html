@@ -1975,9 +1975,7 @@
 
                 const [frameworkResult, usersResult, groupsResult] = await Promise.allSettled([
                     fetch('/api/registration-fields/').then(response => response.json()),
-                    OWNER_DIRECTORY_ACCESS
-                        ? fetchAllApiPages('/api/users/')
-                        : Promise.resolve({ success: false, accessDenied: true }),
+                    fetchAllApiPages(OWNER_DIRECTORY_ACCESS ? '/api/users/' : '/api/public-members/'),
                     fetchAllApiPages('/api/groups/?include_members=1'),
                 ]);
 
@@ -2017,9 +2015,9 @@
                     membersLastUpdatedAt = new Date();
                     setMembersLoadState(members.length ? 'data' : 'empty');
                     console.log('Loaded members from database:', members.length);
-                } else if (OWNER_DIRECTORY_ACCESS) {
+                } else {
                     const error = usersResult.reason;
-                    const accessError = error || (usersResult.value?.accessDenied ? { status: 403 } : null);
+                    const accessError = error || { status: 500 };
                     setMembersLoadState('error', accessError || { status: 500 });
                     console.warn('Unable to load members from the API:', accessError);
                     if (accessError) handleMemberPollingError(accessError);
@@ -3007,16 +3005,27 @@
 
             if (!OWNER_DIRECTORY_ACCESS) {
                 try {
-                    const response = await fetch('/api/groups/?include_members=1', {
-                        headers: registrationsEtags.groups ? { 'If-None-Match': registrationsEtags.groups } : {}
+                    const response = await fetch('/api/public-members/', {
+                        headers: registrationsEtags.users ? { 'If-None-Match': registrationsEtags.users } : {}
                     });
                     if (response.status === 304) return true;
                     if (!response.ok) return true;
-                    registrationsEtags.groups = response.headers.get('ETag') || registrationsEtags.groups;
+                    registrationsEtags.users = response.headers.get('ETag') || registrationsEtags.users;
                     const result = await response.json();
-                    if (result.success) applyPublicGroupsPayload(result.data);
+                    if (result.success && Array.isArray(result.data)) {
+                        members = result.data.map(user => ({
+                            ...user,
+                            group: user.group_name || '',
+                            email: '',
+                            status: user.status || 'active',
+                            case_info: user.case_info || '',
+                        }));
+                        membersLastUpdatedAt = new Date();
+                        setMembersLoadState(members.length ? 'data' : 'empty');
+                        refreshGroupUserDisplay();
+                    }
                 } catch (error) {
-                    console.warn('Could not check public group members:', error);
+                    console.warn('Could not check public members:', error);
                 }
                 return true;
             }
@@ -3161,6 +3170,26 @@
             updateStats();
         }
 
+        async function refreshPublicMembersFromTenantSync() {
+            if (OWNER_DIRECTORY_ACCESS) return;
+            const response = await fetch('/api/public-members/', {
+                headers: registrationsEtags.users ? { 'If-None-Match': registrationsEtags.users } : {}
+            });
+            if (response.status === 304) return;
+            if (!response.ok) return;
+            registrationsEtags.users = response.headers.get('ETag') || registrationsEtags.users;
+            const result = await response.json();
+            if (!result.success || !Array.isArray(result.data)) return;
+            members = result.data.map(user => ({
+                ...user,
+                group: user.group_name || '', email: '',
+                status: user.status || 'active', case_info: user.case_info || '',
+            }));
+            membersLastUpdatedAt = new Date();
+            setMembersLoadState(members.length ? 'data' : 'empty');
+            refreshGroupUserDisplay();
+        }
+
         async function refreshGroupsFromTenantSync() {
             const result = await fetchAllApiPages('/api/groups/?include_members=1');
             groupMemberDetails = new Map();
@@ -3181,13 +3210,15 @@
         }
 
         function receiveTenantSync(message) {
-            if (!OWNER_DIRECTORY_ACCESS || !['users', 'groups'].includes(message.resource)) return;
+            if (!['members', 'users', 'groups'].includes(message.resource)) return;
             if (document.hidden || memberEditorActive()) {
                 tenantSyncPending.add(message.resource);
                 showMessage('Updated — refresh will run when ready.', 'info');
                 return;
             }
-            const refresh = message.resource === 'users' ? refreshUsersFromTenantSync : refreshGroupsFromTenantSync;
+            const refresh = !OWNER_DIRECTORY_ACCESS && message.resource === 'members'
+                ? refreshPublicMembersFromTenantSync
+                : message.resource === 'users' ? refreshUsersFromTenantSync : refreshGroupsFromTenantSync;
             refresh().catch(error => console.warn('Tenant sync refresh failed:', error));
         }
 

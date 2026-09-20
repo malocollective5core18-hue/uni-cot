@@ -1487,6 +1487,39 @@ def api_users(request, *args, **kwargs):
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
 
+def api_public_members(request, *args, **kwargs):
+    """Return the tenant's active member directory for the public groups page."""
+    if request.method != 'GET':
+        return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
+
+    def build_payload():
+        users = (
+            _scope_users_queryset(request)
+            .filter(is_active=True)
+            .only(
+                'id', 'full_name', 'registration_number', 'phone',
+                'group_name', 'case_info', 'status', 'custom_fields',
+            )
+            .order_by('id')
+        )
+        data = []
+        for user in users:
+            custom_fields = _parse_json_field(getattr(user, 'custom_fields', {}), {})
+            data.append({
+                **custom_fields,
+                'id': user.id,
+                'full_name': user.full_name or '',
+                'registration_number': user.registration_number or '',
+                'phone': user.phone or '',
+                'group_name': user.group_name or '',
+                'case_info': user.case_info or '',
+                'status': user.status or 'active',
+            })
+        return {'success': True, 'data': data}
+
+    return _cached_json_response(request, 'users', build_payload)
+
+
 def api_user_detail(request, user_id, *args, **kwargs):
     """GET / PUT / DELETE a single user (owner only)."""
     denied = _ensure_owner_system_access(request)

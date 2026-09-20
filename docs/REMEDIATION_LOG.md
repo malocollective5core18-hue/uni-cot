@@ -310,3 +310,11 @@
 - Files touched: `mysite/realtime.py`, `mysite/core/views.py`, `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Realtime-focused tests (15) and Django checks passed locally. Browser and cross-device WebSocket verification are NOT RUN.
 - Remaining risk: The current realtime consumer still requires an authenticated service session. Cross-device anonymous visitors continue using ETag polling until a separately reviewed public-notification WebSocket policy is approved.
+
+## Correctness — public member signup synchronization (2026-09-20)
+
+- Finding: The groups page only consumed grouped summaries, so newly registered unassigned members did not appear in its members table; the owner add-user form also merged hard-coded fields instead of using the saved framework.
+- Change: Added tenant-scoped `GET /api/public-members/` with ETag caching, wired groups-page polling and same-browser tenant events to it, published `members` after successful signup/owner writes, and made the owner add-user form use the configured framework with case-field mapping.
+- Files touched: `mysite/core/views.py`, `mysite/core/urls.py`, `templates/groups.html`, `templates/system_index.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Full local suite passed 85 tests; focused public-member and template tests passed; compile, check, and migration checks passed. Cross-device WebSocket timing is NOT RUN because anonymous public sockets are not enabled by the current security policy.
+- Remaining risk: A different device sees a new member through the existing ETag polling interval (at least 30 seconds), not instantaneously. Same-browser tabs receive the `members` event immediately.

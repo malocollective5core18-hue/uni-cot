@@ -7119,7 +7119,11 @@ const USER_MANAGEMENT_STANDARD_FIELDS = [
 function getMergedUserManagementFields() {
   const mergedFields = [];
   const seenKeys = new Set();
-  const sourceFields = [...USER_MANAGEMENT_STANDARD_FIELDS, ...(Array.isArray(dataFramework) ? dataFramework : [])];
+  // The owner form must use the same configured framework as public signup.
+  // Only use the built-in fields when the tenant has no saved framework yet.
+  const sourceFields = Array.isArray(dataFramework) && dataFramework.length
+    ? dataFramework
+    : defaultFramework;
 
   sourceFields.forEach((field, index) => {
     const key = field.key || getUserFieldKey(field.name || '');
@@ -8482,6 +8486,11 @@ async function handleAddUser(event) {
 
     if (['group_name', 'group', 'group name'].includes(fieldKey.toLowerCase())) {
       newUser.group_name = fieldValue;
+      return;
+    }
+
+    if (['case_info', 'case', 'case information'].includes(fieldKey.toLowerCase())) {
+      newUser.case_info = fieldValue;
       return;
     }
 
@@ -10989,6 +10998,7 @@ async function submitMemberRegistration(event) {
     console.log('Response from /api/users/:', result);
 
     if (result.success) {
+      if (window.TenantSync) window.TenantSync.publish('members');
       closeRegistrationForm();
 
       // If admin user table exists, refresh it
@@ -13134,7 +13144,10 @@ function publishTenantResource(resource) {
 
 function publishTenantMutation(path) {
   if (!ownerAdminIsAuthenticated() || !/\/api\//.test(path)) return;
-  if (/\/api\/(users|users\/clear-all)/.test(path)) publishTenantResource('users');
+  if (/\/api\/(users|users\/clear-all)/.test(path)) {
+    publishTenantResource('users');
+    publishTenantResource('members');
+  }
   if (/\/api\/(groups|group-members)/.test(path)) publishTenantResource('groups');
   if (/\/api\/groups\/move-member/.test(path)) publishTenantResource('users');
   if (/\/api\/slider-images/.test(path)) publishTenantResource('slider-images');
