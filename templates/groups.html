@@ -3243,7 +3243,7 @@
                     updateStats();
                     if (!OWNER_DIRECTORY_ACCESS) refreshGroupUserDisplay();
                 },
-                onError: error => { if (error.type !== 'updated') handleMemberPollingError(error); }
+                onError: error => { if (error.type === 'updated') showMessage('Updated — refresh will run when ready.', 'info'); else handleMemberPollingError(error); }
             });
             window.TenantLive.register({
                 resource: 'groups', url: '/api/groups/?include_members=1&page_size=100&page=1',
@@ -3253,7 +3253,7 @@
                     groups = result.data.map(group => ({ id: Number(group.id), name: group.group_name || `Group ${group.id}`, group_name: group.group_name || `Group ${group.id}`, size: group.max_members || 0, current_members: Number(group.current_members) || 0, leader: group.leader_id || null, members: (Array.isArray(group.members) ? group.members : []).map(member => Number(member.user_id)) }));
                     loadGroupsDisplay();
                 },
-                onError: error => { if (error.type !== 'updated') console.warn('Could not refresh groups:', error); }
+                onError: error => { if (error.type === 'updated') showMessage('Updated — refresh will run when ready.', 'info'); else console.warn('Could not refresh groups:', error); }
             });
         }
 
