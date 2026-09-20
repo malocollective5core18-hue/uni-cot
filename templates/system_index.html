@@ -12379,6 +12379,7 @@ async function openCardManagement() {
   }
   document.getElementById('dashboardMenu').style.display = 'none';
   document.getElementById('cardsManagementSection').style.display = 'block';
+  if (window.TenantLive) window.TenantLive.refreshNow('countdown-cards');
   initializeDashboard();
 }
 
@@ -12539,6 +12540,7 @@ function toggleImageSlider() {
     updateImageAutoAdvanceBadge();
   } else {
     imageSlider.classList.add('open');
+    if (window.TenantLive) window.TenantLive.refreshNow('slider-images');
     mainContent.classList.add('slider-open');
     toggleBtn.classList.remove('down');
     toggleBtn.classList.add('up');
