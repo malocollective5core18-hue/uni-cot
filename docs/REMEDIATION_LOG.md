@@ -253,3 +253,11 @@
 - Files touched: `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Template state branches are source-checked; runtime browser verification remains pending.
 - Remaining risk: The owner must still authenticate on the matching tenant path for private directory data.
+
+## Correctness — public system owner-directory guard (2026-09-20)
+
+- Finding: Public registration completion could call the private users loader because the user table exists in the shared system template.
+- Change: `loadUserData` and post-registration refresh now return without requesting `/api/users/` unless the server-provided owner-admin flag is true.
+- Files touched: `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Existing initialization guard plus the new function guard prevent public/member 403 calls; browser verification remains pending.
+- Remaining risk: Owner-admin state is evaluated when the page is rendered; an owner must complete the in-page admin login before private management actions.
