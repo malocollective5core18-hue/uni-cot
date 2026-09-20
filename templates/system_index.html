@@ -13473,7 +13473,10 @@ function startSliderImagesAutoRefresh() {
   if (autoRefreshTimers.sliderImages || !window.TenantLive) return;
   window.TenantLive.register({
     resource: 'slider-images', url: `${API_BASE_URL}/slider-images/`,
-    isActive: () => isSliderActive() || isSectionVisible('imageContentManagementSection'),
+    // The public slider is rendered on the tenant page even when its overlay
+    // is closed. Keep it active so another device receives posted images
+    // without requiring a click or a full-page reload.
+    isActive: () => true,
     isEditing: () => document.getElementById('imageManagementSection')?.style.display === 'block',
     onData: result => {
       const images = Array.isArray(result?.data) ? result.data : [];
