@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>RING-0 | Time Progress</title>
 <script src="{% static 'js/tenant-sync.js' %}" defer></script>
+<script src="{% static 'js/tenant-live.js' %}" defer></script>
 
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
@@ -12934,13 +12935,10 @@ async function checkForCardUpdates() {
 }
 
 function startSystemRealtimeSync() {
-  if (systemRealtimeTimer || document.hidden) return;
-  systemRealtimeTimer = setInterval(checkForCardUpdates, 30000);
+  if (!document.hidden && window.TenantLive) window.TenantLive.refreshNow('countdown-cards');
 }
 
 function stopSystemRealtimeSync() {
-  if (!systemRealtimeTimer) return;
-  clearInterval(systemRealtimeTimer);
   systemRealtimeTimer = null;
 }
 
@@ -13473,71 +13471,33 @@ function isSliderActive() {
 
 // Auto-refresh slider images on the adaptive interval.
 function startSliderImagesAutoRefresh() {
-  if (autoRefreshTimers.sliderImages) {
-    clearInterval(autoRefreshTimers.sliderImages);
-  }
-  
-  autoRefreshTimers.sliderImages = setInterval(async () => {
-    if (autoRefreshInFlight.sliderImages) return;
-    autoRefreshInFlight.sliderImages = true;
-    try {
-      const inAdmin = isAdminDashboardActive();
-      const inImageAdmin = isSectionVisible('imageContentManagementSection');
-      if (!inAdmin && !isSliderActive()) {
-        return;
-      }
-      if (inAdmin && !inImageAdmin) {
-        return;
-      }
-
-      const images = await fetchSliderImages();
-      if (images && images.length > 0) {
-        const isEditingImages = document.getElementById('imageManagementSection')?.style.display === 'block';
-        if (!isEditingImages) {
-          const currentImageId = sliderImages[currentImageIndex]?.id || null;
-          allImages = images.map(normalizeSliderImageRecord);
-          updateSliderImages(currentImageId);
-          console.log('[Auto-Refresh] Slider images updated');
-        }
-      }
-    } catch (error) {
-      console.error('[Auto-Refresh] Error refreshing slider images:', error);
-    } finally {
-      autoRefreshInFlight.sliderImages = false;
-    }
-  }, getAutoRefreshInterval());
-  
-  console.log(`[Auto-Refresh] Slider images auto-refresh started (${getAutoRefreshInterval()}ms interval)`);
+  if (autoRefreshTimers.sliderImages || !window.TenantLive) return;
+  window.TenantLive.register({
+    resource: 'slider-images', url: `${API_BASE_URL}/slider-images/`,
+    isActive: () => isSliderActive() || isSectionVisible('imageContentManagementSection'),
+    isEditing: () => document.getElementById('imageManagementSection')?.style.display === 'block',
+    onData: result => {
+      const images = Array.isArray(result?.data) ? result.data : [];
+      const currentImageId = sliderImages[currentImageIndex]?.id || null;
+      allImages = images.map(normalizeSliderImageRecord);
+      updateSliderImages(currentImageId);
+    },
+    onError: error => { if (error.type !== 'updated') console.warn('[TenantLive] slider images', error); }
+  });
+  autoRefreshTimers.sliderImages = true;
 }
 
 // Auto-refresh countdown cards on the adaptive interval.
 function startCountdownCardsAutoRefresh() {
-  if (autoRefreshTimers.countdownCards) {
-    clearInterval(autoRefreshTimers.countdownCards);
-  }
-  
-  autoRefreshTimers.countdownCards = setInterval(async () => {
-    if (autoRefreshInFlight.countdownCards) return;
-    autoRefreshInFlight.countdownCards = true;
-    try {
-      const inAdmin = isAdminDashboardActive();
-      const inCardsAdmin = isSectionVisible('cardsManagementSection');
-      if (inAdmin && !inCardsAdmin) {
-        return;
-      }
-      const isEditingCards = inCardsAdmin;
-      if (!isEditingCards && typeof renderActiveCards === 'function') {
-        await renderActiveCards();
-        console.log('[Auto-Refresh] Countdown cards updated');
-      }
-    } catch (error) {
-      console.error('[Auto-Refresh] Error refreshing countdown cards:', error);
-    } finally {
-      autoRefreshInFlight.countdownCards = false;
-    }
-  }, getAutoRefreshInterval());
-  
-  console.log(`[Auto-Refresh] Countdown cards auto-refresh started (${getAutoRefreshInterval()}ms interval)`);
+  if (autoRefreshTimers.countdownCards || !window.TenantLive) return;
+  window.TenantLive.register({
+    resource: 'countdown-cards', url: `${API_BASE_URL}/countdown-cards/`,
+    isActive: () => !isAdminDashboardActive() || isSectionVisible('cardsManagementSection'),
+    isEditing: () => isSectionVisible('cardsManagementSection'),
+    onData: () => { if (typeof renderActiveCards === 'function') void renderActiveCards(); },
+    onError: error => { if (error.type !== 'updated') console.warn('[TenantLive] countdown cards', error); }
+  });
+  autoRefreshTimers.countdownCards = true;
 }
 
 // Auto-refresh users table on the adaptive interval.
@@ -13640,7 +13600,7 @@ function startGroupsAutoRefresh() {
 // Stop all auto-refresh timers
 function stopAllAutoRefresh() {
   Object.keys(autoRefreshTimers).forEach(key => {
-    if (autoRefreshTimers[key]) {
+    if (['users', 'groups'].includes(key) && autoRefreshTimers[key]) {
       clearInterval(autoRefreshTimers[key]);
       autoRefreshTimers[key] = null;
     }
@@ -13649,7 +13609,30 @@ function stopAllAutoRefresh() {
 }
 
 // Start all auto-refresh timers
+let systemTenantLiveStarted = false;
+function startSystemTenantLive() {
+  if (systemTenantLiveStarted || !window.TenantLive) return;
+  systemTenantLiveStarted = true;
+  window.TenantLive.register({
+    resource: 'groups', url: `${TENANT_API_PREFIX}/api/groups/?include_members=1&page_size=100&page=1`,
+    isActive: () => !isAdminDashboardActive() || isSectionVisible('groupsTab'),
+    isEditing: systemEditorActive,
+    onData: () => { if (typeof loadGroups === 'function') void loadGroups({ silent: true }).then(() => populateGroups && populateGroups()); },
+    onError: error => { if (error.type !== 'updated') console.warn('[TenantLive] groups', error); }
+  });
+  const memberUrl = OWNER_ADMIN_AUTHENTICATED_ON_LOAD ? `${TENANT_API_PREFIX}/api/users/?page_size=100&page=1` : `${TENANT_API_PREFIX}/api/public-members/?page_size=100&page=1`;
+  window.TenantLive.register({
+    resource: 'members', url: memberUrl,
+    ownerOnly: OWNER_ADMIN_AUTHENTICATED_ON_LOAD,
+    isActive: () => !isAdminDashboardActive() || isSectionVisible('userManagementSection'),
+    isEditing: systemEditorActive,
+    onData: result => { if (OWNER_ADMIN_AUTHENTICATED_ON_LOAD && result.success && typeof loadUserData === 'function') void loadUserData({ silent: true }).then(() => populateUserTable && populateUserTable()); },
+    onError: error => { if (error.type !== 'updated') console.warn('[TenantLive] members', error); }
+  });
+}
+
 function startAllAutoRefresh() {
+  startSystemTenantLive();
   startSliderImagesAutoRefresh();
   startCountdownCardsAutoRefresh();
   startUsersAutoRefresh();
