@@ -6573,11 +6573,9 @@ async function loadCardsFromStorage() {
     }
 
     console.error('Failed to load cards from database:', result.error);
-    allPosts = [];
     return allPosts;
   } catch (e) {
     console.warn('Could not load cards from API:', e);
-    allPosts = [];
     return allPosts;
   }
 }
@@ -8275,7 +8273,6 @@ async function loadUserData(options = {}) {
     }
   } catch (error) {
     console.error('Error loading user data:', error);
-    userData = [];
     if (!silent) {
       showTemporaryMessage(userPollingMessage(error), 'warning');
     }
@@ -9012,7 +9009,6 @@ async function loadGroups(options = {}) {
     const result = await fetchAllApiPages('/api/groups/?include_members=1');
 
     if (!result.success) {
-      groups = [];
       if (!silent) showTemporaryMessage('Unable to load groups right now.', 'warning');
       return;
     }
@@ -9043,7 +9039,6 @@ async function loadGroups(options = {}) {
     console.log('Loaded', groups.length, 'groups from database');
   } catch (error) {
     console.error('Error loading groups:', error);
-    groups = [];
     if (!silent) showTemporaryMessage('Unable to load groups right now.', 'warning');
   }
 }
@@ -11300,13 +11295,12 @@ async function loadImagesFromStorage() {
       
       console.log('Loaded', allImages.length, 'images from database');
     } else {
-      // No images in database
-      allImages = [];
+      // Keep the previous render on an unsuccessful response; an empty
+      // successful data array is the only state that clears the UI.
       console.log('No images found in database');
     }
   } catch (e) {
     console.warn('Could not load images from API:', e);
-    allImages = [];
   }
 }
 
@@ -13185,8 +13179,8 @@ if (window.TenantSync) window.TenantSync.subscribe(message => {
       }
     });
   }
-  if (message.resource === 'countdown-cards' && !document.hidden && typeof renderActiveCards === 'function') {
-    void renderActiveCards();
+  if (message.resource === 'countdown-cards' && window.TenantLive) {
+    window.TenantLive.refreshNow('countdown-cards');
   }
 });
 document.addEventListener('visibilitychange', () => {
@@ -13294,6 +13288,7 @@ async function createSliderImage(imageData) {
         const result = await response.json();
         if (result.success) {
             console.log('Image created:', result.data);
+            if (window.TenantLive) window.TenantLive.refreshNow('slider-images');
             return result.data;
         } else {
             console.error('Failed to create image:', result.error);
@@ -13319,6 +13314,7 @@ async function updateSliderImage(imageId, imageData) {
         const result = await response.json();
         if (result.success) {
             console.log('Image updated:', result.data);
+            if (window.TenantLive) window.TenantLive.refreshNow('slider-images');
             return result.data;
         } else {
             console.error('Failed to update image:', result.error);
@@ -13342,6 +13338,7 @@ async function deleteSliderImage(imageId) {
         const result = await response.json();
         if (result.success) {
             console.log('Image deleted successfully');
+            if (window.TenantLive) window.TenantLive.refreshNow('slider-images');
             return true;
         } else {
             console.error('Failed to delete image:', result.error);
@@ -13496,7 +13493,16 @@ function startCountdownCardsAutoRefresh() {
     resource: 'countdown-cards', url: `${API_BASE_URL}/countdown-cards/`,
     isActive: () => !isAdminDashboardActive() || isSectionVisible('cardsManagementSection'),
     isEditing: () => isSectionVisible('cardsManagementSection'),
-    onData: () => { if (typeof renderActiveCards === 'function') void renderActiveCards(); },
+    onData: result => {
+      if (!result || result.success === false || !Array.isArray(result.data)) return;
+      allPosts = dedupeById(result.data.map(card => ({
+        id: card.id, title: card.title, description: card.description,
+        fileUrl: card.file_url, start: card.start_time, end: card.end_time,
+        status: card.status, createdAt: card.created_at, createdBy: card.created_by,
+      })));
+      renderActiveCards();
+      renderCancelledCards();
+    },
     onError: error => { if (error.type === 'updated') showTemporaryMessage('Updated — refresh will run when ready.', 'info'); else console.warn('[TenantLive] countdown cards', error); }
   });
   autoRefreshTimers.countdownCards = true;
@@ -13766,6 +13772,7 @@ async function createCountdownCard(cardData) {
         const result = await response.json();
         if (result.success) {
             console.log('Countdown card created:', result.data);
+            if (window.TenantLive) window.TenantLive.refreshNow('countdown-cards');
             return result.data;
         } else {
             console.error('Failed to create countdown card:', result.error);
@@ -13790,6 +13797,7 @@ async function updateCountdownCard(cardId, cardData) {
         const result = await response.json();
         if (result.success) {
             console.log('Countdown card updated:', result.data);
+            if (window.TenantLive) window.TenantLive.refreshNow('countdown-cards');
             return result.data;
         } else {
             console.error('Failed to update countdown card:', result.error);
@@ -13812,6 +13820,7 @@ async function deleteCountdownCard(cardId) {
         const result = await response.json();
         if (result.success) {
             console.log('Countdown card deleted successfully');
+            if (window.TenantLive) window.TenantLive.refreshNow('countdown-cards');
             return true;
         } else {
             console.error('Failed to delete countdown card:', result.error);

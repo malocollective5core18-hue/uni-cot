@@ -2689,7 +2689,7 @@
                 externalTables = apiTables;
             } catch (error) {
                 console.warn('Could not fetch tables from API:', error);
-                externalTables = [];
+                return false;
             }
 
             externalTables = Array.isArray(externalTables) ? externalTables.map(table => ({
@@ -2708,6 +2708,7 @@
                 source: table.source || 'api'
             })) : [];
             renderTablesList();
+            return true;
         }
 
         // Business data is persisted through API calls, not browser storage.
@@ -2775,7 +2776,6 @@
                 : null;
 
             try {
-                clearExternalTablesCache();
                 currentSelectedTableId = null;
                 currentUserSearchFilter = null;
                 selectedTable = null;
@@ -2790,7 +2790,19 @@
                     `;
                 }
 
-                await loadTables();
+                const loaded = await loadTables();
+                if (!loaded) {
+                    renderTablesList();
+                    if (selectedTableId) {
+                        const previousTable = externalTables.find(table => String(table.id) === String(selectedTableId));
+                        if (previousTable) {
+                            currentSelectedTableId = previousTable.id;
+                            selectedTable = previousTable;
+                            renderTableView(previousTable);
+                        }
+                    }
+                    return;
+                }
                 renderTablesList();
 
                 const restoredTable = selectedTableId
