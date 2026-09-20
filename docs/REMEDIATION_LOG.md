@@ -245,3 +245,11 @@
 - Files touched: `mysite/core/views.py`, `templates/groups.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Focused local PostgreSQL tenant suite passed 14 tests. The new end-to-end test creates a group and assigned user through the tenant system APIs, then proves the owner groups page has directory access and the groups endpoint returns that member's display name. Public, member, and other-tenant-owner directory requests remain forbidden. Compile, system/deployment checks, migration-drift check, and the full local suite passed in normal, reverse, and shuffled orders (`20260928`, `20260929`) against local `uni_cot_dev` only.
 - Remaining risk: Render must deploy this branch. Owners should open Groups through the tenant system link (`/t/<slug>/<id>/<key>/groups/`); manually opening `/groups/` uses the public schema and cannot show tenant records.
+
+## Correctness — explicit groups member load states (2026-09-20)
+
+- Finding: A failed private users request was rendered as an empty member directory.
+- Change: Added loading, successful-empty, data, and error states; 401/403, 429, and network/server failures now show distinct guidance without clearing prior member data.
+- Files touched: `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template state branches are source-checked; runtime browser verification remains pending.
+- Remaining risk: The owner must still authenticate on the matching tenant path for private directory data.

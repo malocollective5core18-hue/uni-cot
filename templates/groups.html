@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Member Database | Groups</title>
+    <script src="{% static 'js/tenant-sync.js' %}" defer></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcpqnmdas/image/upload/t_uni2/uni1_bmlyut.png">
     
@@ -1417,6 +1418,19 @@
         const INDEX_URL = TENANT_BASE_PATH ? `${TENANT_BASE_PATH}/system/` : "/system/";
         const API_BASE_URL = TENANT_BASE_PATH ? `${TENANT_BASE_PATH}/api` : '/api';
         const OWNER_DIRECTORY_ACCESS = {{ owner_directory_access|yesno:"true,false" }};
+        let membersLoadState = OWNER_DIRECTORY_ACCESS ? 'loading' : 'error';
+        let membersLoadError = OWNER_DIRECTORY_ACCESS ? null : { status: 403 };
+        let membersLastUpdatedAt = null;
+
+        function setMembersLoadState(state, error = null) {
+            membersLoadState = state;
+            membersLoadError = error;
+            loadMembersTable();
+        }
+
+        function membersSystemLink() {
+            return INDEX_URL ? `<a href="${INDEX_URL}">Open tenant system</a>` : '';
+        }
 
         function showPageLoader(message = 'Loading') {
             const loader = document.getElementById('pageLoader');
@@ -1906,12 +1920,13 @@
         function explainMemberAccessError(error) {
             const status = Number(error?.status || 0);
             if (status === 401 || status === 403) {
-                return 'You do not have access to the member directory. Sign in as this tenant\'s owner.';
+                return `Owner sign-in is required to view the private member directory. ${membersSystemLink()}`;
             }
             if (status === 429) {
                 return 'Too many requests, retrying shortly.';
             }
-            return 'Unable to load members right now.';
+            if (status >= 500 || !status) return 'Could not load members, retry.';
+            return 'Could not load members, retry.';
         }
 
         function handleMemberPollingError(error) {
@@ -1945,7 +1960,7 @@
                     fetch('/api/registration-fields/').then(response => response.json()),
                     OWNER_DIRECTORY_ACCESS
                         ? fetchAllApiPages('/api/users/')
-                        : Promise.resolve({ success: true, data: [] }),
+                        : Promise.resolve({ success: false, accessDenied: true }),
                     fetchAllApiPages('/api/groups/?include_members=1'),
                 ]);
 
@@ -1979,14 +1994,15 @@
                         status: user.status || 'active',
                         case_info: user.case_info || ''
                     }));
+                    setMembersLoadState(members.length ? 'data' : 'empty');
+                    membersLastUpdatedAt = new Date();
                     console.log('Loaded members from database:', members.length);
                 } else {
-                    members = [];
                     const error = usersResult.reason;
-                    console.warn('Unable to load members from the API:', error);
-                    if (error && !handleMemberPollingError(error)) {
-                        showMessage(explainMemberAccessError(error), 'error');
-                    }
+                    const accessError = error || (usersResult.value?.accessDenied ? { status: 403 } : null);
+                    setMembersLoadState('error', accessError || { status: 500 });
+                    console.warn('Unable to load members from the API:', accessError);
+                    if (accessError) handleMemberPollingError(accessError);
                 }
 
                 if (groupsResult.status === 'fulfilled' && groupsResult.value.success) {
@@ -2229,11 +2245,27 @@
 
             tbody.innerHTML = '';
 
+            if (membersLoadState === 'loading') {
+                tbody.innerHTML = '<tr><td colspan="' + (getDisplayableMemberFields().length + 4) + '" class="empty-state"><h3>Loading members…</h3><p>Checking the member directory.</p></td></tr>';
+                return;
+            }
+
+            if (membersLoadState === 'error') {
+                const status = Number(membersLoadError?.status || 0);
+                const message = status === 403 || status === 401
+                    ? `Owner sign-in is required to view the private member directory. ${membersSystemLink()}`
+                    : status === 429
+                        ? 'Too many requests, retrying shortly.'
+                        : 'Could not load members, retry.';
+                tbody.innerHTML = `<tr><td colspan="${getDisplayableMemberFields().length + 4}" class="empty-state"><h3>Members unavailable</h3><p>${message}</p></td></tr>`;
+                return;
+            }
+
             if (filteredMembers.length === 0 && !hasActiveMemberFilters()) {
                 filteredMembers = [...members];
             }
 
-            if (filteredMembers.length === 0) {
+            if (membersLoadState === 'empty' && filteredMembers.length === 0) {
                 const colspan = getDisplayableMemberFields().length + 4;
                 tbody.innerHTML = `
                     <tr>
