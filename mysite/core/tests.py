@@ -459,6 +459,38 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         payload = json.loads(api_response.content)
         self.assertTrue(payload["success"])
 
+    def test_public_group_member_summary_has_name_without_directory_pii(self):
+        group = UserGroup.objects.create(
+            group_name="Public Group", max_members=10, created_by=self.owner.id
+        )
+        user = User.objects.create(
+            full_name="Visible Group Member",
+            registration_number="PUBLIC-GROUP-001",
+            email="private@example.com",
+            phone="123456",
+            created_by=self.owner.id,
+            group_name=group.group_name,
+        )
+        UserGroupMember.objects.create(user_id=user.id, group_id=group.id, status="active")
+
+        self.client.post(
+            f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/logout/",
+            follow=True,
+        )
+        path = f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/api/groups/?include_members=1"
+        # django-tenants emits four schema switches and pagination counts the
+        # group queryset. The final bulk user-name query makes this bounded at
+        # ten queries, regardless of how many members the group contains.
+        with self.assertNumQueries(10):
+            response = self.client.get(path, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+
+        self.assertEqual(response.status_code, 200)
+        member = response.json()["data"][0]["members"][0]
+        self.assertEqual(member["display_name"], "Visible Group Member")
+        self.assertEqual(
+            set(member), {"id", "user_id", "is_leader", "joined_at", "display_name"}
+        )
+
     def test_properties_and_external_tables_pages_are_public(self):
         self.client.post(f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/logout/", follow=True)
 

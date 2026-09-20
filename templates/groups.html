@@ -1384,6 +1384,7 @@
         let filteredMembers = [];
         let filteredGroups = [];
         let flaggedMembers = [];
+        let groupMemberDetails = new Map();
         let currentCaseId = null;
         let dataFramework = [];
         let registrationsRefreshTimer = null;
@@ -1941,8 +1942,19 @@
 
                 if (groupsResult.status === 'fulfilled' && groupsResult.value.success) {
                     const rawGroups = groupsResult.value.data || [];
+                    groupMemberDetails = new Map();
                     groups = rawGroups.map((group) => {
                         const membersData = Array.isArray(group.members) ? group.members : [];
+                        membersData.forEach((member) => {
+                            const memberId = Number(member.user_id);
+                            if (!Number.isFinite(memberId) || !member.display_name) return;
+                            groupMemberDetails.set(memberId, {
+                                id: memberId,
+                                full_name: member.display_name,
+                                status: 'active',
+                                public_group_member: true,
+                            });
+                        });
                         const leaderMember = membersData.find(m => m.is_leader === true);
                         const groupData = {
                             id: Number(group.id),
@@ -2372,7 +2384,7 @@
 
         // New function to get member by ID
         function getMemberById(id) {
-            return members.find(m => m.id === id);
+            return members.find(m => m.id === id) || groupMemberDetails.get(Number(id));
         }
 
         // New function to open group details modal
@@ -2624,7 +2636,7 @@
         // Get group leader name
         function getGroupLeaderName(group) {
             if (!group.leader) return 'No leader assigned';
-            const leader = members.find(m => m.id === group.leader);
+            const leader = getMemberById(group.leader);
             return leader ? leader.full_name : 'Unknown';
         }
 

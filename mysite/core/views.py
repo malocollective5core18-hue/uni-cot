@@ -1626,6 +1626,25 @@ def api_groups(request, *args, **kwargs):
                             'joined_at': None,
                         })
 
+                # The public groups screen may show names for members already
+                # exposed by that group, but never the protected user-directory
+                # fields (email, phone, or registration number). One bulk
+                # lookup prevents an N+1 query per group member.
+                member_ids = {
+                    entry['user_id']
+                    for entries in members_by_group.values()
+                    for entry in entries
+                }
+                display_names = {
+                    user.id: user.full_name
+                    for user in _scope_users_queryset(request)
+                    .filter(id__in=member_ids, is_active=True)
+                    .only('id', 'full_name')
+                }
+                for entries in members_by_group.values():
+                    for entry in entries:
+                        entry['display_name'] = display_names.get(entry['user_id'], 'Member')
+
             data = [
                 _serialize_group(
                     group,
