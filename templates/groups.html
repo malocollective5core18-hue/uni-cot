@@ -3223,7 +3223,8 @@
             refresh().catch(error => console.warn('Tenant sync refresh failed:', error));
         }
 
-        // TenantLive owns the single polling/subscription path for these resources.
+        // TenantLive owns the single polling/subscription path; it delegates to
+        // window.TenantSync.subscribe internally without a duplicate listener.
 
         // Set up one ETag-aware tenant poller per displayed resource.
         function setupRealTimeSync() {

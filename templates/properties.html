@@ -6,6 +6,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RING-0 | Lost & Found Properties</title>
+    <script src="{% static 'js/tenant-sync.js' %}" defer></script>
+    <script src="{% static 'js/tenant-live.js' %}" defer></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
      <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcpqnmdas/image/upload/t_uni2/uni1_bmlyut.png">
@@ -2580,6 +2582,7 @@ function goBackToMainDashboard() {
     let currentAdminCategoryFilter = 'all';
     let adminProperties = [];
     let adminUpdatesTimer = null;
+    let propertiesTenantLiveStarted = false;
 
     // ==================== URL PARAMETER HANDLING FOR DIRECT ADMIN ACCESS ====================
 
@@ -2675,17 +2678,30 @@ function updateBackButtonText() {
         checkAdminAccess();
 
 function startAdminUpdatesPolling() {
-    if (adminUpdatesTimer || document.hidden) {
-        return;
-    }
-    adminUpdatesTimer = setInterval(checkForPropertyUpdates, 30000);
+    if (propertiesTenantLiveStarted || !window.TenantLive) return;
+    propertiesTenantLiveStarted = true;
+    window.TenantLive.register({
+        resource: 'properties',
+        url: `${API_BASE_URL}/properties/`,
+        isEditing: () => Boolean(document.querySelector('form:focus-within, [role="dialog"]:focus-within')),
+        onData: result => {
+            if (!result || result.success === false || !Array.isArray(result.data)) return;
+            const next = result.data.map(mapApiPropertyToFrontend).filter(Boolean);
+            if (JSON.stringify(next) === JSON.stringify(properties)) return;
+            properties = next;
+            updatePropertiesCount();
+            updateStats();
+            loadGallery();
+        },
+        onError: error => { if (error.type !== 'updated') console.warn('[TenantLive] properties', error); }
+    });
 }
 
 function stopAdminUpdatesPolling() {
     if (!adminUpdatesTimer) {
         return;
     }
-    clearInterval(adminUpdatesTimer);
+    clearTimeout(adminUpdatesTimer);
     adminUpdatesTimer = null;
 }
 
@@ -2786,6 +2802,7 @@ document.addEventListener('visibilitychange', function() {
         updateStats();
         checkForPropertiesNotification();
         window.dispatchEvent(new CustomEvent('propertiesUpdated'));
+        if (window.TenantSync) window.TenantSync.publish('properties');
         try {
             // notify other tabs
             localStorage.setItem('ring0_properties', JSON.stringify({ ts: Date.now() }));
