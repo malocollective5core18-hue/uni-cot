@@ -2858,6 +2858,9 @@ def api_external_table_signup(request, *args, **kwargs):
     email = body.get('email', '').strip()
     phone = body.get('phone', '').strip()
     notes = body.get('notes', '').strip()
+    extra_fields = body.get('fields', {})
+    if not isinstance(extra_fields, dict):
+        extra_fields = {}
 
     if not all([table_id, registration_number, name, email]):
         return JsonResponse({'success': False, 'error': 'All required fields must be provided'}, status=400)
@@ -2886,6 +2889,13 @@ def api_external_table_signup(request, *args, **kwargs):
         'status': 'pending',
         'submitted_at': datetime.now().isoformat(),
     }
+    # Keep the public signup endpoint limited to table-defined fields. Core
+    # identity fields above remain authoritative and cannot be overwritten.
+    protected_fields = set(record_data)
+    for key, value in extra_fields.items():
+        key = str(key).strip()
+        if key and key not in protected_fields and len(key) <= 100:
+            record_data[key] = str(value or '').strip()
 
     try:
         with transaction.atomic():

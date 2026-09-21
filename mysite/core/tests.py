@@ -259,6 +259,15 @@ class MemberPollingTemplateTests(SimpleTestCase):
         self.assertIn('The owner form must use the same configured framework', system_source)
         self.assertLess(len(sync_source.encode('utf-8')), 2048)
 
+    def test_external_signup_uses_public_signup_endpoint_and_spinner_failsafe(self):
+        system_source = (settings.BASE_DIR / 'templates/system_index.html').read_text()
+        external_source = (settings.BASE_DIR / 'templates/external_tables.html').read_text()
+        self.assertIn("fetch('/api/validate-registration/'", system_source)
+        self.assertIn("fetch('/api/external-tables/signup/'", system_source)
+        self.assertIn('let loadingSpinnerFailsafe = null;', system_source)
+        self.assertIn('let loadingSpinnerFailsafe = null;', external_source)
+        self.assertIn('setTimeout(hideLoadingSpinner, 60000)', external_source)
+
 @override_settings(
     PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"],
     SESSION_ENGINE="django.contrib.sessions.backends.db",
@@ -372,6 +381,7 @@ class ExternalTableRecordRegistrationTests(CacheIsolationMixin, TestCase):
                     "registration_number": "REG-QUERY-001",
                     "name": "Signup User",
                     "email": "signup@example.com",
+                    "fields": {"course": "Computer Science"},
                 }
             ),
             content_type="application/json",
@@ -389,6 +399,10 @@ class ExternalTableRecordRegistrationTests(CacheIsolationMixin, TestCase):
             response = views.api_external_table_signup(request)
 
         self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            ExternalTableRecord.objects.get(table=table).data["course"],
+            "Computer Science",
+        )
 
     def test_registration_number_is_unique_within_a_table(self):
         table = ExternalTable.objects.create(table_name="registration_constraint")

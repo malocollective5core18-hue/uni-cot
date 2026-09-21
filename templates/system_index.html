@@ -5921,6 +5921,7 @@ if (!document.getElementById('ring0-temporary-message-style')) {
 }
 
 // ================= LOADING SPINNER FUNCTIONS =================
+let loadingSpinnerFailsafe = null;
 function showLoadingSpinner(text = 'Processing...', subtext = 'Please wait') {
   const overlay = document.getElementById('loadingOverlay');
   const loadingText = document.getElementById('loadingText');
@@ -5929,9 +5930,13 @@ function showLoadingSpinner(text = 'Processing...', subtext = 'Please wait') {
   if (loadingText) loadingText.textContent = text;
   if (loadingSubtext) loadingSubtext.textContent = subtext;
   if (overlay) overlay.classList.add('active');
+  clearTimeout(loadingSpinnerFailsafe);
+  loadingSpinnerFailsafe = setTimeout(hideLoadingSpinner, 60000);
 }
 
 function hideLoadingSpinner() {
+  clearTimeout(loadingSpinnerFailsafe);
+  loadingSpinnerFailsafe = null;
   const overlay = document.getElementById('loadingOverlay');
   if (overlay) overlay.classList.remove('active');
 }
@@ -7942,7 +7947,7 @@ function showExternalTableConnectionStatus(message, type = 'info') {
   statusDiv.textContent = message;
 }
 
-function connectExistingExternalTableFromFramework() {
+async function connectExistingExternalTableFromFramework() {
   const select = document.getElementById('externalTableConnectSelect');
   if (!select || !select.value) {
     showTemporaryMessage('Please select an external table first', 'warning');
@@ -7963,7 +7968,11 @@ function connectExistingExternalTableFromFramework() {
     externalSignupTargetId: String(selectedTable.id),
     externalSignupTargetName: selectedTable.name,
   });
-  void saveRegistrationSettingsState(getRegistrationSettingsState());
+  const saved = await saveRegistrationSettingsState(getRegistrationSettingsState());
+  if (!saved) {
+    showExternalTableConnectionStatus('The table was selected locally, but the connection could not be saved. Please try again.', 'warning');
+    return;
+  }
 
   const switchElem = document.getElementById('externalTableModeSwitch');
   if (switchElem) switchElem.checked = true;
@@ -7975,7 +7984,7 @@ function connectExistingExternalTableFromFramework() {
   showTemporaryMessage(`Connected "${selectedTable.name}" successfully`, 'success');
 }
 
-function toggleExternalTableMode() {
+async function toggleExternalTableMode() {
   const switch_elem = document.getElementById('externalTableModeSwitch');
   const settings = document.getElementById('externalTableSettings');
   if (switch_elem.checked) {
@@ -7998,7 +8007,11 @@ function toggleExternalTableMode() {
     });
     showExternalTableConnectionStatus('External Table Mode is OFF. Member sign-up falls back to default user-management flow.', 'info');
   }
-  void saveRegistrationSettingsState(getRegistrationSettingsState());
+  const saved = await saveRegistrationSettingsState(getRegistrationSettingsState());
+  if (!saved) {
+    showExternalTableConnectionStatus('Could not save External Table Mode. Please try again.', 'warning');
+    return;
+  }
   updateMainMenu();
   renderExternalTableConnectionOptions();
 }
@@ -8144,7 +8157,7 @@ function generateRegistrationFormPreview() {
       </div>
       <div class="form-group" style="margin-bottom:15px;">
         <label class="form-label" style="display:block;margin-bottom:5px;color:var(--text);">Registration Number <span style="color:var(--warning);">*</span></label>
-        <input type="text" class="form-input" placeholder="Enter your registration number" required style="width:100%;">
+        <input type="text" id="externalRegNumberInput" class="form-input" placeholder="Enter your registration number" required style="width:100%;">
       </div>
     `;
     signupFields.forEach(field => {
@@ -10817,24 +10830,31 @@ async function submitExternalTableRegistrationByRegNumber(registrationNumber) {
     return;
   }
 
-  let users = [];
+  showLoadingSpinner('Submitting registration...', 'Saving your external-table entry');
+  let existingUser = null;
   try {
-    const usersResult = await fetchAllApiPages('/api/users/');
-    if (!usersResult.success) {
+    const response = await fetch('/api/validate-registration/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+      body: JSON.stringify({ registration_number: normalizedInput })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
       showTemporaryMessage('Unable to verify your account right now. Please try again later.', 'warning');
+      hideLoadingSpinner();
       return;
     }
-    users = Array.isArray(usersResult.data) ? usersResult.data : [];
+    existingUser = result.valid ? result.user : null;
   } catch (e) {
     console.error('Error verifying registration number:', e);
     showTemporaryMessage('Unable to verify your account right now. Please try again later.', 'warning');
+    hideLoadingSpinner();
     return;
   }
 
-  const normalizedReg = normalizedInput.toLowerCase();
-  const existingUser = users.find(user => String(user.registration_number || '').trim().toLowerCase() === normalizedReg);
   if (!existingUser) {
     showTemporaryMessage('You are not registered in the system. Contact your admin to get signed into the system.', 'warning');
+    hideLoadingSpinner();
     return;
   }
 
@@ -10858,33 +10878,7 @@ async function submitExternalTableRegistrationByRegNumber(registrationNumber) {
 
   if (!extraFieldsValid) {
     showTemporaryMessage('Please fill in all required table-specific fields.', 'warning');
-    return;
-  }
-
-  let existingRecords = [];
-  try {
-    const recordsResult = await fetchAllApiPages(`/api/external-tables/${targetTable.id}/records/`);
-    if (!recordsResult.success) throw new Error(recordsResult.error || 'Failed to load records');
-    existingRecords = Array.isArray(recordsResult.data) ? recordsResult.data : [];
-  } catch (error) {
-    console.error('Could not fetch external table records:', error);
-    showTemporaryMessage('Unable to load the connected table right now. Please try again.', 'warning');
-    return;
-  }
-
-  const alreadyExists = existingRecords.some(record => {
-    const recordData = record.record_data || (() => {
-      try {
-        return typeof record.data === 'string' ? JSON.parse(record.data || '{}') : (record.data || {});
-      } catch (e) {
-        return {};
-      }
-    })();
-    return String(recordData.registration_number || '').trim().toLowerCase() === normalizedReg;
-  });
-
-  if (alreadyExists) {
-    showTemporaryMessage('You already exist on this table. Please confirm with your admin.', 'warning');
+    hideLoadingSpinner();
     return;
   }
 
@@ -10904,14 +10898,20 @@ async function submitExternalTableRegistrationByRegNumber(registrationNumber) {
   };
 
   try {
-    const response = await fetch(`/api/external-tables/${targetTable.id}/records/`, {
+    const response = await fetch('/api/external-tables/signup/', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRFToken': getCSRFToken(),
       },
       body: JSON.stringify({
-        data: newRecord
+        table_id: targetTable.id,
+        registration_number: newRecord.registration_number,
+        name: newRecord.full_name,
+        email: newRecord.email || `${newRecord.registration_number}@registration.invalid`,
+        phone: newRecord.phone,
+        notes: newRecord.notes,
+        fields: extraFieldData
       })
     });
     const result = await response.json();
@@ -10923,6 +10923,8 @@ async function submitExternalTableRegistrationByRegNumber(registrationNumber) {
     console.warn('Could not sync external table record to backend:', e);
     showTemporaryMessage('Unable to save your registration right now. Please try again.', 'error');
     return;
+  } finally {
+    hideLoadingSpinner();
   }
 
   closeRegistrationForm();
@@ -10960,11 +10962,6 @@ async function submitMemberRegistration(event) {
     }
   });
 
-  if (!newMember.full_name || !newMember.registration_number) {
-    showTemporaryMessage('Full name and registration number are required.', 'warning');
-    return;
-  }
-
   if (!isValid) {
     showTemporaryMessage('Please fill in all required fields', 'warning');
     return;
@@ -10975,7 +10972,13 @@ async function submitMemberRegistration(event) {
   const useExternalTable = externalModeEnabled && registrationMode === 'external_table';
 
   if (useExternalTable) {
-    await submitExternalTableRegistrationByRegNumber(newMember.registration_number);
+    const externalInput = document.getElementById('externalRegNumberInput');
+    await submitExternalTableRegistrationByRegNumber(externalInput?.value || newMember.registration_number);
+    return;
+  }
+
+  if (!newMember.full_name || !newMember.registration_number) {
+    showTemporaryMessage('Full name and registration number are required.', 'warning');
     return;
   }
 

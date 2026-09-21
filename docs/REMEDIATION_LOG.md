@@ -1,5 +1,26 @@
 # Remediation Log
 
+## Spinner lifecycle and external-table registration (2026-09-21)
+
+- Finding: several system/external-table actions did not show progress, while
+  navigation or failed async actions could leave the full-screen overlay active.
+  Public External Table Mode also attempted owner-only `/api/users/` and
+  owner-only record creation, so a connected table was not a reliable public
+  signup target.
+- Change: added a 60-second spinner failsafe and operation feedback for table
+  create/delete/member actions; public signup now uses registration validation
+  plus the public external-table signup endpoint, preserves table-specific
+  fields, and persists the owner’s selected table connection through tenant
+  system settings. Owner add-member forms continue to use the selected table’s
+  framework schema.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`,
+  `templates/system_index.html`, `templates/external_tables.html`.
+- Evidence: focused external/template tests pass (7 tests), full suite found
+  120 tests and passed, compile/check/deploy/migration checks pass; deploy check
+  has only the expected placeholder-secret warning.
+- Remaining risk: cross-device browser verification of the public signup flow
+  remains manual; the configured table must be active and visible.
+
 ## Public realtime WebSocket Phase B (2026-09-21)
 
 - Finding: public visitors could only discover cross-device changes through
