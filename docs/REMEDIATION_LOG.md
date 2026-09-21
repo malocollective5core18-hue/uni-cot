@@ -1,5 +1,19 @@
 # Remediation Log
 
+## Frontend load quick wins (2026-09-21)
+
+- Finding: the performance audit measured large inline pages and redundant
+  third-party work; `properties.html` loaded two Supabase bundles despite no
+  Supabase usage in the template.
+- Change: removed the unused duplicate Supabase downloads and added early
+  preconnects for the font, icon, and Cloudinary origins used by the pages.
+- Files touched: `templates/index.html`, `templates/system_index.html`, `templates/groups.html`,
+  `templates/properties.html`, `templates/external_tables.html`.
+- Evidence: static source audit shows the duplicate Supabase tags are gone;
+  no API, tenant, authentication, or data shape changed.
+- Remaining risk: bundle splitting and image transformations require browser
+  performance traces and should be measured before a larger refactor.
+
 ## Spinner lifecycle and external-table registration (2026-09-21)
 
 - Finding: several system/external-table actions did not show progress, while

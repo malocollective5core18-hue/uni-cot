@@ -9,16 +9,15 @@
     <script src="{% static 'js/tenant-sync.js' %}" defer></script>
     <script src="{% static 'js/tenant-live.js' %}" defer></script>
     <script>window.REALTIME_PUBLIC_ENABLED={{ realtime_public_enabled|yesno:"true,false" }};</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="preconnect" href="https://res.cloudinary.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
      <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcpqnmdas/image/upload/t_uni2/uni1_bmlyut.png">
 
-    <!-- Supabase JS (required for realtime and DB) -->
-    <!-- NEW (v2.x) -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.38.0/dist/umd/supabase.min.js"></script>
-
-    <!-- Modular integration scripts (disabled - files not present) -->
+    <!-- Modular integration scripts are intentionally omitted; this page uses
+         the tenant-scoped Django APIs below. -->
     <!--
     <script src="js/config.js"></script>
     <script src="js/deployment.js"></script>
