@@ -2354,6 +2354,7 @@
         }
 
         // ================= LOADING SPINNER FUNCTIONS =================
+        let loadingSpinnerFailsafe = null;
         function showLoadingSpinner(text = 'Processing...', subtext = 'Please wait') {
             const overlay = document.getElementById('loadingOverlay');
             const loadingText = document.getElementById('loadingText');
@@ -2362,9 +2363,13 @@
             if (loadingText) loadingText.textContent = text;
             if (loadingSubtext) loadingSubtext.textContent = subtext;
             if (overlay) overlay.classList.add('active');
+            clearTimeout(loadingSpinnerFailsafe);
+            loadingSpinnerFailsafe = setTimeout(hideLoadingSpinner, 60000);
         }
 
         function hideLoadingSpinner() {
+            clearTimeout(loadingSpinnerFailsafe);
+            loadingSpinnerFailsafe = null;
             const overlay = document.getElementById('loadingOverlay');
             if (overlay) overlay.classList.remove('active');
         }
@@ -2395,6 +2400,7 @@
         document.addEventListener('click', (event) => {
             const link = event.target.closest('a[href]');
             if (!link) return;
+            if (!link.dataset.loadingText) return;
             const href = link.getAttribute('href') || '';
             if (
                 !href ||
@@ -3065,6 +3071,7 @@
                 return;
             }
 
+            showLoadingSpinner('Creating table...', 'Saving the table and framework');
             try {
                 const result = await apiJson('/api/external-tables/', {
                     method: 'POST',
@@ -3085,6 +3092,8 @@
                 console.warn('Could not save table to backend:', error);
                 showMessage(`Error creating table: ${error.message}`, 'error');
                 return;
+            } finally {
+                hideLoadingSpinner();
             }
 
             // Fallback local-only path is intentionally avoided because the database is the source of truth.
@@ -3095,6 +3104,7 @@
         function deleteTable(tableId) {
             if (confirm('Are you sure you want to delete this table? All members in it will be permanently deleted.')) {
                 (async () => {
+                    showLoadingSpinner('Deleting table...', 'Removing table records');
                     try {
                         await apiJson(`/api/external-tables/${tableId}/`, { method: 'DELETE' });
                         await loadTables();
@@ -3112,6 +3122,8 @@
                         showMessage('Table deleted successfully', 'success');
                     } catch (error) {
                         showMessage(error.message || 'Could not delete table', 'error');
+                    } finally {
+                        hideLoadingSpinner();
                     }
                 })();
             }
@@ -3273,6 +3285,7 @@
                 return;
             }
 
+            showLoadingSpinner('Adding member...', 'Saving the member to the selected table');
             try {
                 const usersResponse = await fetch('/api/users/');
                 const usersResult = await usersResponse.json();
@@ -3324,6 +3337,8 @@
                 console.warn('Could not save member to backend:', error);
                 showMessage(error.message || 'Could not save member', 'error');
                 return;
+            } finally {
+                hideLoadingSpinner();
             }
         }
 
@@ -3331,6 +3346,7 @@
         function deleteMember(tableId, memberId) {
             if (confirm('Are you sure you want to delete this member?')) {
                 (async () => {
+                    showLoadingSpinner('Deleting member...', 'Updating the external table');
                     try {
                         await apiJson(`/api/external-tables/${tableId}/records/${memberId}/`, { method: 'DELETE' });
                         const table = removeMemberFromLocalTable(tableId, memberId);
@@ -3344,6 +3360,8 @@
                         showMessage('Member deleted successfully', 'success');
                     } catch (error) {
                         showMessage(error.message || 'Could not delete member', 'error');
+                    } finally {
+                        hideLoadingSpinner();
                     }
                 })();
             }

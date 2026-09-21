@@ -1,5 +1,82 @@
 # Remediation Log
 
+## Spinner lifecycle and external-table registration (2026-09-21)
+
+- Finding: several system/external-table actions did not show progress, while
+  navigation or failed async actions could leave the full-screen overlay active.
+  Public External Table Mode also attempted owner-only `/api/users/` and
+  owner-only record creation, so a connected table was not a reliable public
+  signup target.
+- Change: added a 60-second spinner failsafe and operation feedback for table
+  create/delete/member actions; public signup now uses registration validation
+  plus the public external-table signup endpoint, preserves table-specific
+  fields, and persists the owner’s selected table connection through tenant
+  system settings. Owner add-member forms continue to use the selected table’s
+  framework schema.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`,
+  `templates/system_index.html`, `templates/external_tables.html`.
+- Evidence: focused external/template tests pass (7 tests), full suite found
+  120 tests and passed, compile/check/deploy/migration checks pass; deploy check
+  has only the expected placeholder-secret warning.
+- Remaining risk: cross-device browser verification of the public signup flow
+  remains manual; the configured table must be active and visible.
+
+## Public realtime WebSocket Phase B (2026-09-21)
+
+- Finding: public visitors could only discover cross-device changes through
+  30-second polling; the authenticated socket intentionally rejected anonymous
+  sessions.
+- Change: added an opt-in anonymous notification route with exact ready-tenant
+  path resolution, same-origin validation, allowlisted public resource groups,
+  per-IP/tenant/global capacity limits, idle/attempt limits, minimal payloads,
+  and client reconnect/catch-up integration. Existing ETag polling remains the
+  fallback and the flag defaults off.
+- Files touched: `mysite/realtime.py`, `mysite/realtime_routing.py`,
+  `mysite/mysite/settings.py`, `mysite/core/views.py`, `mysite/service/views.py`,
+  `static/js/tenant-live.js`, four tenant templates, realtime tests,
+  `docs/DEPLOY_RENDER_FREE.md`, `docs/PUBLIC_REALTIME_REPORT.md`.
+- Evidence: 12 focused public socket/capacity tests pass; JavaScript is 2,999
+  bytes and syntax-valid. The full 119-test suite passes in normal, reverse,
+  and two shuffled orders; compile/check/deploy/migration gates pass.
+- Remaining risk: no 100/300 idle-socket RSS/CPU/latency numbers are available,
+  so Render enablement is NO-GO until measured. Keep the feature flag false.
+
+## Slider realtime regression follow-up (2026-09-21)
+
+- Finding: the shared TenantLive slider adapter treated the public slider as
+  inactive unless its overlay or admin section was open, so an open tenant
+  page could remain stale after an image was posted on another device.
+- Change: kept the slider resource active whenever the visible tenant page is
+  loaded; TenantLive still enforces visibility pause, single-flight requests,
+  ETags, and backoff.
+- Files touched: `templates/system_index.html`.
+- Evidence: targeted template tests (2) and full suite (107) pass; compileall
+  and Django check pass.
+- Remaining risk: cross-device browser verification remains manual; polling
+  delay is normally up to 30 seconds.
+
+## Live updates: mutation reconciliation (2026-09-21)
+
+- Finding: update/delete mutations invalidated only some cache families and
+  often published no tenant notification; cached JSON lacked explicit
+  revalidation/session variance headers; client refreshers could clear good
+  state on transient errors or leave deleted records rendered.
+- Change: centralized post-commit cache-version invalidation and resource
+  publication in `core.views`; mapped user/group/table mutations to the
+  affected live families; added `Cache-Control: no-cache` and `Vary: Cookie`;
+  made system, groups, external-table, and properties adapters reconcile full
+  successful lists and preserve state on failures; owner writes now refresh
+  their TenantLive resource immediately.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`,
+  `templates/system_index.html`, `templates/groups.html`,
+  `templates/external_tables.html`, `templates/properties.html`,
+  `docs/LIVE_UPDATES_FIX_REPORT.md`.
+- Evidence: fail-first matrix recorded five pre-fix failures; focused mutation
+  tests pass; full normal/reverse/shuffle suites pass with 107 tests; checks,
+  compileall, migration check, and TenantLive Node tests pass.
+- Remaining risk: browser two-device verification was not available; polling
+  remains eventual (normally up to about 30 seconds), not instantaneous.
+
 ## STEP 0 — Baseline (2026-09-19)
 
 - Finding: Baseline required before remediation.
