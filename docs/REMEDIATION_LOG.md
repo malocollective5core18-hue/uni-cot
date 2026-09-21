@@ -1,5 +1,25 @@
 # Remediation Log
 
+## Public realtime WebSocket Phase B (2026-09-21)
+
+- Finding: public visitors could only discover cross-device changes through
+  30-second polling; the authenticated socket intentionally rejected anonymous
+  sessions.
+- Change: added an opt-in anonymous notification route with exact ready-tenant
+  path resolution, same-origin validation, allowlisted public resource groups,
+  per-IP/tenant/global capacity limits, idle/attempt limits, minimal payloads,
+  and client reconnect/catch-up integration. Existing ETag polling remains the
+  fallback and the flag defaults off.
+- Files touched: `mysite/realtime.py`, `mysite/realtime_routing.py`,
+  `mysite/mysite/settings.py`, `mysite/core/views.py`, `mysite/service/views.py`,
+  `static/js/tenant-live.js`, four tenant templates, realtime tests,
+  `docs/DEPLOY_RENDER_FREE.md`, `docs/PUBLIC_REALTIME_REPORT.md`.
+- Evidence: 12 focused public socket/capacity tests pass; JavaScript is 2,999
+  bytes and syntax-valid. The full 119-test suite passes in normal, reverse,
+  and two shuffled orders; compile/check/deploy/migration gates pass.
+- Remaining risk: no 100/300 idle-socket RSS/CPU/latency numbers are available,
+  so Render enablement is NO-GO until measured. Keep the feature flag false.
+
 ## Slider realtime regression follow-up (2026-09-21)
 
 - Finding: the shared TenantLive slider adapter treated the public slider as

@@ -8,6 +8,7 @@ import asyncio
 import importlib
 import logging
 import threading
+from urllib.parse import urlsplit
 from hashlib import sha256
 from time import monotonic, time
 
@@ -35,7 +36,9 @@ RESOURCE_FAMILIES = {
     'table-records': 'external_tables',
     'slider-images': 'slider_images',
     'countdown-cards': 'countdown_cards',
+    'public-members': 'users',
 }
+PUBLIC_RESOURCES = ('slider-images', 'countdown-cards', 'public-members', 'groups')
 
 CLOSE_UNAUTHENTICATED = 4401
 CLOSE_FORBIDDEN = 4403
@@ -53,6 +56,12 @@ def channel_group_name(tenant_key, resource):
     # in a physical group name. Dots preserve the required three components;
     # colons are only used in the human-readable logical notation in docs.
     return f't.{tenant_key}.{resource}'
+
+
+def public_channel_group_name(tenant_key, resource):
+    if resource not in PUBLIC_RESOURCES:
+        raise ValueError('Unknown public realtime resource')
+    return f't.{tenant_key}.public.{resource}'
 
 
 def _set_public_schema():
@@ -219,10 +228,12 @@ def _publish_debounced(tenant_key, resource):
             return
         family = RESOURCE_FAMILIES[resource]
         version = cache.get(_cache_version_key_for_tenant(tenant, family), 1)
-        async_to_sync(get_channel_layer().group_send)(
-            channel_group_name(tenant_key, resource),
-            {'type': 'realtime.changed', 'v': 1, 'resource': resource, 'version': version},
-        )
+        payload = {'type': 'realtime.changed', 'v': 1, 'resource': resource, 'version': version}
+        layer = get_channel_layer()
+        async_to_sync(layer.group_send)(channel_group_name(tenant_key, resource), payload)
+        public_resource = 'public-members' if resource == 'members' else resource
+        if getattr(settings, 'REALTIME_PUBLIC_ENABLED', False) and public_resource in PUBLIC_RESOURCES:
+            async_to_sync(layer.group_send)(public_channel_group_name(tenant_key, public_resource), payload)
     except Exception:
         logger.exception('Realtime publish failed for tenant resource change.')
     finally:
@@ -333,6 +344,109 @@ class RealtimeConsumer(AsyncJsonWebsocketConsumer):
         })
 
     async def _idle_watch(self):
+        while True:
+            await asyncio.sleep(settings.REALTIME_HEARTBEAT_SECONDS)
+            if monotonic() - self.last_activity > settings.REALTIME_IDLE_SECONDS:
+                await self.close(code=CLOSE_FORBIDDEN)
+                return
+            await self.send_json({'type': 'heartbeat'})
+
+
+def _public_client_address(scope):
+    peer = (scope.get('client') or ('unknown',))[0]
+    headers = dict(scope.get('headers') or [])
+    forwarded = headers.get(b'x-forwarded-for', b'').decode().split(',')
+    if peer in set(getattr(settings, 'TRUSTED_PROXY_IPS', ())):
+        if forwarded and forwarded[0].strip():
+            return forwarded[0].strip()
+    return peer or 'unknown'
+
+
+def reserve_public_connection(tenant_key, client_address):
+    """Reserve public capacity; return keys for unconditional disconnect release."""
+    attempt = _counter_key('public-attempt', client_address)
+    if not _increment_counter(attempt, settings.REALTIME_PUBLIC_CONNECTION_LIMIT,
+                              settings.REALTIME_CONNECTION_WINDOW_SECONDS):
+        return None
+    keys = (
+        'realtime:public:total',
+        _counter_key('public-ip', client_address),
+        _counter_key('public-tenant', tenant_key),
+    )
+    limits = (settings.REALTIME_PUBLIC_MAX_SOCKETS_TOTAL,
+              settings.REALTIME_PUBLIC_MAX_SOCKETS_PER_IP,
+              settings.REALTIME_PUBLIC_MAX_SOCKETS_PER_TENANT)
+    reserved = []
+    for key, limit in zip(keys, limits):
+        if _increment_counter(key, limit, settings.REALTIME_IDLE_SECONDS):
+            reserved.append(key)
+            continue
+        for held in reserved:
+            _decrement_counter(held)
+        return None
+    return keys
+
+
+def release_public_connection(reservation):
+    for key in reservation or ():
+        _decrement_counter(key)
+
+
+class PublicRealtimeConsumer(AsyncJsonWebsocketConsumer):
+    """Anonymous notification-only transport; HTTP remains the data authority."""
+
+    async def connect(self):
+        if not getattr(settings, 'REALTIME_PUBLIC_ENABLED', False):
+            await self.close(code=CLOSE_FORBIDDEN)
+            return
+        headers = dict(self.scope.get('headers') or [])
+        origin = headers.get(b'origin', b'').decode().strip()
+        host = headers.get(b'host', b'').decode().strip().lower()
+        origin_host = urlsplit(origin).netloc.lower() if origin else ''
+        if not origin_host or origin_host != host:
+            await self.close(code=CLOSE_FORBIDDEN)
+            return
+        kwargs = self.scope.get('url_route', {}).get('kwargs', {})
+        tenant, failure = await database_sync_to_async(resolve_ready_path_tenant)(
+            kwargs.get('tenant_slug'), kwargs.get('tenant_id'), kwargs.get('tenant_key')
+        )
+        if failure:
+            await self.close(code=CLOSE_TENANT_NOT_READY if failure in {'unknown', 'not_ready'} else CLOSE_FORBIDDEN)
+            return
+        address = _public_client_address(self.scope)
+        self.reservation = await _async_sync(reserve_public_connection, tenant.tenant_key, address)
+        if not self.reservation:
+            await self.close(code=CLOSE_LIMIT_REACHED)
+            return
+        self.groups = [public_channel_group_name(tenant.tenant_key, resource) for resource in PUBLIC_RESOURCES]
+        for group in self.groups:
+            await self.channel_layer.group_add(group, self.channel_name)
+        self.tenant_path = (kwargs['tenant_slug'], kwargs['tenant_id'], kwargs['tenant_key'])
+        self.last_activity = monotonic()
+        await self.accept()
+        self.idle_task = asyncio.create_task(self._watch_idle())
+
+    async def disconnect(self, close_code):
+        task = getattr(self, 'idle_task', None)
+        if task:
+            task.cancel()
+        for group in getattr(self, 'groups', []):
+            await self.channel_layer.group_discard(group, self.channel_name)
+        await _async_sync(release_public_connection, getattr(self, 'reservation', None))
+
+    async def receive_json(self, content, **kwargs):
+        if content != {'type': 'ping'}:
+            await self.close(code=CLOSE_FORBIDDEN)
+            return
+        self.last_activity = monotonic()
+
+    async def realtime_changed(self, event):
+        resource = event.get('resource')
+        if resource not in PUBLIC_RESOURCES:
+            return
+        await self.send_json({'v': 1, 'type': 'changed', 'resource': resource, 'version': event['version']})
+
+    async def _watch_idle(self):
         while True:
             await asyncio.sleep(settings.REALTIME_HEARTBEAT_SECONDS)
             if monotonic() - self.last_activity > settings.REALTIME_IDLE_SECONDS:

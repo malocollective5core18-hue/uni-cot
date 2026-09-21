@@ -68,6 +68,25 @@ gunicorn mysite.wsgi:application --bind 0.0.0.0:$PORT --workers 1
 
 Keep this WSGI command as the deployed command until the Phase 1 ASGI socket benchmark is recorded as acceptable. The planned ASGI command is documented in `docs/REALTIME_DESIGN.md` and must not be deployed yet.
 
+### Optional public realtime rollout
+
+Public WebSockets are disabled by default. To enable the separately reviewed
+feature, set `REALTIME_PUBLIC_ENABLED=true` and use the ASGI command only after
+the socket measurement gate passes:
+
+```bash
+gunicorn mysite.asgi:application -k uvicorn_worker.UvicornWorker --workers 1 --bind 0.0.0.0:$PORT -c gunicorn.conf.py
+```
+
+Conservative limits are configurable with `REALTIME_PUBLIC_MAX_SOCKETS_PER_IP`
+(3), `REALTIME_PUBLIC_MAX_SOCKETS_PER_TENANT` (50),
+`REALTIME_PUBLIC_MAX_SOCKETS_TOTAL` (100), and
+`REALTIME_PUBLIC_CONNECTION_LIMIT` (20 attempts per window). The socket sends
+only resource/version notifications; HTTP ETag endpoints remain authoritative
+and polling remains the fallback. Set `REALTIME_PUBLIC_ENABLED=false` to turn
+it off immediately. Roll back to the WSGI command above if memory, latency,
+Redis health, or disconnect rates are unacceptable.
+
 Bootstrap/manual deployment step:
 
 ```bash

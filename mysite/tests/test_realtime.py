@@ -22,6 +22,8 @@ from mysite.realtime import (
     channel_group_name,
     invalidate_resource_family,
     publish_changed,
+    reserve_public_connection,
+    release_public_connection,
 )
 from service.models import OwnerUser
 
@@ -226,6 +228,71 @@ class RealtimeWebSocketTests(TransactionTestCase):
                 self.assertEqual(code, CLOSE_LIMIT_REACHED)
                 await first.disconnect()
 
+        async_to_sync(scenario)()
+
+
+class PublicRealtimeWebSocketTests(RealtimeWebSocketTests):
+    def _public_path(self, tenant=None):
+        tenant = tenant or self.tenant
+        return f'/t/{tenant.subdomain}/{tenant.id}/{tenant.tenant_key}/ws/public/'
+
+    async def _connect_public(self, path, origin=b'http://testserver'):
+        communicator = RealtimeCommunicator(application, path, headers=[
+            (b'origin', origin), (b'host', b'testserver'),
+        ])
+        connected, detail = await communicator.connect()
+        return communicator, connected, detail
+
+    def test_public_flag_off_rejects_without_capacity_or_polling_change(self):
+        async def scenario():
+            with override_settings(REALTIME_PUBLIC_ENABLED=False):
+                socket, connected, code = await self._connect_public(self._public_path())
+                self.assertFalse(connected)
+                self.assertEqual(code, CLOSE_FORBIDDEN)
+        async_to_sync(scenario)()
+
+    def test_public_capacity_counters_release_on_disconnect(self):
+        with override_settings(
+            REALTIME_PUBLIC_MAX_SOCKETS_TOTAL=1,
+            REALTIME_PUBLIC_MAX_SOCKETS_PER_IP=1,
+            REALTIME_PUBLIC_MAX_SOCKETS_PER_TENANT=1,
+        ):
+            reservation = reserve_public_connection(self.tenant.tenant_key, '198.51.100.10')
+            self.assertIsNotNone(reservation)
+            self.assertIsNone(reserve_public_connection(self.tenant.tenant_key, '198.51.100.10'))
+            release_public_connection(reservation)
+            replacement = reserve_public_connection(self.tenant.tenant_key, '198.51.100.10')
+            self.assertIsNotNone(replacement)
+            release_public_connection(replacement)
+
+    def test_public_socket_receives_allowlisted_minimal_event(self):
+        async def scenario():
+            with override_settings(REALTIME_PUBLIC_ENABLED=True):
+                socket, connected, _ = await self._connect_public(self._public_path())
+                self.assertTrue(connected)
+                await get_channel_layer().group_send(
+                    f't.{self.tenant.tenant_key}.public.slider-images',
+                    {'type': 'realtime.changed', 'v': 1, 'resource': 'slider-images', 'version': 9, 'secret': 'no'},
+                )
+                self.assertEqual(await socket.receive_json_from(), {
+                    'v': 1, 'type': 'changed', 'resource': 'slider-images', 'version': 9,
+                })
+                await socket.disconnect()
+        async_to_sync(scenario)()
+
+    def test_public_socket_rejects_bad_origin_and_owner_resources(self):
+        async def scenario():
+            with override_settings(REALTIME_PUBLIC_ENABLED=True):
+                socket, connected, code = await self._connect_public(self._public_path(), b'https://evil.invalid')
+                self.assertFalse(connected)
+                socket, connected, _ = await self._connect_public(self._public_path())
+                self.assertTrue(connected)
+                await get_channel_layer().group_send(
+                    f't.{self.tenant.tenant_key}.public.users',
+                    {'type': 'realtime.changed', 'resource': 'users', 'version': 2},
+                )
+                self.assertTrue(await socket.receive_nothing(timeout=0.1))
+                await socket.disconnect()
         async_to_sync(scenario)()
 
 

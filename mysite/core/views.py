@@ -607,6 +607,7 @@ def groups(request, *args, **kwargs):
     return render(request, 'groups.html', {
         'tenant_base_path': _tenant_base_path(request),
         'owner_directory_access': owner_directory_access,
+        'realtime_public_enabled': bool(getattr(settings, 'REALTIME_PUBLIC_ENABLED', False) and not owner_directory_access),
     })
 
 
@@ -614,6 +615,7 @@ def groups(request, *args, **kwargs):
 def properties(request, *args, **kwargs):
     return render(request, 'properties.html', {
         'tenant_base_path': _tenant_base_path(request),
+        'realtime_public_enabled': bool(getattr(settings, 'REALTIME_PUBLIC_ENABLED', False) and not _has_owner_system_access(request)),
     })
 
 
@@ -638,6 +640,7 @@ def external_tables(request, *args, **kwargs):
     return render(request, 'external_tables.html', {
         'framework_fields': framework_fields,
         'tenant_base_path': _tenant_base_path(request),
+        'realtime_public_enabled': bool(getattr(settings, 'REALTIME_PUBLIC_ENABLED', False) and not _has_owner_system_access(request)),
     })
 
 

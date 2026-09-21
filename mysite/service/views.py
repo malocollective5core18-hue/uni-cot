@@ -707,6 +707,10 @@ def system_demo(request, *args, **kwargs):
         'owner_analytics': analytics,
         'tenant_requires_owner_admin_gate': tenant_requires_owner_admin_gate,
         'owner_admin_authenticated': owner_admin_authenticated,
+        'realtime_public_enabled': bool(
+            getattr(settings, 'REALTIME_PUBLIC_ENABLED', False)
+            and not owner_admin_authenticated
+        ),
     })
 
 

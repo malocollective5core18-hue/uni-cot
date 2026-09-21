@@ -8,6 +8,7 @@
     <title>RING-0 | Lost & Found Properties</title>
     <script src="{% static 'js/tenant-sync.js' %}" defer></script>
     <script src="{% static 'js/tenant-live.js' %}" defer></script>
+    <script>window.REALTIME_PUBLIC_ENABLED={{ realtime_public_enabled|yesno:"true,false" }};</script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
      <link rel="icon" type="image/png" href="https://res.cloudinary.com/dcpqnmdas/image/upload/t_uni2/uni1_bmlyut.png">
