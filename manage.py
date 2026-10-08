@@ -3,6 +3,7 @@
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 def main():
@@ -13,6 +14,24 @@ def main():
         sys.path.insert(0, str(project_root))
     if str(django_root) not in sys.path:
         sys.path.insert(1, str(django_root))
+    command = sys.argv[1] if len(sys.argv) > 1 else ""
+    ddl_commands = {"migrate_schemas", "process_provisioning_jobs", "provision_tenants"}
+    if command in ddl_commands:
+        import logging
+        logger = logging.getLogger(__name__)
+        provisioning_url = os.getenv("PROVISIONING_DATABASE_URL")
+        database_url = provisioning_url or os.getenv("DATABASE_URL", "")
+        if urlsplit(database_url).port == 6543:
+            logger.warning(
+                "DDL command %s was requested with a transaction-mode database URL (port 6543); "
+                "set PROVISIONING_DATABASE_URL to a Supabase session-pooler (5432) or direct URL. "
+                "No DDL will be attempted over transaction mode.",
+                command,
+            )
+            raise SystemExit(2)
+        if provisioning_url:
+            os.environ["DATABASE_URL"] = provisioning_url
+
     if 'test' in sys.argv[1:]:
         os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.test_settings')
     else:

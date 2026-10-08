@@ -1,0 +1,83 @@
+services:
+  - type: web
+    name: uni-cot-web
+    env: python
+    region: oregon
+    plan: free
+    
+    # Build dependencies and static assets. Render Free has no pre-deploy command.
+    buildCommand: >
+      pip install -r requirements.txt &&
+      python manage.py collectstatic --noinput --clear
+
+    # Apply shared migrations, start the bounded provisioning drain without
+    # blocking web startup, then serve requests on the Free web instance.
+    startCommand: >
+      python manage.py migrate_schemas --shared &&
+      (python manage.py process_provisioning_jobs --once &) &&
+      exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile - mysite.asgi:application
+    
+    # Environment variables
+    envVars:
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PORT
+        value: "10000"
+      
+      # Database (from Supabase Connection Pooler - NOT direct connection)
+      # Format: postgresql://user:password@pooler-host:5432/database
+      - key: DATABASE_URL
+        sync: false  # Set in Render dashboard, don't commit
+      - key: PROVISIONING_DATABASE_URL
+        sync: false  # Optional session-pooler (5432) or direct URL for DDL commands
+      
+      # Django configuration
+      - key: DJANGO_SECRET_KEY
+        sync: false
+      - key: DJANGO_ALLOWED_HOSTS
+        value: ".onrender.com,localhost,127.0.0.1"
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: "https://*.onrender.com"
+      - key: DJANGO_SECURE_SSL_REDIRECT
+        value: "true"
+      - key: DJANGO_TRUSTED_PROXY_IPS
+        value: "127.0.0.1,::1"
+      - key: DJANGO_TENANT_ROUTING_MODE
+        value: "path"
+      
+      # Redis (required for sessions, cache, channels)
+      - key: REDIS_URL
+        sync: false
+      
+      # Cloudinary
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      
+      # Tenant configuration
+      - key: PUBLIC_TENANT_DOMAIN
+        value: "uni-cot-mmt1.onrender.com"
+      - key: PUBLIC_TENANT_NAME
+        value: "Public"
+      - key: PUBLIC_TENANT_SUBDOMAIN
+        value: "public"
+
+  # Optional: Background worker for async tasks (Celery)
+  # Uncomment if implementing async job processing
+  # - type: background_worker
+  #   name: uni-cot-worker
+  #   env: python
+  #   buildCommand: pip install -r requirements.txt
+  #   startCommand: celery -A mysite worker --loglevel=info
+  #   envVars:
+  #     - key: DJANGO_DEBUG
+  #       value: "false"
+  #     - key: REDIS_URL
+  #       sync: false
+  #     - key: DATABASE_URL
+  #       sync: false
