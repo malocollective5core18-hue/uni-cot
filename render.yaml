@@ -1,0 +1,91 @@
+services:
+  - type: web
+    name: uni-cot-web
+    env: python
+    region: oregon
+    plan: standard
+    
+    # Build step: Install dependencies and collect static files
+    # DO NOT run migrations here - database may not be reachable yet
+    buildCommand: >
+      pip install -r requirements.txt &&
+      python manage.py collectstatic --noinput --clear
+    
+    # Start command: Run ASGI server with Gunicorn + Uvicorn
+    startCommand: >
+      gunicorn 
+        --bind 0.0.0.0:10000 
+        --workers 4 
+        --worker-class uvicorn.workers.UvicornWorker 
+        --timeout 120 
+        --access-logfile - 
+        --error-logfile - 
+        mysite.asgi:application
+    
+    # Pre-deploy hook: Run migrations after database is confirmed reachable
+    # This runs AFTER the service is deployed but BEFORE it handles requests
+    preDeployCommand: >
+      python manage.py migrate_schemas --shared
+    
+    # Environment variables
+    envVars:
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PORT
+        value: "10000"
+      
+      # Database (from Supabase Connection Pooler - NOT direct connection)
+      # Format: postgresql://user:password@pooler-host:5432/database
+      - key: DATABASE_URL
+        sync: false  # Set in Render dashboard, don't commit
+      
+      # Django configuration
+      - key: DJANGO_SECRET_KEY
+        sync: false
+      - key: DJANGO_ALLOWED_HOSTS
+        value: ".onrender.com,localhost,127.0.0.1"
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: "https://*.onrender.com"
+      - key: DJANGO_SECURE_SSL_REDIRECT
+        value: "true"
+      - key: DJANGO_TRUSTED_PROXY_IPS
+        value: "127.0.0.1,::1"
+      - key: DJANGO_TENANT_ROUTING_MODE
+        value: "path"
+      
+      # Redis (required for sessions, cache, channels)
+      - key: REDIS_URL
+        sync: false
+      
+      # Cloudinary
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      
+      # Tenant configuration
+      - key: PUBLIC_TENANT_DOMAIN
+        value: "uni-cot-mmt1.onrender.com"
+      - key: PUBLIC_TENANT_NAME
+        value: "Public"
+      - key: PUBLIC_TENANT_SUBDOMAIN
+        value: "public"
+
+  # Optional: Background worker for async tasks (Celery)
+  # Uncomment if implementing async job processing
+  # - type: background_worker
+  #   name: uni-cot-worker
+  #   env: python
+  #   buildCommand: pip install -r requirements.txt
+  #   startCommand: celery -A mysite worker --loglevel=info
+  #   envVars:
+  #     - key: DJANGO_DEBUG
+  #       value: "false"
+  #     - key: REDIS_URL
+  #       sync: false
+  #     - key: DATABASE_URL
+  #       sync: false
