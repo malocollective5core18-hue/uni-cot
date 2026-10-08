@@ -75,3 +75,18 @@ python manage.py bootstrap_render
 ```
 
 This is the operational contract: health checks must pass, the in-process provisioner must drain queued jobs, and the tenant registry should reach a ready state before owners are expected to sign in.
+
+
+## Startup recovery and Supabase pooler
+
+`render.yaml` has no `preDeployCommand`: Render supports pre-deploy commands on
+paid services, not Free web services. Each start applies shared migrations and
+launches `process_provisioning_jobs --once` in the background before Gunicorn.
+The request path provides an additional throttled recovery trigger for due
+queued/retryable jobs.
+
+Use a Supabase session-pooler URL on port 5432, or a direct Postgres URL, for
+`DATABASE_URL`. If runtime queries must use the transaction pooler on port
+6543, configure `PROVISIONING_DATABASE_URL` with a session-pooler or direct URL.
+Only tenant DDL/migration commands switch to that URL. The app refuses schema
+DDL over port 6543 when no provisioning URL is set.

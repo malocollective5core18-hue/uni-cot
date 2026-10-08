@@ -4,7 +4,9 @@ Tenant Middleware for RING-0 Multi-Tenant SaaS Platform
 This middleware extracts subdomain from request and sets up tenant context.
 """
 
+import logging
 import re
+from datetime import timedelta
 from types import SimpleNamespace
 
 from django.http import HttpResponse, HttpResponseNotFound, JsonResponse
@@ -13,6 +15,9 @@ from django.shortcuts import redirect
 from django.contrib import messages
 from django.core.cache import cache
 from django.db import connection
+from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 
 class TenantMiddleware:
@@ -107,26 +112,64 @@ class TenantMiddleware:
         finally:
             self._activate_public_schema()
 
-    def _provisioning_response(self, tenant):
-        """Keep unfinished workspaces in the public schema.
+    def _request_excluded_from_provisioning(self, request):
+        path = request.path or "/"
+        if path.startswith(("/healthz/", "/readyz/", "/static/", "/admin/")) or "/static/" in path or "/admin/" in path:
+            return True
+        return bool(getattr(getattr(request, "user", None), "is_superuser", False))
 
-        A tenant row is created before its schema.  Routing one of those rows
-        into ``_run_with_schema`` would expose a partially provisioned schema
-        (or fail while selecting it).  Return a deliberately generic public
-        response instead; provisioning details stay in the worker logs.
-        """
-        if tenant.provisioning_state == tenant.PROVISIONING_FAILED:
+    def _provisioning_response(self, request, tenant):
+        """Keep unfinished workspaces on public schema and nudge due work forward."""
+        from customers.models import TenantProvisioningJob
+
+        try:
+            job = TenantProvisioningJob.objects.get(tenant_id=tenant.id)
+        except TenantProvisioningJob.DoesNotExist:
+            job = None
+
+        failed = tenant.provisioning_state == tenant.PROVISIONING_FAILED or (
+            job and job.status == TenantProvisioningJob.STATUS_FAILED
+        )
+        if failed:
+            error = job.last_error if job else tenant.provisioning_error
+            logger.error(
+                "Tenant provisioning is terminal tenant_id=%s schema=%s last_error=%s",
+                tenant.id, tenant.schema_name, error or "(no error recorded)",
+            )
             return HttpResponse(
-                "<h1>Workspace setup could not be completed</h1>"
-                "<p>Please contact support or try again later.</p>",
+                "<h1>Workspace setup needs support</h1>"
+                "<p>Workspace setup could not be completed. Please contact support.</p>",
                 status=503,
             )
 
-        return HttpResponse(
-            "<h1>Workspace is being set up</h1>"
-            "<p>Please try again in a moment.</p>",
-            status=202,
+        due_statuses = {TenantProvisioningJob.STATUS_QUEUED, TenantProvisioningJob.STATUS_RETRY}
+        due = bool(
+            job
+            and job.status in due_statuses
+            and job.next_attempt_at <= timezone.now()
         )
+        stale_lock = bool(
+            job
+            and job.status == TenantProvisioningJob.STATUS_RUNNING
+            and job.locked_at
+            and job.locked_at <= timezone.now() - timedelta(minutes=10)
+        )
+        should_kick = due or stale_lock
+        excluded = self._request_excluded_from_provisioning(request)
+        if should_kick and not excluded:
+            from customers.provisioning import schedule_tenant_provisioning
+
+            schedule_tenant_provisioning(tenant.id)
+
+        body = "<h1>Workspace is being set up</h1><p>Please try again in a moment.</p>"
+        response = HttpResponse(body, status=202)
+        if not excluded:
+            response["Retry-After"] = "5"
+            response.content = (
+                b'<!doctype html><html><head><meta http-equiv="refresh" content="5"></head>'
+                b'<body>' + response.content + b'</body></html>'
+            )
+        return response
         
     def __call__(self, request):
         # Get the host from request
@@ -141,7 +184,7 @@ class TenantMiddleware:
                 return HttpResponseNotFound('Tenant not found')
 
             if tenant.provisioning_state != tenant.PROVISIONING_READY:
-                return self._provisioning_response(tenant)
+                return self._provisioning_response(request, tenant)
 
             request.tenant = tenant
 

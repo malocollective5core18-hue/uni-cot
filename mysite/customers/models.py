@@ -1,10 +1,12 @@
 import os
 import secrets
 import logging
+import re
 import time
 from datetime import timedelta
 from urllib.parse import urlsplit
 
+from django.conf import settings
 from django.db import IntegrityError, connection, models, transaction
 from django.core.cache import cache
 from django.core.management import call_command
@@ -59,13 +61,19 @@ def ensure_tenant_schema_ready(tenant, verbosity=0):
     the schema explicitly after the tenant record is created.
     """
     start = time.time()
+    schema_name = getattr(tenant, "schema_name", None)
     create_schema = getattr(tenant, "create_schema", None)
     if callable(create_schema):
+        # create_schema handles a missing namespace; the explicit migration
+        # command also repairs an existing but incomplete/out-of-date schema.
         result = create_schema(check_if_exists=True, verbosity=verbosity)
-        logger.info("ensure_tenant_schema_ready: used tenant.create_schema for %s (%.2fs)", getattr(tenant, 'schema_name', None), time.time() - start)
+        call_command("migrate_schemas", schema_name=schema_name, interactive=False, verbosity=verbosity)
+        logger.info(
+            "ensure_tenant_schema_ready: schema created/checked and tenant migrations completed "
+            "for %s (%.2fs)", schema_name, time.time() - start,
+        )
         return result
 
-    schema_name = getattr(tenant, "schema_name", None)
     if not schema_name:
         raise RuntimeError("Cannot provision tenant schema without schema_name.")
 
@@ -74,30 +82,36 @@ def ensure_tenant_schema_ready(tenant, verbosity=0):
         result = call_command("migrate_schemas", schema_name=schema_name, interactive=False, verbosity=verbosity)
         logger.info("ensure_tenant_schema_ready: migrate_schemas completed for %s (%.2fs)", schema_name, time.time() - start)
         return result
-    except Exception:
-        logger.exception("ensure_tenant_schema_ready: migrate_schemas failed for %s", schema_name)
+    except Exception as error:
+        safe_error = re.sub(r"(?i)(postgres(?:ql)?://)[^/@\s]+@", r"\1[redacted]@", str(error))
+        logger.error("ensure_tenant_schema_ready: migrate_schemas failed schema=%s error=%s", schema_name, safe_error)
         raise
 
 
 def tenant_schema_is_healthy(tenant):
-    """Return whether the tenant schema has Django's migration table."""
+    """Return true only when the tenant schema and its migration history exist."""
     schema_name = getattr(tenant, "schema_name", None)
     if not schema_name:
         return False
 
-    set_schema = getattr(connection, "set_schema", None)
-    set_schema_to_public = getattr(connection, "set_schema_to_public", None)
-    if not callable(set_schema) or not callable(set_schema_to_public):
-        return False
-
-    set_schema(schema_name, include_public=True)
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1 FROM django_migrations LIMIT 1")
-            cursor.fetchone()
-        return True
-    finally:
-        set_schema_to_public()
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = %s)", [schema_name])
+        if not cursor.fetchone()[0]:
+            return False
+        quoted_schema = connection.ops.quote_name(schema_name)
+        cursor.execute(f"SELECT COUNT(*) FROM {quoted_schema}.django_migrations")
+        if not cursor.fetchone()[0]:
+            return False
+        tenant_apps = set(getattr(settings, "TENANT_APPS", ()))
+        labels = {app.split(".")[-1] for app in tenant_apps}
+        if not labels:
+            return True
+        placeholders = ", ".join(["%s"] * len(labels))
+        cursor.execute(
+            f"SELECT COUNT(DISTINCT app) FROM {quoted_schema}.django_migrations WHERE app IN ({placeholders})",
+            sorted(labels),
+        )
+        return cursor.fetchone()[0] == len(labels)
 
 
 def _build_unique_identifier(raw_value, existing_values=None, separator="_"):

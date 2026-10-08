@@ -3,29 +3,19 @@ services:
     name: uni-cot-web
     env: python
     region: oregon
-    plan: standard
+    plan: free
     
-    # Build step: Install dependencies and collect static files
-    # DO NOT run migrations here - database may not be reachable yet
+    # Build dependencies and static assets. Render Free has no pre-deploy command.
     buildCommand: >
       pip install -r requirements.txt &&
       python manage.py collectstatic --noinput --clear
-    
-    # Start command: Run ASGI server with Gunicorn + Uvicorn
+
+    # Apply shared migrations, start the bounded provisioning drain without
+    # blocking web startup, then serve requests on the Free web instance.
     startCommand: >
-      gunicorn 
-        --bind 0.0.0.0:10000 
-        --workers 4 
-        --worker-class uvicorn.workers.UvicornWorker 
-        --timeout 120 
-        --access-logfile - 
-        --error-logfile - 
-        mysite.asgi:application
-    
-    # Pre-deploy hook: Run migrations after database is confirmed reachable
-    # This runs AFTER the service is deployed but BEFORE it handles requests
-    preDeployCommand: >
-      python manage.py migrate_schemas --shared
+      python manage.py migrate_schemas --shared &&
+      (python manage.py process_provisioning_jobs --once &) &&
+      exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile - mysite.asgi:application
     
     # Environment variables
     envVars:
@@ -40,6 +30,8 @@ services:
       # Format: postgresql://user:password@pooler-host:5432/database
       - key: DATABASE_URL
         sync: false  # Set in Render dashboard, don't commit
+      - key: PROVISIONING_DATABASE_URL
+        sync: false  # Optional session-pooler (5432) or direct URL for DDL commands
       
       # Django configuration
       - key: DJANGO_SECRET_KEY

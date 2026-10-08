@@ -12,6 +12,7 @@ from django.test.utils import CaptureQueriesContext
 from django.db import connection
 
 from customers.management.commands.provision_tenants import claim_next_job, recover_stale_jobs, run_job
+from customers.provisioning import schedule_tenant_provisioning
 from customers.models import (
     CRTenant,
     Domain,
@@ -167,6 +168,7 @@ class PathTenantProvisioningTests(CacheIsolationMixin, TestCase):
         job.refresh_from_db()
         self.assertEqual(tenant.provisioning_state, CRTenant.PROVISIONING_READY)
         self.assertEqual(job.status, TenantProvisioningJob.STATUS_SUCCEEDED)
+        self.assertIsNone(claim_next_job())
         mocked_ensure_schema.assert_called_once_with(tenant, verbosity=0)
         mocked_health_check.assert_called_once_with(tenant)
 
@@ -191,6 +193,8 @@ class PathTenantProvisioningTests(CacheIsolationMixin, TestCase):
         self.assertEqual(tenant.provisioning_state, CRTenant.PROVISIONING_PENDING)
         self.assertEqual(job.status, TenantProvisioningJob.STATUS_RETRY)
         self.assertEqual(job.attempts, 1)
+        self.assertGreater((job.next_attempt_at - timezone.now()).total_seconds(), 25)
+        self.assertLessEqual((job.next_attempt_at - timezone.now()).total_seconds(), 30)
         self.assertIn("schema unavailable", job.last_error)
         mocked_ensure_schema.assert_called_once_with(tenant, verbosity=0)
 
@@ -212,6 +216,7 @@ class PathTenantProvisioningTests(CacheIsolationMixin, TestCase):
         self.assertEqual(recover_stale_jobs(), 1)
         job.refresh_from_db()
         self.assertEqual(job.status, TenantProvisioningJob.STATUS_RETRY)
+        self.assertIsNone(job.locked_at)
         self.assertIn("lock expired", job.last_error)
 
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
@@ -262,6 +267,86 @@ class PathTenantProvisioningTests(CacheIsolationMixin, TestCase):
         self.assertEqual(response.status_code, 202)
         self.assertContains(response, "Workspace is being set up", status_code=202)
         get_response.assert_not_called()
+
+    @patch("customers.management.commands.process_provisioning_jobs.run_job", side_effect=RuntimeError("job failed"))
+    @patch("customers.management.commands.process_provisioning_jobs.claim_next_job")
+    @patch("customers.management.commands.process_provisioning_jobs.recover_stale_jobs", return_value=0)
+    def test_process_command_exits_normally_when_job_fails(self, mocked_recover, mocked_claim, mocked_run):
+        job = SimpleNamespace(tenant_id=77, attempts=1, tenant=SimpleNamespace(schema_name="failed_schema"))
+        mocked_claim.side_effect = [job, None]
+
+        call_command("process_provisioning_jobs", "--once")
+
+        self.assertEqual(mocked_run.call_count, 1)
+        self.assertEqual(mocked_claim.call_count, 2)
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    @patch("customers.provisioning.threading.Thread")
+    def test_request_schedule_is_throttled_per_tenant(self, mocked_thread):
+        from customers import provisioning
+
+        provisioning._REQUEST_KICKS.clear()
+        self.assertTrue(schedule_tenant_provisioning(9001))
+        self.assertFalse(schedule_tenant_provisioning(9001))
+        self.assertEqual(mocked_thread.call_count, 1)
+        provisioning._REQUEST_KICKS.clear()
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    @patch("customers.provisioning.schedule_tenant_provisioning")
+    def test_due_job_response_has_retry_after_refresh_and_triggers_provisioner(self, mocked_schedule):
+        tenant = self._tenant_for_routing_state(CRTenant.PROVISIONING_PENDING)
+        job = TenantProvisioningJob.objects.create(tenant=tenant, next_attempt_at=timezone.now() - timedelta(seconds=1))
+        response = TenantMiddleware(Mock())(self._path_request_for(tenant))
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response["Retry-After"], "5")
+        self.assertIn(b'http-equiv="refresh" content="5"', response.content)
+        mocked_schedule.assert_called_once_with(tenant.id)
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    @patch("customers.provisioning.schedule_tenant_provisioning")
+    def test_static_admin_and_health_paths_do_not_trigger_provisioner(self, mocked_schedule):
+        middleware = TenantMiddleware(Mock())
+        for path in ("/healthz/", "/static/site.css", "/admin/"):
+            request = RequestFactory().get(path)
+            self.assertTrue(middleware._request_excluded_from_provisioning(request))
+        mocked_schedule.assert_not_called()
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    @patch("customers.management.commands.provision_tenants.tenant_schema_is_healthy", return_value=False)
+    @patch("customers.management.commands.provision_tenants.ensure_tenant_schema_ready")
+    def test_tenant_stays_unready_when_schema_migrations_are_not_confirmed(self, mocked_ensure, mocked_health):
+        tenant = self._tenant_for_routing_state(CRTenant.PROVISIONING_PENDING)
+        job = tenant.provisioning_job if hasattr(tenant, "provisioning_job") else TenantProvisioningJob.objects.create(tenant=tenant)
+        claimed = claim_next_job(tenant.id)
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            run_job(claimed)
+        tenant.refresh_from_db()
+        job.refresh_from_db()
+        self.assertNotEqual(tenant.provisioning_state, CRTenant.PROVISIONING_READY)
+        self.assertEqual(job.status, TenantProvisioningJob.STATUS_RETRY)
+        mocked_ensure.assert_called_once()
+        mocked_health.assert_called_once_with(tenant)
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    @patch("customers.management.commands.provision_tenants.MAX_ATTEMPTS", 1)
+    @patch("customers.management.commands.provision_tenants.ensure_tenant_schema_ready", side_effect=RuntimeError("migration exploded"))
+    def test_failed_job_logs_last_error_and_shows_terminal_message(self, mocked_ensure):
+        tenant = self._tenant_for_routing_state(CRTenant.PROVISIONING_PENDING)
+        job = TenantProvisioningJob.objects.create(tenant=tenant)
+        claimed = claim_next_job(tenant.id)
+        with self.assertRaisesRegex(RuntimeError, "migration exploded"):
+            run_job(claimed)
+        job.refresh_from_db()
+        tenant.refresh_from_db()
+        self.assertEqual(job.status, TenantProvisioningJob.STATUS_FAILED)
+        self.assertEqual(job.last_error, "migration exploded")
+        middleware = TenantMiddleware(Mock())
+        with self.assertLogs("mysite.tenant_middleware", level="ERROR") as captured:
+            response = middleware(self._path_request_for(tenant))
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn(b"meta http-equiv", response.content)
+        self.assertIn("migration exploded", "\n".join(captured.output))
 
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
     def test_failed_tenant_path_shows_generic_error_without_activating_schema(self):

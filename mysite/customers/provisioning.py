@@ -1,9 +1,13 @@
 import hmac
 import logging
 import os
+import re
+import subprocess
 import sys
 import threading
-from urllib.parse import parse_qs
+import time
+from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from django.http import JsonResponse
 from django.db import connection, close_old_connections
@@ -14,11 +18,55 @@ _RUNNER_STARTED = False
 _RUNNER_LOCK = threading.Lock()
 logger = logging.getLogger(__name__)
 _ADVISORY_LOCK_ID = 912847301
+_REQUEST_KICKS = {}
+_REQUEST_KICKS_LOCK = threading.Lock()
+_REQUEST_KICK_INTERVAL = 30
+
+
+def _redact_connection_urls(text):
+    return re.sub(r"(?i)(postgres(?:ql)?://)[^/@\s]+@", r"\1[redacted]@", text or "")
 
 
 def kick_provisioner():
     """Wake the in-process worker after a committed tenant enqueue."""
     _WAKE_EVENT.set()
+
+
+def _run_request_provisioner(tenant_id):
+    """Run a one-tenant job in a fresh process so DDL can use the session URL."""
+    close_old_connections()
+    manage_py = Path(__file__).resolve().parents[2] / "manage.py"
+    command = [sys.executable, str(manage_py), "process_provisioning_jobs", "--tenant-id", str(tenant_id), "--limit", "1"]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=2700, check=False)
+        if result.returncode:
+            logger.error(
+                "Request-triggered provisioning command exited tenant_id=%s exit_code=%s error=%s",
+                tenant_id, result.returncode, _redact_connection_urls(result.stderr.strip()),
+            )
+    except Exception:
+        logger.exception("Request-triggered provisioning launch failed tenant_id=%s", tenant_id)
+    finally:
+        close_old_connections()
+
+
+def schedule_tenant_provisioning(tenant_id):
+    """Throttle request kicks per process; the job row remains the cross-process lock."""
+    now = time.monotonic()
+    with _REQUEST_KICKS_LOCK:
+        last_kick = _REQUEST_KICKS.get(tenant_id)
+        if last_kick is not None and now - last_kick < _REQUEST_KICK_INTERVAL:
+            return False
+        _REQUEST_KICKS[tenant_id] = now
+
+    thread = threading.Thread(
+        target=_run_request_provisioner,
+        args=(tenant_id,),
+        name=f"tenant-provision-{tenant_id}",
+        daemon=True,
+    )
+    thread.start()
+    return True
 
 
 def _process_due_jobs(output=None):
@@ -80,7 +128,18 @@ def start_provisioner():
 
 
 def should_start_provisioner():
-    return os.getenv("TENANT_PROVISION_INPROCESS", "false").strip().lower() in {"1", "true", "yes", "on"}
+    enabled = os.getenv("TENANT_PROVISION_INPROCESS", "false").strip().lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return False
+    # The legacy daemon uses this process's default DB connection. Never let it
+    # run schema DDL through Supabase transaction-mode pooling (port 6543).
+    if urlsplit(os.getenv("DATABASE_URL", "")).port == 6543:
+        logger.warning(
+            "In-process tenant provisioner disabled: DATABASE_URL uses transaction pooler port 6543; "
+            "DDL must run through PROVISIONING_DATABASE_URL in a management subprocess."
+        )
+        return False
+    return True
 
 
 def provision_tick(request):
