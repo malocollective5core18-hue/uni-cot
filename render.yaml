@@ -32,6 +32,8 @@ services:
         sync: false  # Set in Render dashboard, don't commit
       - key: PROVISIONING_DATABASE_URL
         sync: false  # Optional session-pooler (5432) or direct URL for DDL commands
+      - key: PROVISIONING_CRON_TOKEN
+        sync: false  # Required by the external provisioning pinger
       
       # Django configuration
       - key: DJANGO_SECRET_KEY

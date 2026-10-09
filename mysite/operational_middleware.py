@@ -1,5 +1,5 @@
 from .health import healthz, readyz
-from customers.provisioning import provision_tick
+from customers.provisioning import provision_tick, run_provisioning_endpoint
 
 
 class OperationalEndpointMiddleware:
@@ -15,4 +15,6 @@ class OperationalEndpointMiddleware:
             return readyz(request)
         if request.path == "/internal/provision-tick/":
             return provision_tick(request)
+        if request.path == "/internal/run-provisioning/":
+            return run_provisioning_endpoint(request)
         return self.get_response(request)

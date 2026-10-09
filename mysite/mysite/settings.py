@@ -241,7 +241,7 @@ MIDDLEWARE = [
 ]
 
 if USE_TENANT_INFRA:
-    # Keep operational endpoints such as /healthz/ and /internal/provision-tick/
+    # Keep operational endpoints such as /healthz/ and /internal/ routes
     # ahead of tenant resolution so they do not trigger tenant schema queries.
     MIDDLEWARE.insert(1, 'django_tenants.middleware.main.TenantMainMiddleware')
 
