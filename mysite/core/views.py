@@ -692,6 +692,23 @@ def founder_saas_system_control(request, *args, **kwargs):
             messages.error(request, 'Tenant not found.')
             return redirect('founder_saas_system_control')
 
+        if action == 'reset_owner_password':
+            owner = tenant.owner if tenant.owner_id else None
+            password = request.POST.get('new_password', '')
+            confirm_password = request.POST.get('confirm_password', '')
+            if not owner:
+                messages.error(request, 'This tenant does not have an owner account.')
+            elif len(password) < 8:
+                messages.error(request, 'The new password must be at least 8 characters long.')
+            elif password != confirm_password:
+                messages.error(request, 'The new passwords do not match.')
+            else:
+                owner.password = make_password(password)
+                owner.save(update_fields=['password', 'updated_at'])
+                logger.info('Founder reset password for owner id=%s tenant id=%s', owner.id, tenant.id)
+                messages.success(request, f'Password reset for {owner.email}.')
+            return redirect('founder_saas_system_control')
+
         if action == 'update_access':
             paid_until = parse_date(request.POST.get('paid_until', '').strip())
             plan = request.POST.get('plan', 'basic').strip() or 'basic'

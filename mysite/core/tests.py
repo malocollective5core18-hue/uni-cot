@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.core.cache import cache
 from django.db import IntegrityError
-from django.contrib.auth.hashers import make_password
+from django.contrib.auth.hashers import check_password, make_password
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -345,6 +345,72 @@ class FounderDashboardQueryTests(CacheIsolationMixin, TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, owner.email)
+
+    def test_founder_can_reset_tenant_owner_password(self):
+        founder = get_user_model().objects.create_user(
+            username="founder-password-reset",
+            email="founder-password-reset@example.com",
+            password="secret123",
+            is_staff=True,
+        )
+        owner = OwnerUser.objects.create(
+            email="password-reset-owner@example.com",
+            program_name="Password Reset Program",
+            password=make_password("initial-password"),
+        )
+        tenant = CRTenant.objects.create(
+            name=owner.program_name,
+            schema_name="password_reset_program",
+            subdomain="password-reset-program",
+            tenant_key="passresetkey12345678",
+            owner=owner,
+        )
+        self.client.force_login(founder)
+
+        with self.assertNumQueries(4):
+            response = self.client.post(reverse("founder_saas_system_control"), {
+                "action": "reset_owner_password",
+                "tenant_id": tenant.id,
+                "new_password": "replacement-password",
+                "confirm_password": "replacement-password",
+            })
+
+        owner.refresh_from_db()
+        self.assertRedirects(response, reverse("founder_saas_system_control"))
+        self.assertTrue(check_password("replacement-password", owner.password))
+
+    def test_founder_password_reset_rejects_mismatch(self):
+        founder = get_user_model().objects.create_user(
+            username="founder-password-mismatch",
+            email="founder-password-mismatch@example.com",
+            password="secret123",
+            is_staff=True,
+        )
+        owner = OwnerUser.objects.create(
+            email="password-mismatch-owner@example.com",
+            program_name="Mismatch Program",
+            password=make_password("initial-password"),
+        )
+        tenant = CRTenant.objects.create(
+            name=owner.program_name,
+            schema_name="password_mismatch_program",
+            subdomain="password-mismatch-program",
+            tenant_key="passmis1234567890123",
+            owner=owner,
+        )
+        original_hash = owner.password
+        self.client.force_login(founder)
+
+        response = self.client.post(reverse("founder_saas_system_control"), {
+            "action": "reset_owner_password",
+            "tenant_id": tenant.id,
+            "new_password": "replacement-password",
+            "confirm_password": "different-password",
+        })
+
+        owner.refresh_from_db()
+        self.assertRedirects(response, reverse("founder_saas_system_control"))
+        self.assertEqual(owner.password, original_hash)
 
 
 class ExternalTableRecordCountTests(TestCase):

@@ -442,3 +442,19 @@
 - Files touched: `mysite/customers/models.py`, `mysite/customers/provisioning.py`, `mysite/mysite/tenant_middleware.py`, `mysite/service/views.py`, `mysite/customers/management/commands/provision_tenants.py`, `mysite/customers/management/commands/process_provisioning_jobs.py`, `mysite/customers/tests.py`, `mysite/service/tests.py`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Added coverage for login throttling, missing-job recreation, safe signup/login launch failures, and explicit failed-job reset. `python3 -m compileall -q .` and `git diff --check` passed. Django check, migration-drift check, and tests could not run because Django is not installed in the environment (`ModuleNotFoundError`).
 - Remaining risk: Request and commit-triggered background subprocesses remain subject to Render Free process sleep/restart; the existing external pinger can provide another trigger when configured.
+
+## Founder tenant dashboard usability (2026-10-10)
+
+- Finding: Tenant environments were shown as tall cards, which made a growing owner list difficult to scan; founders had no direct owner password reset action from the tenant list.
+- Change: Replaced the tenant cards with a searchable/filterable compact table. Added per-tenant Environment and Actions dialogs, including a founder-only password reset POST that validates the confirmation and stores a Django password hash. Added spacing around the gallery title so it does not collide with the fullscreen control.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`, `templates/admin_only/founder_SAAS_system_control.html`, `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Python compileall, `git diff --check`, Django `check`, template compilation, and migration drift check pass. `check --deploy` completes with six deployment security warnings under the local DEBUG/dummy-key environment. The focused PostgreSQL tests are added, including a four-query reset endpoint assertion, but could not run because no PostgreSQL server is available at localhost.
+- Remaining risk: Browser visual behavior and database-backed endpoint tests require a running PostgreSQL test database and browser environment.
+
+## Compact founder subscription table (2026-10-10)
+
+- Finding: The subscription ledger already used a table, but seven columns and inline edit/delete forms made it wide and tall, especially on small screens.
+- Change: Reduced each record to owner, tenant/plan, status, and action columns. Status opens a per-record details card; Manage opens a dialog with the existing update and delete actions. The existing mobile table rules render each compact row responsively.
+- Files touched: `templates/admin_only/founder_SAAS_system_control.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Pending verification for this follow-up.
+- Remaining risk: Responsive appearance has not been checked in a live browser.
