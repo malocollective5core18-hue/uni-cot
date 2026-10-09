@@ -20,12 +20,13 @@ from django.conf import settings
 from django.conf.urls.static import static
 from service.views import system_demo
 from mysite.health import healthz, readyz
-from customers.provisioning import provision_tick
+from customers.provisioning import provision_tick, run_provisioning_endpoint
 
 urlpatterns = [
     path('healthz/', healthz, name='healthz'),
     path('readyz/', readyz, name='readyz'),
     path('internal/provision-tick/', provision_tick, name='provision_tick'),
+    path('internal/run-provisioning/', run_provisioning_endpoint, name='run_provisioning'),
     path('admin/', admin.site.urls),
     path('t/<slug:tenant_slug>/<int:tenant_id>/<str:tenant_key>/', include(('service.urls', 'service'), namespace='tenant_service')),
     path('t/<slug:tenant_slug>/<int:tenant_id>/<str:tenant_key>/', include('core.urls')),

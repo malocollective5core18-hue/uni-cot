@@ -21,6 +21,7 @@ _ADVISORY_LOCK_ID = 912847301
 _REQUEST_KICKS = {}
 _REQUEST_KICKS_LOCK = threading.Lock()
 _REQUEST_KICK_INTERVAL = 30
+_CRON_RUN_LOCK = threading.Lock()
 
 
 def _redact_connection_urls(text):
@@ -67,6 +68,58 @@ def schedule_tenant_provisioning(tenant_id):
     )
     thread.start()
     return True
+
+
+def _run_provisioning_batch():
+    """Run the management command's bounded pass in a fresh process."""
+    close_old_connections()
+    manage_py = Path(__file__).resolve().parents[2] / "manage.py"
+    command = [sys.executable, str(manage_py), "process_provisioning_jobs", "--once", "--limit", "3"]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=2700, check=False)
+        if result.returncode:
+            logger.error(
+                "Pinger provisioning command exited exit_code=%s error=%s",
+                result.returncode, _redact_connection_urls(result.stderr.strip()),
+            )
+    except Exception as error:
+        logger.error("Pinger provisioning command failed: %s", _redact_connection_urls(str(error)))
+    finally:
+        close_old_connections()
+        _CRON_RUN_LOCK.release()
+
+
+def start_provisioning_batch():
+    """Start a single per-process batch; claimed job rows lock across workers."""
+    if not _CRON_RUN_LOCK.acquire(blocking=False):
+        return False
+    try:
+        thread = threading.Thread(target=_run_provisioning_batch, name="provisioning-pinger", daemon=True)
+        thread.start()
+    except Exception:
+        _CRON_RUN_LOCK.release()
+        logger.exception("Could not start pinger provisioning thread")
+        return False
+    return True
+
+
+def run_provisioning_endpoint(request):
+    """Authenticate a pinger without exposing queue or tenant details."""
+    from django.views.decorators.http import require_http_methods
+
+    # Kept as an inner decorated function so this module remains import-safe.
+    @require_http_methods(["GET", "POST"])
+    def endpoint(request):
+        expected = os.getenv("PROVISIONING_CRON_TOKEN", "")
+        supplied = request.headers.get("X-Provisioning-Token", "")
+        if not supplied:
+            supplied = request.GET.get("token", "")
+        if not expected or not supplied or not hmac.compare_digest(supplied, expected):
+            return JsonResponse({"error": "Forbidden"}, status=403)
+        start_provisioning_batch()
+        return JsonResponse({"accepted": True}, status=200)
+
+    return endpoint(request)
 
 
 def _process_due_jobs(output=None):

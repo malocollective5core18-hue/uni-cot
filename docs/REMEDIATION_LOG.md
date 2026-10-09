@@ -426,3 +426,11 @@
 - Files touched: `manage.py`, `render.yaml`, `README.md`, `docs/DEPLOY_RENDER_FREE.md`, `mysite/customers/models.py`, `mysite/customers/provisioning.py`, `mysite/customers/management/commands/provision_tenants.py`, `mysite/customers/management/commands/process_provisioning_jobs.py`, `mysite/mysite/tenant_middleware.py`, `mysite/customers/tests.py`.
 - Evidence: `compileall`, Django `check`, `makemigrations --check --dry-run`, and `git diff --check` pass. `check --deploy` reports the repository's existing middleware/host/temporary-test-key security warnings. Focused database tests are added but could not execute because this environment has no local PostgreSQL server; only a dummy localhost test URL was used.
 - Remaining risk: The real Supabase URL/port and current `bci` database state cannot be verified from this environment. Set `PROVISIONING_DATABASE_URL` if runtime `DATABASE_URL` uses port 6543, and verify the tenant registry/schema after deploy.
+
+## Render Free tenant provisioning pinger (2026-10-09)
+
+- Finding: Render Free has no durable worker or cron service, so provisioning can remain idle after the web process sleeps; request kicks alone do not cover periods without tenant traffic.
+- Change: Added a public-schema operational pinger endpoint protected by constant-time token comparison. It starts the existing one-shot management command in a daemon thread, caps each pass at three jobs, and uses a per-process launch lock while database job claims remain the cross-worker lock. Tenant requests exclude `/internal/` paths, retain the 30-second throttle, and recover stale running locks after ten minutes.
+- Files touched: `mysite/customers/provisioning.py`, `mysite/operational_middleware.py`, `mysite/mysite/urls.py`, `mysite/urls.py`, `mysite/mysite/tenant_middleware.py`, `mysite/mysite/settings.py`, `mysite/customers/tests.py`, `render.yaml`, `README.md`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added tests for token auth, process-level launch lock, request throttling/Retry-After, and stale-lock recovery. Test suite and Django checks are run for this change and results will be recorded after verification.
+- Remaining risk: The external pinger must be configured with the secret held in Render; this value is not stored in the repository.

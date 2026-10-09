@@ -114,7 +114,7 @@ class TenantMiddleware:
 
     def _request_excluded_from_provisioning(self, request):
         path = request.path or "/"
-        if path.startswith(("/healthz/", "/readyz/", "/static/", "/admin/")) or "/static/" in path or "/admin/" in path:
+        if path.startswith(("/healthz/", "/readyz/", "/static/", "/admin/", "/internal/")) or "/static/" in path or "/admin/" in path:
             return True
         return bool(getattr(getattr(request, "user", None), "is_superuser", False))
 

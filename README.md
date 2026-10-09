@@ -20,3 +20,10 @@ provisioning URL is configured and logs a warning without printing a URL.
 Render runs `collectstatic` during build. It runs `migrate_schemas --shared`
 and `process_provisioning_jobs --once` at each web-service start. Provisioning
 errors are persisted for retry and do not block the web server from starting.
+
+An external pinger can also nudge provisioning by making a GET or POST request
+to `https://uni-cot-mmt1.onrender.com/internal/run-provisioning/` with the
+`X-Provisioning-Token` header (or a `token` query parameter). Configure the
+Render environment variable `PROVISIONING_CRON_TOKEN` with the shared token.
+The endpoint responds immediately and processes up to three due jobs in a
+background process.

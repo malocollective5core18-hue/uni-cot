@@ -210,7 +210,7 @@ class PathTenantProvisioningTests(CacheIsolationMixin, TestCase):
         tenant = create_owner_tenant(owner)
         job = tenant.provisioning_job
         job.status = TenantProvisioningJob.STATUS_RUNNING
-        job.locked_at = timezone.now() - timedelta(minutes=16)
+        job.locked_at = timezone.now() - timedelta(minutes=11)
         job.save(update_fields=["status", "locked_at"])
 
         self.assertEqual(recover_stale_jobs(), 1)
@@ -307,10 +307,53 @@ class PathTenantProvisioningTests(CacheIsolationMixin, TestCase):
     @patch("customers.provisioning.schedule_tenant_provisioning")
     def test_static_admin_and_health_paths_do_not_trigger_provisioner(self, mocked_schedule):
         middleware = TenantMiddleware(Mock())
-        for path in ("/healthz/", "/static/site.css", "/admin/"):
+        for path in ("/healthz/", "/static/site.css", "/admin/", "/internal/run-provisioning/"):
             request = RequestFactory().get(path)
             self.assertTrue(middleware._request_excluded_from_provisioning(request))
         mocked_schedule.assert_not_called()
+
+    @patch.dict("os.environ", {"PROVISIONING_CRON_TOKEN": "test-token"}, clear=False)
+    @patch("customers.provisioning.start_provisioning_batch")
+    def test_provisioning_pinger_accepts_header_or_query_token(self, mocked_start):
+        from customers.provisioning import run_provisioning_endpoint
+
+        for request in (
+            RequestFactory().get("/internal/run-provisioning/", HTTP_X_PROVISIONING_TOKEN="test-token"),
+            RequestFactory().post("/internal/run-provisioning/?token=test-token"),
+        ):
+            response = run_provisioning_endpoint(request)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {"accepted": True})
+        self.assertEqual(mocked_start.call_count, 2)
+
+    @patch.dict("os.environ", {"PROVISIONING_CRON_TOKEN": "test-token"}, clear=False)
+    @patch("customers.provisioning.start_provisioning_batch")
+    def test_provisioning_pinger_rejects_missing_or_wrong_token(self, mocked_start):
+        from customers.provisioning import run_provisioning_endpoint
+
+        requests = (
+            RequestFactory().get("/internal/run-provisioning/"),
+            RequestFactory().get("/internal/run-provisioning/?token=wrong"),
+            RequestFactory().post("/internal/run-provisioning/", HTTP_X_PROVISIONING_TOKEN="wrong"),
+        )
+        for request in requests:
+            response = run_provisioning_endpoint(request)
+            self.assertEqual(response.status_code, 403)
+            self.assertNotIn(b"tenant", response.content.lower())
+        mocked_start.assert_not_called()
+
+    @patch("customers.provisioning.threading.Thread")
+    def test_pinger_batch_has_process_level_lock(self, mocked_thread):
+        from customers import provisioning
+
+        provisioning._CRON_RUN_LOCK.release() if provisioning._CRON_RUN_LOCK.locked() else None
+        try:
+            self.assertTrue(provisioning.start_provisioning_batch())
+            self.assertFalse(provisioning.start_provisioning_batch())
+            self.assertEqual(mocked_thread.call_count, 1)
+        finally:
+            if provisioning._CRON_RUN_LOCK.locked():
+                provisioning._CRON_RUN_LOCK.release()
 
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
     @patch("customers.management.commands.provision_tenants.tenant_schema_is_healthy", return_value=False)
