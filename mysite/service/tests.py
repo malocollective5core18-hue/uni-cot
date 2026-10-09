@@ -6,7 +6,7 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.contrib.auth.hashers import check_password, make_password
 
-from customers.models import CRTenant, get_public_tenant_domain
+from customers.models import CRTenant, TenantProvisioningJob, get_public_tenant_domain
 from core.models import User as CoreUser, UserGroup, UserGroupMember
 from service.models import OwnerUser, Member, Comment
 from service.views import _find_member_login_record
@@ -54,6 +54,24 @@ class OwnerSignupTests(CacheIsolationMixin, TestCase):
         )
         self.assertEqual(OwnerUser.objects.count(), 0)
         mocked_create_owner_tenant.assert_called_once()
+
+    @patch("customers.provisioning.schedule_tenant_provisioning", side_effect=RuntimeError("thread unavailable"))
+    def test_signup_succeeds_when_on_commit_provisioning_launch_fails(self, mocked_schedule):
+        with self.assertLogs("customers.models", level="ERROR"), self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                reverse("service:register"),
+                {
+                    "program_name": "Signup Kick Failure",
+                    "email": "signup-kick-failure@example.com",
+                    "password": "secret123",
+                    "confirm_password": "secret123",
+                },
+                follow=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(OwnerUser.objects.filter(email="signup-kick-failure@example.com").count(), 1)
+        mocked_schedule.assert_called_once()
 
 
 class TenantDomainConfigTests(TestCase):
@@ -145,18 +163,115 @@ class CrossDeviceLoginTests(CacheIsolationMixin, TestCase):
             provisioning_state=CRTenant.PROVISIONING_PENDING,
         )
 
-        response = self.client.post(
-            reverse("service:login"),
-            {
-                "login_identifier": "owner-pending@example.com",
-                "password": "secret123",
-            },
-            follow=False,
-        )
+        with patch("customers.provisioning.schedule_tenant_provisioning") as mocked_schedule:
+            response = self.client.post(
+                reverse("service:login"),
+                {
+                    "login_identifier": "owner-pending@example.com",
+                    "password": "secret123",
+                },
+                follow=False,
+            )
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.url.endswith(reverse("service:welcome")), response.url)
         self.assertEqual(self.client.session.get("service_user"), None)
+        mocked_schedule.assert_called_once_with(owner.tenant.id)
+        self.assertEqual(owner.tenant.provisioning_job.status, "queued")
+
+    @patch("customers.provisioning.threading.Thread")
+    def test_pending_owner_login_is_throttled_to_one_provisioning_launch(self, mocked_thread):
+        from customers import provisioning
+
+        provisioning._REQUEST_KICKS.clear()
+        owner = OwnerUser.objects.create(
+            email="owner-new-pending@example.com",
+            program_name="New Pending Tenant",
+            password=make_password("secret123"),
+            is_owner=True,
+            is_active=True,
+        )
+        CRTenant.objects.create(
+            name="New Pending Tenant",
+            schema_name="new_pending_tenant",
+            subdomain="new-pending-tenant",
+            tenant_key="B" * 20,
+            owner=owner,
+            is_active=True,
+            provisioning_state=CRTenant.PROVISIONING_PENDING,
+        )
+
+        for _ in range(2):
+            response = self.client.post(
+                reverse("service:login"),
+                {"login_identifier": owner.email, "password": "secret123"},
+                follow=False,
+            )
+            self.assertEqual(response.status_code, 302)
+
+        self.assertEqual(mocked_thread.call_count, 1)
+        self.assertTrue(TenantProvisioningJob.objects.filter(tenant=owner.tenant).exists())
+        provisioning._REQUEST_KICKS.clear()
+
+    @patch("customers.provisioning.schedule_tenant_provisioning", side_effect=RuntimeError("thread unavailable"))
+    def test_pending_owner_login_survives_provisioning_launch_failure(self, mocked_schedule):
+        owner = OwnerUser.objects.create(
+            email="owner-kick-failure@example.com",
+            program_name="Kick Failure Tenant",
+            password=make_password("secret123"),
+            is_owner=True,
+            is_active=True,
+        )
+        CRTenant.objects.create(
+            name="Kick Failure Tenant",
+            schema_name="kick_failure_tenant",
+            subdomain="kick-failure-tenant",
+            tenant_key="C" * 20,
+            owner=owner,
+            is_active=True,
+            provisioning_state=CRTenant.PROVISIONING_PENDING,
+        )
+
+        with self.assertLogs("service.views", level="ERROR"):
+            response = self.client.post(
+                reverse("service:login"),
+                {"login_identifier": owner.email, "password": "secret123"},
+                follow=False,
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.session.get("service_user"), None)
+        mocked_schedule.assert_called_once_with(owner.tenant.id)
+
+    @patch("customers.provisioning.schedule_tenant_provisioning")
+    def test_pending_owner_dashboard_creates_missing_job_and_schedules(self, mocked_schedule):
+        owner = OwnerUser.objects.create(
+            email="owner-dashboard-pending@example.com",
+            program_name="Dashboard Pending Tenant",
+            password=make_password("secret123"),
+            is_owner=True,
+            is_active=True,
+        )
+        tenant = CRTenant.objects.create(
+            name="Dashboard Pending Tenant",
+            schema_name="dashboard_pending_tenant",
+            subdomain="dashboard-pending-tenant",
+            tenant_key="D" * 20,
+            owner=owner,
+            is_active=True,
+            provisioning_state=CRTenant.PROVISIONING_PENDING,
+        )
+        session = self.client.session
+        session["service_user"] = {"user_type": "owner", "owner_id": owner.id}
+        session.save()
+
+        response = self.client.get(reverse("service:owner_dashboard"), follow=False)
+
+        self.assertEqual(response.status_code, 302)
+        job = TenantProvisioningJob.objects.get(tenant=tenant)
+        self.assertEqual(job.status, TenantProvisioningJob.STATUS_QUEUED)
+        mocked_schedule.assert_called_once_with(tenant.id)
+
 
     def test_django_admin_can_log_in_from_welcome_page_to_founder_dashboard(self):
         founder = get_user_model().objects.create_user(

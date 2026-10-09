@@ -6,11 +6,13 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from django.http import JsonResponse
 from django.db import connection, close_old_connections
+from django.utils import timezone
 
 
 _WAKE_EVENT = threading.Event()
@@ -68,6 +70,29 @@ def schedule_tenant_provisioning(tenant_id):
     )
     thread.start()
     return True
+
+
+def ensure_tenant_job_and_schedule(tenant_id):
+    """Repair a missing queue row, then kick due or abandoned tenant work."""
+    from customers.models import TenantProvisioningJob
+
+    now = timezone.now()
+    job, created = TenantProvisioningJob.objects.get_or_create(
+        tenant_id=tenant_id,
+        defaults={
+            "status": TenantProvisioningJob.STATUS_QUEUED,
+            "next_attempt_at": now,
+        },
+    )
+    due = job.status in {TenantProvisioningJob.STATUS_QUEUED, TenantProvisioningJob.STATUS_RETRY} and job.next_attempt_at <= now
+    stale = (
+        job.status == TenantProvisioningJob.STATUS_RUNNING
+        and job.locked_at is not None
+        and job.locked_at <= now - timedelta(minutes=10)
+    )
+    if created or due or stale:
+        schedule_tenant_provisioning(tenant_id)
+    return job
 
 
 def _run_provisioning_batch():

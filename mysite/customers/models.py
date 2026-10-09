@@ -510,7 +510,7 @@ def create_owner_tenant(owner, base_domain=None):
     )
 
     TenantProvisioningJob.objects.create(tenant=tenant)
-    transaction.on_commit(lambda: _kick_in_process_provisioner())
+    transaction.on_commit(lambda tenant_id=tenant.id: _kick_in_process_provisioner(tenant_id))
     logger.info(
         "create_owner_tenant: queued provisioning for tenant id=%s schema=%s",
         tenant.id,
@@ -520,7 +520,12 @@ def create_owner_tenant(owner, base_domain=None):
     return tenant
 
 
-def _kick_in_process_provisioner():
-    from customers.provisioning import kick_provisioner
+def _kick_in_process_provisioner(tenant_id):
+    """Wake any local runner and directly schedule this committed tenant job."""
+    try:
+        from customers.provisioning import kick_provisioner, schedule_tenant_provisioning
 
-    kick_provisioner()
+        kick_provisioner()
+        schedule_tenant_provisioning(tenant_id)
+    except Exception:
+        logger.exception("Could not launch tenant provisioning after commit tenant_id=%s", tenant_id)

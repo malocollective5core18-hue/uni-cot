@@ -244,7 +244,8 @@ class PathTenantProvisioningTests(CacheIsolationMixin, TestCase):
         )
 
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
-    def test_pending_tenant_path_shows_setup_page_without_activating_schema(self):
+    @patch("customers.provisioning.schedule_tenant_provisioning")
+    def test_pending_tenant_path_shows_setup_page_without_activating_schema(self, mocked_schedule):
         tenant = self._tenant_for_routing_state(CRTenant.PROVISIONING_PENDING)
         get_response = Mock()
         middleware = TenantMiddleware(get_response)
@@ -255,9 +256,11 @@ class PathTenantProvisioningTests(CacheIsolationMixin, TestCase):
         self.assertContains(response, "Workspace is being set up", status_code=202)
         self.assertFalse(hasattr(request, "tenant"))
         get_response.assert_not_called()
+        mocked_schedule.assert_called_once_with(tenant.id)
 
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
-    def test_provisioning_tenant_path_shows_setup_page_without_activating_schema(self):
+    @patch("customers.provisioning.schedule_tenant_provisioning")
+    def test_provisioning_tenant_path_shows_setup_page_without_activating_schema(self, mocked_schedule):
         tenant = self._tenant_for_routing_state(CRTenant.PROVISIONING_IN_PROGRESS)
         get_response = Mock()
         middleware = TenantMiddleware(get_response)
@@ -267,6 +270,20 @@ class PathTenantProvisioningTests(CacheIsolationMixin, TestCase):
         self.assertEqual(response.status_code, 202)
         self.assertContains(response, "Workspace is being set up", status_code=202)
         get_response.assert_not_called()
+        mocked_schedule.assert_called_once_with(tenant.id)
+
+    @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
+    @patch("customers.provisioning.schedule_tenant_provisioning")
+    def test_pending_tenant_without_job_gets_job_created_and_scheduled(self, mocked_schedule):
+        tenant = self._tenant_for_routing_state(CRTenant.PROVISIONING_PENDING)
+
+        response = TenantMiddleware(Mock())(self._path_request_for(tenant))
+
+        self.assertEqual(response.status_code, 202)
+        job = TenantProvisioningJob.objects.get(tenant=tenant)
+        self.assertEqual(job.status, TenantProvisioningJob.STATUS_QUEUED)
+        self.assertLessEqual(job.next_attempt_at, timezone.now())
+        mocked_schedule.assert_called_once_with(tenant.id)
 
     @patch("customers.management.commands.process_provisioning_jobs.run_job", side_effect=RuntimeError("job failed"))
     @patch("customers.management.commands.process_provisioning_jobs.claim_next_job")
@@ -279,6 +296,28 @@ class PathTenantProvisioningTests(CacheIsolationMixin, TestCase):
 
         self.assertEqual(mocked_run.call_count, 1)
         self.assertEqual(mocked_claim.call_count, 2)
+
+    @patch("customers.management.commands.process_provisioning_jobs.claim_next_job", return_value=None)
+    def test_retry_failed_flag_resets_failed_job_before_processing(self, mocked_claim):
+        tenant = self._tenant_for_routing_state(CRTenant.PROVISIONING_FAILED)
+        job = TenantProvisioningJob.objects.create(
+            tenant=tenant,
+            status=TenantProvisioningJob.STATUS_FAILED,
+            attempts=5,
+            last_error="previous failure",
+            next_attempt_at=timezone.now() + timedelta(hours=1),
+        )
+
+        call_command("process_provisioning_jobs", "--retry-failed", "--tenant-id", str(tenant.id), "--limit", "1")
+
+        job.refresh_from_db()
+        tenant.refresh_from_db()
+        self.assertEqual(job.status, TenantProvisioningJob.STATUS_QUEUED)
+        self.assertEqual(job.attempts, 0)
+        self.assertLessEqual(job.next_attempt_at, timezone.now())
+        self.assertEqual(job.last_error, "")
+        self.assertEqual(tenant.provisioning_state, CRTenant.PROVISIONING_PENDING)
+        mocked_claim.assert_called_once()
 
     @patch.dict("os.environ", {"DJANGO_TENANT_ROUTING_MODE": "path"}, clear=False)
     @patch("customers.provisioning.threading.Thread")
