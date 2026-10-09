@@ -41,6 +41,30 @@ def recover_stale_jobs(tenant_id=None):
     )
 
 
+def retry_failed_jobs(tenant_id=None, limit=50):
+    """Explicitly requeue selected terminal failures for an operator retry."""
+    now = timezone.now()
+    with transaction.atomic():
+        jobs = TenantProvisioningJob.objects.select_for_update(skip_locked=True).filter(
+            status=TenantProvisioningJob.STATUS_FAILED,
+        )
+        if tenant_id is not None:
+            jobs = jobs.filter(tenant_id=tenant_id)
+        selected = list(jobs.order_by("updated_at", "id")[:max(1, limit)])
+        for job in selected:
+            job.status = TenantProvisioningJob.STATUS_QUEUED
+            job.attempts = 0
+            job.next_attempt_at = now
+            job.locked_at = None
+            job.last_error = ""
+            job.save(update_fields=["status", "attempts", "next_attempt_at", "locked_at", "last_error", "updated_at"])
+            CRTenant.objects.filter(pk=job.tenant_id).update(
+                provisioning_state=CRTenant.PROVISIONING_PENDING,
+                provisioning_error="",
+            )
+    return len(selected)
+
+
 def claim_next_job(tenant_id=None):
     """Atomically claim one due job so concurrent workers cannot provision it twice."""
     with transaction.atomic():

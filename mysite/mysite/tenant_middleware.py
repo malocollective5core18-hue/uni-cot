@@ -6,7 +6,6 @@ This middleware extracts subdomain from request and sets up tenant context.
 
 import logging
 import re
-from datetime import timedelta
 from types import SimpleNamespace
 
 from django.http import HttpResponse, HttpResponseNotFound, JsonResponse
@@ -15,7 +14,6 @@ from django.shortcuts import redirect
 from django.contrib import messages
 from django.core.cache import cache
 from django.db import connection
-from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -142,24 +140,17 @@ class TenantMiddleware:
                 status=503,
             )
 
-        due_statuses = {TenantProvisioningJob.STATUS_QUEUED, TenantProvisioningJob.STATUS_RETRY}
-        due = bool(
-            job
-            and job.status in due_statuses
-            and job.next_attempt_at <= timezone.now()
-        )
-        stale_lock = bool(
-            job
-            and job.status == TenantProvisioningJob.STATUS_RUNNING
-            and job.locked_at
-            and job.locked_at <= timezone.now() - timedelta(minutes=10)
-        )
-        should_kick = due or stale_lock
         excluded = self._request_excluded_from_provisioning(request)
-        if should_kick and not excluded:
-            from customers.provisioning import schedule_tenant_provisioning
+        if not excluded:
+            try:
+                from customers.provisioning import ensure_tenant_job_and_schedule
 
-            schedule_tenant_provisioning(tenant.id)
+                ensure_tenant_job_and_schedule(tenant.id)
+            except Exception:
+                logger.exception(
+                    "Could not schedule pending tenant provisioning tenant_id=%s schema=%s",
+                    tenant.id, tenant.schema_name,
+                )
 
         body = "<h1>Workspace is being set up</h1><p>Please try again in a moment.</p>"
         response = HttpResponse(body, status=202)

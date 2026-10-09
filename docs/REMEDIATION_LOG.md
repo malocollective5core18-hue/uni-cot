@@ -434,3 +434,11 @@
 - Files touched: `mysite/customers/provisioning.py`, `mysite/operational_middleware.py`, `mysite/mysite/urls.py`, `mysite/urls.py`, `mysite/mysite/tenant_middleware.py`, `mysite/mysite/settings.py`, `mysite/customers/tests.py`, `render.yaml`, `README.md`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Added tests for token auth, process-level launch lock, request throttling/Retry-After, and stale-lock recovery. Test suite and Django checks are run for this change and results will be recorded after verification.
 - Remaining risk: The external pinger must be configured with the secret held in Render; this value is not stored in the repository.
+
+## Signup and login provisioning recovery (2026-10-10)
+
+- Finding: The signup `on_commit` callback only set a wake event; when the optional in-process runner was not already running, that did not start provisioning. Public owner login also displayed the pending message without kicking the due job, and missing queue rows could remain pending indefinitely.
+- Change: The commit callback now wakes the optional runner and starts the existing throttled tenant-scoped provisioning process, with launch errors logged and swallowed. Login, owner dashboard, and tenant middleware share a best-effort helper that creates a missing queued job and schedules due or ten-minute-stale work. Added the explicit `--retry-failed` command flag to reset terminal failures for a bounded retry pass.
+- Files touched: `mysite/customers/models.py`, `mysite/customers/provisioning.py`, `mysite/mysite/tenant_middleware.py`, `mysite/service/views.py`, `mysite/customers/management/commands/provision_tenants.py`, `mysite/customers/management/commands/process_provisioning_jobs.py`, `mysite/customers/tests.py`, `mysite/service/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added coverage for login throttling, missing-job recreation, safe signup/login launch failures, and explicit failed-job reset. `python3 -m compileall -q .` and `git diff --check` passed. Django check, migration-drift check, and tests could not run because Django is not installed in the environment (`ModuleNotFoundError`).
+- Remaining risk: Request and commit-triggered background subprocesses remain subject to Render Free process sleep/restart; the existing external pinger can provide another trigger when configured.

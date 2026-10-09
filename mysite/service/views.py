@@ -452,6 +452,19 @@ def _clear_service_session(request):
     request.session.modified = True
 
 
+def _kick_pending_tenant_provisioning(tenant):
+    """Best-effort request kick; provisioning failures must not break login."""
+    try:
+        from customers.provisioning import ensure_tenant_job_and_schedule
+
+        ensure_tenant_job_and_schedule(tenant.id)
+    except Exception:
+        logger.exception(
+            "Could not schedule tenant provisioning from owner request tenant_id=%s schema=%s",
+            tenant.id, getattr(tenant, 'schema_name', '(unknown)'),
+        )
+
+
 def _get_tenant_from_request(request):
     """Get tenant from request or session."""
     # Check request.tenant (set by middleware)
@@ -739,6 +752,7 @@ def login_view(request, *args, **kwargs):
                 # Link owner's tenant to session (if they have one)
                 owner_tenant = getattr(owner, 'tenant', None)
                 if owner_tenant and getattr(owner_tenant, 'provisioning_state', None) != CRTenant.PROVISIONING_READY:
+                    _kick_pending_tenant_provisioning(owner_tenant)
                     _clear_service_session(request)
                     messages.error(request, 'Your tenant workspace is still being set up. Please try again in a moment.')
                     return _tenant_redirect(request, 'service:welcome')
@@ -985,6 +999,7 @@ def owner_dashboard(request, *args, **kwargs):
     tenant = getattr(owner, 'tenant', None)
     if tenant:
         if getattr(tenant, 'provisioning_state', None) != CRTenant.PROVISIONING_READY:
+            _kick_pending_tenant_provisioning(tenant)
             _clear_service_session(request)
             messages.error(request, 'Your tenant workspace is still being set up. Please try again in a moment.')
             return _tenant_redirect(request, 'service:welcome')
