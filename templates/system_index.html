@@ -3079,11 +3079,19 @@ footer img:hover {
 
 #groupsTab .groups-scroll-container { overflow: visible; }
 #groupsTab .groups-horizontal-layout { display: block; min-width: 0; }
-#groupsTab .group-table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-#groupsTab .group-summary-table { width: 100%; border-collapse: collapse; min-width: 520px; }
-#groupsTab .group-summary-table th, #groupsTab .group-summary-table td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.1); text-align: left; }
-#groupsTab .group-summary-table th { color: var(--accent); background: rgba(91,140,255,.1); }
-#groupsTab .group-detail-card { margin-top: 16px; }
+#groupsTab .group-table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 4px; border-radius: 8px; background: rgba(12,16,36,.2); }
+#groupsTab .group-summary-table { --group-table-zoom: .8; width: calc(100% / var(--group-table-zoom)); border-collapse: collapse; min-width: 580px; font-size: .76rem; transform: scale(var(--group-table-zoom)); transform-origin: top left; }
+#groupsTab .group-summary-table th, #groupsTab .group-summary-table td { padding: 7px 9px; border-bottom: 1px solid rgba(255,255,255,.1); text-align: left; }
+#groupsTab .group-summary-table th { color: var(--accent); background: rgba(91,140,255,.1); font-size: .72rem; white-space: nowrap; }
+#groupsTab .group-summary-table tbody td:first-child { color: #35d07f; font-weight: 700; }
+#groupsTab .group-summary-table .form-btn { margin: 0; padding: 4px 8px; min-height: 27px; font-size: .68rem; line-height: 1.1; }
+.group-detail-overlay { overflow-y: auto; align-items: flex-start; padding: max(12px, 4vh) 12px; }
+.group-detail-modal { width: min(680px, 100%); max-width: 680px; min-width: 0; max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; padding: 16px; }
+.group-detail-modal .group-detail-back { display: block; width: auto; min-height: 27px; margin: 0 0 8px auto; padding: 4px 8px; font-size: .68rem; line-height: 1.1; }
+.group-detail-modal .group-members-container { max-height: min(44vh, 380px); overflow-y: auto; overscroll-behavior: contain; }
+.group-detail-modal .group-member { flex-wrap: wrap; gap: 6px; }
+.group-detail-modal .group-member > div { display: flex; flex-wrap: wrap; gap: 4px; }
+.group-detail-modal .group-title { color: #35d07f; font-weight: 700; }
 #groupsTab #groupManagementSearch { flex: 1 1 240px; min-width: 180px; }
 #ownerGroupConfigModal { position: fixed; inset: 0; z-index: 12000; display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.72); }
 #ownerGroupConfigModal .group-dialog { width: min(460px, 100%); background: var(--card); border: 1px solid rgba(91,140,255,.3); border-radius: 14px; padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
@@ -9075,6 +9083,8 @@ function saveGroups() {
 function populateGroups() {
   const container = document.getElementById('groupList');
   if (!container) return;
+  document.getElementById('groupDetailOverlay')?.remove();
+  if (!selectedGroupDetailId) document.body.style.overflow = '';
 
   // Full re-render every time — avoids stale-DOM accumulation.
   container.innerHTML = '';
@@ -9175,10 +9185,20 @@ function populateGroups() {
   // ---- detail card, hidden until a row's Details button is selected ----
   const group = filteredGroups.find(item => item.id === selectedGroupDetailId);
   if (!group) return;
+  const detailOverlay = document.createElement('div');
+  detailOverlay.id = 'groupDetailOverlay';
+  detailOverlay.className = 'case-modal-overlay active group-detail-overlay';
+  detailOverlay.setAttribute('role', 'presentation');
+  detailOverlay.onclick = event => { if (event.target === detailOverlay) closeGroupDetails(); };
+  detailOverlay.onkeydown = event => { if (event.key === 'Escape') closeGroupDetails(); };
   const groupCard = document.createElement('div');
   groupCard.id = `group-card-${group.id}`;
-  groupCard.className = `group-card group-detail-card${group.flagged ? ' flagged-group' : ''}`;
-  groupCard.innerHTML = `<button type="button" class="form-btn secondary" onclick="closeGroupDetails()">← Back to groups</button>`;
+  groupCard.className = `group-card case-modal-content group-detail-modal${group.flagged ? ' flagged-group' : ''}`;
+  groupCard.setAttribute('role', 'dialog');
+  groupCard.setAttribute('aria-modal', 'true');
+  groupCard.setAttribute('aria-label', `${group.name} details`);
+  groupCard.tabIndex = -1;
+  groupCard.innerHTML = `<button type="button" class="form-btn secondary group-detail-back" onclick="closeGroupDetails()">← Back</button>`;
 
     const memberNames = (group.members || []).map(memberId => {
       const uid  = toId(memberId);
@@ -9232,11 +9252,14 @@ function populateGroups() {
           + Add Member
         </button>` : ''}`;
 
-    container.appendChild(groupCard);
+    detailOverlay.appendChild(groupCard);
+    document.body.appendChild(detailOverlay);
+    document.body.style.overflow = 'hidden';
+    groupCard.focus({ preventScroll: true });
 }
 
 function showGroupDetails(groupId) { selectedGroupDetailId = toId(groupId); populateGroups(); }
-function closeGroupDetails() { selectedGroupDetailId = null; populateGroups(); }
+function closeGroupDetails() { selectedGroupDetailId = null; document.body.style.overflow = ''; populateGroups(); }
 
 // ---------------------------------------------------------------------------
 // Auto-assign groups
