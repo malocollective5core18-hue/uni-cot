@@ -3080,10 +3080,32 @@ footer img:hover {
 #groupsTab .groups-scroll-container { overflow: visible; }
 #groupsTab .groups-horizontal-layout { display: block; min-width: 0; }
 #groupsTab .group-table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 4px; border-radius: 8px; background: rgba(12,16,36,.2); }
-#groupsTab .group-search-filter-row { display: grid; grid-template-columns: minmax(0, 1fr) max-content minmax(110px, 190px); gap: 8px; align-items: center; }
-#groupsTab .group-search-filter-row #groupManagementSearch { width: 100%; min-width: 0; }
-#groupsTab .group-search-filter-row #groupManagementFilter { width: 100%; min-width: 0; }
-#groupsTab .group-search-filter-row .form-label { white-space: nowrap; }
+#groupsTab .group-search-filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, 190px);
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 15px;
+}
+#groupsTab .group-search-filter-row input,
+#groupsTab .group-search-filter-row select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: 40px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: .82rem;
+}
+@media (max-width: 420px) {
+  #groupsTab .group-search-filter-row { grid-template-columns: minmax(0, 1fr) minmax(112px, 42%); gap: 6px; }
+  #groupsTab .group-search-filter-row input,
+  #groupsTab .group-search-filter-row select { height: 38px; padding: 7px 6px; font-size: .72rem; }
+}
 #groupsTab .group-summary-table { --group-table-zoom: .8; width: calc(100% / var(--group-table-zoom)); border-collapse: collapse; min-width: 580px; font-size: .76rem; transform: scale(var(--group-table-zoom)); transform-origin: top left; }
 #groupsTab .group-summary-table th, #groupsTab .group-summary-table td { padding: 7px 9px; border-bottom: 1px solid rgba(255,255,255,.1); text-align: left; }
 #groupsTab .group-summary-table th { color: var(--accent); background: rgba(91,140,255,.1); font-size: .72rem; white-space: nowrap; }
@@ -3096,7 +3118,7 @@ footer img:hover {
 .group-detail-modal .group-member { flex-wrap: wrap; gap: 6px; }
 .group-detail-modal .group-member > div { display: flex; flex-wrap: wrap; gap: 4px; }
 .group-detail-modal .group-title { color: #35d07f; font-weight: 700; }
-#groupsTab #groupManagementSearch { flex: 1 1 240px; min-width: 180px; }
+#groupsTab #groupManagementSearch { min-width: 0; }
 #ownerGroupConfigModal { position: fixed; inset: 0; z-index: 12000; display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.72); }
 #ownerGroupConfigModal .group-dialog { width: min(460px, 100%); background: var(--card); border: 1px solid rgba(91,140,255,.3); border-radius: 14px; padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
 #ownerGroupConfigModal .group-dialog-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 16px; }
@@ -5470,11 +5492,10 @@ footer img:hover {
             <button class="form-btn primary" onclick="showAutoAssignDialog()">Auto Assign</button>
             <button class="form-btn secondary" onclick="showManualGroupChoices()">＋ Manual Group</button>
           </div>
-          <div class="group-control-row group-search-filter-row">
+          <div class="group-search-filter-row">
             <input type="search" class="form-input" id="groupManagementSearch" placeholder="Search group or member…" oninput="populateGroups()" aria-label="Search groups or members">
-            <label class="form-label" for="groupManagementFilter" style="margin:0;">Filter</label>
-            <select class="form-input" id="groupManagementFilter" onchange="populateGroups()" style="max-width:190px;">
-              <option value="all">All groups</option><option value="with-space">Has space</option><option value="full">Full groups</option><option value="flagged">Flagged groups</option>
+            <select class="form-input" id="groupManagementFilter" onchange="populateGroups()" aria-label="Filter groups">
+              <option value="all">Filter: All groups</option><option value="with-space">Has space</option><option value="full">Full groups</option><option value="flagged">Flagged groups</option>
             </select>
           </div>
 
@@ -9145,7 +9166,8 @@ function populateGroups() {
   // ---- filters ----
   const showOnlyFlagged        = document.getElementById('filterFlaggedGroups')?.checked  ?? false;
   const showOnlyFlaggedMembers = document.getElementById('filterFlaggedMembers')?.checked ?? false;
-  const searchTerm             = (document.getElementById('groupManagementSearch')?.value ?? document.getElementById('groupSearchInput')?.value ?? '').toLowerCase().trim();
+  const normalizeSearchText = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().trim();
+  const searchTerms = normalizeSearchText(document.getElementById('groupManagementSearch')?.value ?? document.getElementById('groupSearchInput')?.value ?? '').split(/\s+/).filter(Boolean);
   const filterMode = document.getElementById('groupManagementFilter')?.value || 'all';
 
   const filteredGroups = sortedGroups.filter(g => {
@@ -9161,13 +9183,12 @@ function populateGroups() {
       });
       if (!hasFlagged) return false;
     }
-    if (searchTerm) {
-      const nameMatch   = (g.name || '').toLowerCase().includes(searchTerm);
-      const memberMatch = (g.members || []).some(uid => {
-        const u = userData.find(x => x.id === toId(uid));
-        return u && (u.full_name || '').toLowerCase().includes(searchTerm);
-      });
-      if (!nameMatch && !memberMatch) return false;
+    if (searchTerms.length) {
+      const searchableText = normalizeSearchText([
+        g.name,
+        ...(g.members || []).map(uid => userData.find(x => x.id === toId(uid))?.full_name || '')
+      ].join(' '));
+      if (!searchTerms.every(term => searchableText.includes(term))) return false;
     }
     return true;
   });
