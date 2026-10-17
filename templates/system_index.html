@@ -2605,7 +2605,7 @@ footer img:hover {
 /* Search and Filter */
 .user-search-filter {
   display: grid;
-  grid-template-columns: minmax(150px, 200px) minmax(0, 1fr) minmax(220px, max-content);
+  grid-template-columns: minmax(140px, 190px) minmax(140px, 190px) minmax(0, 1fr) minmax(220px, max-content);
   gap: 15px;
   margin-bottom: 20px;
   align-items: flex-end;
@@ -5432,7 +5432,6 @@ footer img:hover {
           <div class="card-form-title">User Database</div>
           
           <div class="user-search-filter">
-            
             <div class="form-group user-filter-box">
               <label class="form-label">Filter by Status</label>
               <select class="form-select" id="statusFilter" onchange="filterUsers()">
@@ -5440,6 +5439,14 @@ footer img:hover {
                 <option value="active">Active</option>
                 <option value="flagged">Flagged</option>
                 <option value="inactive">Inactive</option>
+              </select>
+            </div>
+
+            <div class="form-group user-filter-box">
+              <label class="form-label" for="groupFilter">Filter by Group</label>
+              <select class="form-select" id="groupFilter" onchange="filterUsers()" aria-label="Filter users by group">
+                <option value="all">All groups</option>
+                <option value="unassigned">Unassigned</option>
               </select>
             </div>
 
@@ -8364,6 +8371,8 @@ function renderUserRows(users) {
 
 function populateUserTable() {
   const tbody = document.getElementById('userTableBody');
+  if (!tbody) return;
+  populateUserGroupFilter();
   tbody.innerHTML = '';
   
   if (userData.length === 0) {
@@ -8379,7 +8388,33 @@ function populateUserTable() {
     return;
   }
 
-  tbody.innerHTML = renderUserRows(userData);
+  applyUserFilters();
+}
+
+function populateUserGroupFilter() {
+  const select = document.getElementById('groupFilter');
+  if (!select) return;
+
+  const selectedValue = select.value || 'all';
+  const normalizeName = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().trim();
+  const groupNames = new Map();
+  [...groups.map(group => group.group_name || group.name), ...userData.map(user => user.group_name || user.group)]
+    .map(name => String(name || '').trim())
+    .filter(Boolean)
+    .forEach(name => {
+      const key = normalizeName(name);
+      if (key && !groupNames.has(key)) groupNames.set(key, name);
+    });
+
+  const options = [
+    '<option value="all">All groups</option>',
+    '<option value="unassigned">Unassigned</option>',
+    ...[...groupNames.values()]
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+      .map(name => `<option value="group:${escapeAttr(name)}">${escapeHtml(name)}</option>`)
+  ];
+  select.innerHTML = options.join('');
+  select.value = [...select.options].some(option => option.value === selectedValue) ? selectedValue : 'all';
 }
 
 function searchUsers() {
@@ -8393,17 +8428,24 @@ function filterUsers() {
 function applyUserFilters() {
   const searchTerm = (document.getElementById('userSearch')?.value || '').trim().toLowerCase();
   const status = document.getElementById('statusFilter')?.value || 'all';
+  const groupFilter = document.getElementById('groupFilter')?.value || 'all';
+  const selectedGroup = groupFilter.startsWith('group:') ? groupFilter.slice(6) : '';
+  const normalizeGroupName = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().trim();
 
   const filteredUsers = userData.filter(user => {
     const matchesStatus = status === 'all' || user.status === status;
+    const userGroup = String(user.group_name || user.group || '').trim();
+    const matchesGroup = groupFilter === 'all'
+      || (groupFilter === 'unassigned' ? !userGroup : normalizeGroupName(userGroup) === normalizeGroupName(selectedGroup));
     const matchesSearch = !searchTerm || [
       user.full_name,
       user.registration_number,
       user.email,
-      user.phone
+      user.phone,
+      userGroup
     ].some(value => String(value || '').toLowerCase().includes(searchTerm));
 
-    return matchesStatus && matchesSearch;
+    return matchesStatus && matchesGroup && matchesSearch;
   });
 
   updateTableWithFilteredUsers(filteredUsers);
@@ -9084,6 +9126,9 @@ async function loadGroups(options = {}) {
 
       return base;
     });
+
+    populateUserGroupFilter();
+    if (document.getElementById('userTableBody')) applyUserFilters();
 
     console.log('Loaded', groups.length, 'groups from database');
   } catch (error) {
