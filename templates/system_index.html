@@ -3080,15 +3080,19 @@ footer img:hover {
 #groupsTab .groups-scroll-container { overflow: visible; }
 #groupsTab .groups-horizontal-layout { display: block; min-width: 0; }
 #groupsTab .group-table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 4px; border-radius: 8px; background: rgba(12,16,36,.2); }
+#groupsTab .group-search-filter-row { display: grid; grid-template-columns: minmax(0, 1fr) max-content minmax(110px, 190px); gap: 8px; align-items: center; }
+#groupsTab .group-search-filter-row #groupManagementSearch { width: 100%; min-width: 0; }
+#groupsTab .group-search-filter-row #groupManagementFilter { width: 100%; min-width: 0; }
+#groupsTab .group-search-filter-row .form-label { white-space: nowrap; }
 #groupsTab .group-summary-table { --group-table-zoom: .8; width: calc(100% / var(--group-table-zoom)); border-collapse: collapse; min-width: 580px; font-size: .76rem; transform: scale(var(--group-table-zoom)); transform-origin: top left; }
 #groupsTab .group-summary-table th, #groupsTab .group-summary-table td { padding: 7px 9px; border-bottom: 1px solid rgba(255,255,255,.1); text-align: left; }
 #groupsTab .group-summary-table th { color: var(--accent); background: rgba(91,140,255,.1); font-size: .72rem; white-space: nowrap; }
 #groupsTab .group-summary-table tbody td:first-child { color: #35d07f; font-weight: 700; }
 #groupsTab .group-summary-table .form-btn { margin: 0; padding: 4px 8px; min-height: 27px; font-size: .68rem; line-height: 1.1; }
-.group-detail-overlay { overflow-y: auto; align-items: flex-start; padding: max(12px, 4vh) 12px; }
-.group-detail-modal { width: min(680px, 100%); max-width: 680px; min-width: 0; max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; padding: 16px; }
+.group-detail-overlay { overflow-y: auto; align-items: center; justify-content: center; padding: 16px; }
+.group-detail-modal { box-sizing: border-box; width: min(680px, 100%); max-width: 680px; min-width: 0; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); margin: auto; overflow-y: auto; overscroll-behavior: contain; padding: 16px; }
 .group-detail-modal .group-detail-back { display: block; width: auto; min-height: 27px; margin: 0 0 8px auto; padding: 4px 8px; font-size: .68rem; line-height: 1.1; }
-.group-detail-modal .group-members-container { max-height: min(44vh, 380px); overflow-y: auto; overscroll-behavior: contain; }
+.group-detail-modal .group-members-container { max-height: min(42vh, 360px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .group-detail-modal .group-member { flex-wrap: wrap; gap: 6px; }
 .group-detail-modal .group-member > div { display: flex; flex-wrap: wrap; gap: 4px; }
 .group-detail-modal .group-title { color: #35d07f; font-weight: 700; }
@@ -5466,7 +5470,7 @@ footer img:hover {
             <button class="form-btn primary" onclick="showAutoAssignDialog()">Auto Assign</button>
             <button class="form-btn secondary" onclick="showManualGroupChoices()">＋ Manual Group</button>
           </div>
-          <div class="group-control-row" style="align-items:center;gap:12px;flex-wrap:wrap;">
+          <div class="group-control-row group-search-filter-row">
             <input type="search" class="form-input" id="groupManagementSearch" placeholder="Search group or member…" oninput="populateGroups()" aria-label="Search groups or members">
             <label class="form-label" for="groupManagementFilter" style="margin:0;">Filter</label>
             <select class="form-input" id="groupManagementFilter" onchange="populateGroups()" style="max-width:190px;">
