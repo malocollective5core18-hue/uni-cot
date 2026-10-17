@@ -497,6 +497,7 @@ def _serialize_group(group, members=None):
         'group_code': group.group_code or '',
         'description': group.description or '',
         'max_members': group.max_members,
+        'assignment_mode': group.assignment_mode,
         'current_members': group.current_members,
         'is_flagged': group.is_flagged,
         'leader_id': group.leader_id,
@@ -1762,6 +1763,7 @@ def api_groups(request, *args, **kwargs):
                 group_code=body.get('group_code') or None,
                 description=body.get('description', ''),
                 max_members=body.get('max_members', 50),
+                assignment_mode=body.get('assignment_mode') if body.get('assignment_mode') in {'normal', 'restrict'} else 'normal',
                 created_by=_get_product_owner_id(request),
             )
             _invalidate_api_cache(request, 'groups')
@@ -1939,7 +1941,8 @@ def api_group_move_member(request, *args, **kwargs):
 
             target_members = _scope_group_members_queryset(request).filter(group_id=target_group_id, status='active')
             already_in_target = target_members.filter(user_id=user_id).exists()
-            if not already_in_target and target_group.max_members and target_members.count() >= target_group.max_members:
+            if (not already_in_target and target_group.assignment_mode == 'restrict'
+                    and target_group.max_members and target_members.count() >= target_group.max_members):
                 return JsonResponse({'success': False, 'error': 'Target group is full'}, status=400)
 
             _assign_user_to_group(request, user, target_group)
@@ -1982,11 +1985,19 @@ def api_groups_reformat(request, *args, **kwargs):
     if group_size < 1 or group_size > 500:
         return JsonResponse({'success': False, 'error': 'Group size must be between 1 and 500'}, status=400)
 
-    order_type = body.get('order_type') if body.get('order_type') in {'alphabetical', 'numerical'} else 'alphabetical'
+    order_type = body.get('order_type') if body.get('order_type') in {'alphabetical', 'numerical', 'mixed'} else 'alphabetical'
+    assignment_mode = body.get('assign_mode') if body.get('assign_mode') in {'normal', 'restrict'} else 'normal'
 
     def group_name_for(index):
         if order_type == 'numerical':
             return f'Group {index + 1}'
+        if order_type == 'mixed':
+            letters = ''
+            number = (index // 100) + 1
+            while number:
+                number, remainder = divmod(number - 1, 26)
+                letters = chr(65 + remainder) + letters
+            return f'{letters}{(index % 100) + 1}'
         name = ''
         n = index + 1
         while n > 0:
@@ -2008,6 +2019,7 @@ def api_groups_reformat(request, *args, **kwargs):
                 created_groups.append(UserGroup.objects.create(
                     group_name=group_name_for(index),
                     max_members=group_size,
+                    assignment_mode=assignment_mode,
                     current_members=0,
                     created_by=owner_id,
                 ))
@@ -2104,8 +2116,13 @@ def api_group_members(request, *args, **kwargs):
                 return JsonResponse({'success': False, 'error': 'New memberships must be active'}, status=400)
 
             with transaction.atomic():
+                group = _scope_groups_queryset(request).select_for_update().get(id=group_id)
                 if _scope_group_members_queryset(request).filter(user_id=user_id, group_id=group_id, status='active').exists():
                     return JsonResponse({'success': False, 'error': 'User is already a member of this group'}, status=400)
+                if group.assignment_mode == 'restrict':
+                    current_count = _scope_group_members_queryset(request).filter(group_id=group_id, status='active').count()
+                    if current_count >= group.max_members:
+                        return JsonResponse({'success': False, 'error': 'Target group is full'}, status=400)
                 member = _assign_user_to_group(request, user, group)
                 if is_leader:
                     _scope_groups_queryset(request).filter(id=group_id).update(leader_id=user_id)

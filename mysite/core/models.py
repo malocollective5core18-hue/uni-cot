@@ -153,11 +153,13 @@ class User(models.Model):
 
 
 class UserGroup(models.Model):
+    ASSIGNMENT_MODE_CHOICES = [('normal', 'Normal'), ('restrict', 'Restricted')]
     id = models.AutoField(primary_key=True)
     group_name = models.CharField(max_length=100, unique=True)
     group_code = models.CharField(max_length=20, unique=True, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
     max_members = models.IntegerField(default=50)
+    assignment_mode = models.CharField(max_length=10, choices=ASSIGNMENT_MODE_CHOICES, default='normal')
     current_members = models.IntegerField(default=0)
     is_active = models.BooleanField(default=True)
     is_flagged = models.BooleanField(default=False)

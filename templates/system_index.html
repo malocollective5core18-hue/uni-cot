@@ -3077,6 +3077,19 @@ footer img:hover {
   padding-right: 10px;
 }
 
+#groupsTab .groups-scroll-container { overflow: visible; }
+#groupsTab .groups-horizontal-layout { display: block; min-width: 0; }
+#groupsTab .group-table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+#groupsTab .group-summary-table { width: 100%; border-collapse: collapse; min-width: 520px; }
+#groupsTab .group-summary-table th, #groupsTab .group-summary-table td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.1); text-align: left; }
+#groupsTab .group-summary-table th { color: var(--accent); background: rgba(91,140,255,.1); }
+#groupsTab .group-detail-card { margin-top: 16px; }
+#groupsTab #groupManagementSearch { flex: 1 1 240px; min-width: 180px; }
+#ownerGroupConfigModal { position: fixed; inset: 0; z-index: 12000; display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.72); }
+#ownerGroupConfigModal .group-dialog { width: min(460px, 100%); background: var(--card); border: 1px solid rgba(91,140,255,.3); border-radius: 14px; padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+#ownerGroupConfigModal .group-dialog-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-top: 16px; }
+#ownerGroupConfigModal .group-dialog-actions button { margin-top: 0; }
+
 .group-order-options {
   font-size: 0.8rem;
   display: flex;
@@ -5442,32 +5455,15 @@ footer img:hover {
           <div class="card-form-title">Group Management</div>
           
           <div class="group-control-row group-create-options">
-            <div class="form-group">
-              <label class="form-label">Group Name (optional)</label>
-              <input type="text" class="form-input" id="customGroupName" placeholder="Group name" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">Group Size</label>
-              <input type="number" class="form-input" id="customGroupSize" placeholder="10" min="1" max="100" />
-            </div>
-            <button class="form-btn secondary" onclick="createCustomGroup()">Create Group With Options</button>
-            <button class="form-btn secondary" onclick="createEmptyGroup()">Create Blank Group</button>
+            <button class="form-btn primary" onclick="showAutoAssignDialog()">Auto Assign</button>
+            <button class="form-btn secondary" onclick="showManualGroupChoices()">＋ Manual Group</button>
           </div>
-
-          <div class="group-control-row group-assign-options">
-            <span class="group-assign-label">Auto-assign mode:</span>
-            <label class="group-radio-option"><input type="radio" name="assignMode" value="normal" checked onclick="setGroupAssignMode('normal')"> Normal</label>
-            <label class="group-radio-option"><input type="radio" name="assignMode" value="restrict" onclick="setGroupAssignMode('restrict')"> Restrict</label>
-            <button class="form-btn primary" onclick="autoAssignGroups()">Auto-Assign Users</button>
-            <button class="form-btn warning" onclick="reformatAllGroups()">Reformat All</button>
-          </div>
-
-          <div class="group-control-row group-basic-create">
-            <div class="form-group">
-              <label class="form-label">Set Group Size</label>
-              <input type="number" class="form-input" id="groupSize" placeholder="e.g., 10" min="1" max="50">
-            </div>
-            <button class="form-btn secondary" onclick="createGroups()">Create Groups</button>
+          <div class="group-control-row" style="align-items:center;gap:12px;flex-wrap:wrap;">
+            <input type="search" class="form-input" id="groupManagementSearch" placeholder="Search group or member…" oninput="populateGroups()" aria-label="Search groups or members">
+            <label class="form-label" for="groupManagementFilter" style="margin:0;">Filter</label>
+            <select class="form-input" id="groupManagementFilter" onchange="populateGroups()" style="max-width:190px;">
+              <option value="all">All groups</option><option value="with-space">Has space</option><option value="full">Full groups</option><option value="flagged">Flagged groups</option>
+            </select>
           </div>
 
           <div class="group-list" id="groupList">
@@ -8982,8 +8978,10 @@ async function showCaseInfo(userId) {
 // State
 // ---------------------------------------------------------------------------
 let groupOrderType   = 'alphabetical';
+let groupDefaultSize = 10;
 let selectedUserForMove = null;
 let groupToMoveTo    = null;
+let selectedGroupDetailId = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -9039,6 +9037,7 @@ async function loadGroups(options = {}) {
         group_name:      g.group_name || g.name || `Group ${g.id}`,
         max_members:     g.max_members || 0,
         size:            g.max_members || g.size || 0,
+        assignmentMode:  g.assignment_mode || 'normal',
         members:         Array.isArray(g.members) ? g.members.map(m => toId(m.user_id)) : [],
         leader:          g.leader_id ? toId(g.leader_id) : null,
         current_members: g.current_members || 0,
@@ -9086,8 +9085,8 @@ function populateGroups() {
         <div class="user-empty-icon">👥</div>
         <h3>No Groups Created</h3>
         <p>Create groups using the controls above.</p>
-        <button class="form-btn primary" onclick="showManualGroupCreation()" style="margin-top:15px;">
-          Create Groups Manually
+        <button class="form-btn primary" onclick="showManualGroupChoices()" style="margin-top:15px;">
+          ＋ Manual Group
         </button>
       </div>`;
     return;
@@ -9107,24 +9106,7 @@ function populateGroups() {
   flagBadge.style.display = groups.length === 0 ? 'none' : 'block';
   groupsContainer.appendChild(flagBadge);
 
-  // Order toggle
-  const orderToggle = document.createElement('div');
-  orderToggle.className = 'group-order-options';
-  orderToggle.innerHTML = `
-    <div style="color:var(--text);font-weight:bold;margin-right:10px;">Group Order:</div>
-    <div class="order-option ${groupOrderType === 'alphabetical' ? 'active' : ''}"
-         onclick="toggleGroupOrder('alphabetical')">
-      <input type="radio" name="groupOrderDisplay" ${groupOrderType === 'alphabetical' ? 'checked' : ''}>
-      Alphabetical
-    </div>
-    <div class="order-option ${groupOrderType === 'numerical' ? 'active' : ''}"
-         onclick="toggleGroupOrder('numerical')">
-      <input type="radio" name="groupOrderDisplay" ${groupOrderType === 'numerical' ? 'checked' : ''}>
-      Numerical
-    </div>`;
-  groupsContainer.appendChild(orderToggle);
-
-  // Scroll + horizontal layout
+  // Compact group table; full actions are rendered only for the selected row.
   const scrollContainer = document.createElement('div');
   scrollContainer.className = 'groups-scroll-container';
 
@@ -9140,15 +9122,23 @@ function populateGroups() {
     if (groupOrderType === 'numerical') {
       return (parseInt(a.name.replace(/\D/g, '')) || 0) - (parseInt(b.name.replace(/\D/g, '')) || 0);
     }
+    if (groupOrderType === 'mixed') {
+      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+    }
     return a.name.localeCompare(b.name);
   });
 
   // ---- filters ----
   const showOnlyFlagged        = document.getElementById('filterFlaggedGroups')?.checked  ?? false;
   const showOnlyFlaggedMembers = document.getElementById('filterFlaggedMembers')?.checked ?? false;
-  const searchTerm             = (document.getElementById('groupSearchInput')?.value ?? '').toLowerCase().trim();
+  const searchTerm             = (document.getElementById('groupManagementSearch')?.value ?? document.getElementById('groupSearchInput')?.value ?? '').toLowerCase().trim();
+  const filterMode = document.getElementById('groupManagementFilter')?.value || 'all';
 
   const filteredGroups = sortedGroups.filter(g => {
+    const memberCount = (g.members || []).length;
+    if (filterMode === 'with-space' && memberCount >= g.size) return false;
+    if (filterMode === 'full' && memberCount < g.size) return false;
+    if (filterMode === 'flagged' && !g.flagged) return false;
     if (showOnlyFlagged && !g.flagged) return false;
     if (showOnlyFlaggedMembers) {
       const hasFlagged = (g.members || []).some(uid => {
@@ -9158,25 +9148,37 @@ function populateGroups() {
       if (!hasFlagged) return false;
     }
     if (searchTerm) {
-      const nameMatch   = g.name.toLowerCase().includes(searchTerm);
+      const nameMatch   = (g.name || '').toLowerCase().includes(searchTerm);
       const memberMatch = (g.members || []).some(uid => {
         const u = userData.find(x => x.id === toId(uid));
-        return u && u.full_name.toLowerCase().includes(searchTerm);
+        return u && (u.full_name || '').toLowerCase().includes(searchTerm);
       });
       if (!nameMatch && !memberMatch) return false;
     }
     return true;
   });
 
-  if (filteredGroups.length === 0) {
-    horizontalLayout.innerHTML = `<div style="padding:20px;color:var(--muted);">No groups match the current filters.</div>`;
-  }
-
-  // ---- render each card ----
+  if (!filteredGroups.some(g => g.id === selectedGroupDetailId)) selectedGroupDetailId = null;
+  const tableWrap = document.createElement('div');
+  tableWrap.className = 'group-table-wrap';
+  tableWrap.innerHTML = `<table class="group-summary-table"><thead><tr><th>Group</th><th>Members</th><th>Leader</th><th>Status</th><th>Details</th></tr></thead><tbody></tbody></table>`;
+  const tbody = tableWrap.querySelector('tbody');
   filteredGroups.forEach(group => {
-    const groupCard = document.createElement('div');
-    groupCard.id        = `group-card-${group.id}`;
-    groupCard.className = `group-card${group.flagged ? ' flagged-group' : ''}`;
+    const leader = userData.find(u => u.id === group.leader)?.full_name || 'Not set';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${escapeHtml(group.name)}${group.flagged ? ' 🚩' : ''}</td><td>${(group.members || []).length}/${Number(group.size) || 0}</td><td>${escapeHtml(leader)}</td><td>${group.flagged ? 'Flagged' : ((group.members || []).length >= group.size ? 'Full' : 'Open')}</td><td><button class="form-btn secondary" type="button" onclick="showGroupDetails(${group.id})">Details</button></td>`;
+    tbody.appendChild(tr);
+  });
+  if (!filteredGroups.length) tbody.innerHTML = '<tr><td colspan="5" style="padding:18px;color:var(--muted);">No groups match this search or filter.</td></tr>';
+  horizontalLayout.appendChild(tableWrap);
+
+  // ---- detail card, hidden until a row's Details button is selected ----
+  const group = filteredGroups.find(item => item.id === selectedGroupDetailId);
+  if (!group) return;
+  const groupCard = document.createElement('div');
+  groupCard.id = `group-card-${group.id}`;
+  groupCard.className = `group-card group-detail-card${group.flagged ? ' flagged-group' : ''}`;
+  groupCard.innerHTML = `<button type="button" class="form-btn secondary" onclick="closeGroupDetails()">← Back to groups</button>`;
 
     const memberNames = (group.members || []).map(memberId => {
       const uid  = toId(memberId);
@@ -9189,22 +9191,22 @@ function populateGroups() {
       } : null;
     }).filter(Boolean);
 
-    const showAddButton = (groupAssignMode === 'normal') || ((group.members || []).length < group.size);
+    const showAddButton = (group.assignmentMode !== 'restrict') || ((group.members || []).length < group.size);
 
-    groupCard.innerHTML = `
+    groupCard.innerHTML += `
       <div class="group-header">
         <div style="display:flex;align-items:center;gap:8px;">
-          <div class="group-title">${group.name}${group.flagged ? ' 🚩' : ''}</div>
+          <div class="group-title">${escapeHtml(group.name)}${group.flagged ? ' 🚩' : ''}</div>
           <button class="group-action-btn" title="Group actions"
                   onclick="openGroupActionModal(${group.id})">⋯</button>
         </div>
-        <div class="group-count">${(group.members || []).length}/${group.size}</div>
+        <div class="group-count">${(group.members || []).length}/${group.size} · ${group.assignmentMode === 'restrict' ? 'Restricted' : 'Normal'}</div>
       </div>
 
       ${group.leader ? `
         <div style="margin:10px 0;padding:8px;background:rgba(255,215,0,.1);border-radius:6px;border:1px solid rgba(255,215,0,.3);">
           <span style="color:gold;font-weight:bold;">★ Leader:</span>
-          ${userData.find(u => u.id === group.leader)?.full_name || 'Unknown'}
+          ${escapeHtml(userData.find(u => u.id === group.leader)?.full_name || 'Unknown')}
         </div>` : ''}
 
       <div class="group-members-container">
@@ -9212,7 +9214,7 @@ function populateGroups() {
           ${memberNames.map(member => `
             <li class="group-member${member.isLeader ? ' group-leader' : ''}${member.flagged ? ' member-flagged' : ''}"
                 id="member-${member.id}">
-              <span>${member.isLeader ? '★ ' : ''}${member.name}</span>
+              <span>${member.isLeader ? '★ ' : ''}${escapeHtml(member.name)}</span>
               <div>
                 ${!member.isLeader
                   ? `<button class="move-user-btn" onclick="setUserAsLeader(${member.id},${group.id})">Set Leader</button>`
@@ -9230,15 +9232,55 @@ function populateGroups() {
           + Add Member
         </button>` : ''}`;
 
-    horizontalLayout.appendChild(groupCard);
-  });
+    container.appendChild(groupCard);
 }
+
+function showGroupDetails(groupId) { selectedGroupDetailId = toId(groupId); populateGroups(); }
+function closeGroupDetails() { selectedGroupDetailId = null; populateGroups(); }
 
 // ---------------------------------------------------------------------------
 // Auto-assign groups
 // ---------------------------------------------------------------------------
 
-async function autoAssignGroups() {
+function nextGroupName(index, order = groupOrderType) {
+  if (order === 'numerical') return `Group ${index + 1}`;
+  if (order === 'mixed') return `${alphaGroupName(Math.floor(index / 100))}${(index % 100) + 1}`;
+  return alphaGroupName(index);
+}
+
+function closeOwnerGroupDialog() { document.getElementById('ownerGroupConfigModal')?.remove(); }
+
+function showAutoAssignDialog() {
+  const existingSize = Number(groups.find(g => Number(g.size) > 0)?.size) || groupDefaultSize || 10;
+  const existingMode = groups[0]?.assignmentMode || groupAssignMode;
+  closeOwnerGroupDialog();
+  const modal = document.createElement('div');
+  modal.id = 'ownerGroupConfigModal';
+  modal.innerHTML = `<section class="group-dialog" role="dialog" aria-modal="true" aria-labelledby="groupConfigTitle">
+    <h3 id="groupConfigTitle">Auto assign members</h3>
+    <p>Choose each group’s capacity, naming order, and whether manual additions may exceed that capacity. Existing groups will be rebuilt.</p>
+    <label class="form-label" for="autoGroupSize">Members per group</label><input id="autoGroupSize" class="form-input" type="number" min="1" max="500" value="${existingSize}">
+    <label class="form-label" for="autoGroupOrder">Group order</label><select id="autoGroupOrder" class="form-input"><option value="alphabetical">Alphabetical (A, B, C)</option><option value="numerical">Numerical (Group 1, Group 2)</option><option value="mixed">Mixed (A1–A100, B1–B100, …)</option></select>
+    <label class="form-label" for="autoGroupMode">Assignment mode</label><select id="autoGroupMode" class="form-input"><option value="normal">Normal — manual additions may exceed capacity</option><option value="restrict">Restricted — enforce group capacity</option></select>
+    <div class="group-dialog-actions"><button class="form-btn secondary" onclick="closeOwnerGroupDialog()">Cancel</button><button class="form-btn primary" onclick="submitAutoAssignDialog()">Continue</button></div>
+  </section>`;
+  document.body.appendChild(modal);
+  modal.querySelector('#autoGroupOrder').value = groupOrderType;
+  modal.querySelector('#autoGroupMode').value = existingMode;
+}
+
+function submitAutoAssignDialog() {
+  const size = Number(document.getElementById('autoGroupSize')?.value);
+  const order = document.getElementById('autoGroupOrder')?.value;
+  const mode = document.getElementById('autoGroupMode')?.value;
+  if (!Number.isInteger(size) || size < 1 || size > 500) return showTemporaryMessage('Group size must be between 1 and 500.', 'warning');
+  if (!confirm(`Rebuild all groups for ${userData.length} active members using ${order} order and ${mode} mode?`)) return;
+  groupDefaultSize = size;
+  closeOwnerGroupDialog();
+  autoAssignGroups(size, order, mode);
+}
+
+async function autoAssignGroups(requestedSize, selectedOrder, selectedMode) {
   if (!(await hasOwnerAdminSession())) {
     showTemporaryMessage('Owner admin login required to manage groups', 'warning');
     pendingAdminTarget = `${tenantPathPrefix() || ''}/groups/?admin=direct`;
@@ -9246,7 +9288,9 @@ async function autoAssignGroups() {
     return;
   }
 
-  const requestedSize = parseInt(document.getElementById('groupSize')?.value, 10);
+  requestedSize = Number(requestedSize || groupDefaultSize);
+  groupOrderType = selectedOrder || groupOrderType;
+  groupAssignMode = selectedMode || groupAssignMode;
   if (!Number.isInteger(requestedSize) || requestedSize < 1) {
     showTemporaryMessage('Enter a valid Set Group Size before auto-assigning.', 'warning');
     document.getElementById('groupSize')?.focus();
@@ -9261,7 +9305,7 @@ async function autoAssignGroups() {
     const response = await fetch('/api/groups/reformat/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
-      body: JSON.stringify({ group_size: requestedSize, order_type: groupOrderType }),
+      body: JSON.stringify({ group_size: requestedSize, order_type: groupOrderType, assign_mode: groupAssignMode }),
     });
     const result = await response.json();
     if (!result.success) throw new Error(result.error || 'Could not reformat groups');
@@ -9277,6 +9321,62 @@ async function autoAssignGroups() {
   } finally {
     hideLoadingSpinner();
     startAutoRefresh();  // Resume auto-refresh after auto-assignment
+  }
+}
+
+function showManualGroupChoices() {
+  groupAssignMode = groups[0]?.assignmentMode || groupAssignMode;
+  closeOwnerGroupDialog();
+  const modal = document.createElement('div');
+  modal.id = 'ownerGroupConfigModal';
+  modal.innerHTML = `<section class="group-dialog" role="dialog" aria-modal="true" aria-labelledby="manualGroupTitle">
+    <h3 id="manualGroupTitle">Add a manual group</h3>
+    <p>Choose Default to inherit the current group size, naming order, and assignment mode. Edit requirements changes only this group’s name and size.</p>
+    <div class="group-dialog-actions" style="justify-content:flex-start"><button class="form-btn primary" onclick="createManualGroupFromDialog('default')">Default</button><button class="form-btn secondary" onclick="showManualGroupEditor()">Edit group requirements</button></div>
+    <div class="group-dialog-actions"><button class="form-btn secondary" onclick="closeOwnerGroupDialog()">Cancel</button></div>
+  </section>`;
+  document.body.appendChild(modal);
+}
+
+function showManualGroupEditor() {
+  const modal = document.getElementById('ownerGroupConfigModal');
+  if (!modal) return;
+  const size = Number(groups.find(g => Number(g.size) > 0)?.size) || groupDefaultSize || 10;
+  modal.querySelector('.group-dialog').innerHTML = `<h3>Edit group requirements</h3><p>Only the group name and member limit will change. Order and assignment mode remain the current defaults.</p>
+    <label class="form-label" for="manualGroupNameValue">Group name</label><input id="manualGroupNameValue" class="form-input" maxlength="100" placeholder="Enter a name">
+    <label class="form-label" for="manualGroupSizeValue">Group size</label><input id="manualGroupSizeValue" class="form-input" type="number" min="1" max="500" value="${size}">
+    <div class="group-dialog-actions"><button class="form-btn secondary" onclick="showManualGroupChoices()">Back</button><button class="form-btn primary" onclick="createManualGroupFromDialog('edit')">Create group</button></div>`;
+}
+
+async function createManualGroupFromDialog(mode) {
+  if (!(await hasOwnerAdminSession())) {
+    closeOwnerGroupDialog();
+    showTemporaryMessage('Owner admin login required to manage groups', 'warning');
+    pendingAdminTarget = `${tenantPathPrefix() || ''}/groups/?admin=direct`;
+    openAdminModal();
+    return;
+  }
+  const size = mode === 'edit'
+    ? Number(document.getElementById('manualGroupSizeValue')?.value)
+    : (Number(groups.find(g => Number(g.size) > 0)?.size) || groupDefaultSize || 10);
+  const requestedName = mode === 'edit' ? document.getElementById('manualGroupNameValue')?.value.trim() : '';
+  let name = requestedName;
+  if (!name) {
+    let index = groups.length;
+    do { name = nextGroupName(index++); } while (groups.some(g => (g.group_name || g.name).toLowerCase() === name.toLowerCase()));
+  }
+  if (!Number.isInteger(size) || size < 1 || size > 500) return showTemporaryMessage('Group size must be between 1 and 500.', 'warning');
+  if (groups.some(g => (g.group_name || g.name).toLowerCase() === name.toLowerCase())) return showTemporaryMessage('A group with this name already exists.', 'warning');
+  try {
+    const response = await fetch('/api/groups/', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() }, body: JSON.stringify({ group_name: name, max_members: size, assignment_mode: groupAssignMode }) });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || 'Could not create group');
+    closeOwnerGroupDialog();
+    await loadGroups();
+    populateGroups();
+    showTemporaryMessage(`Group “${name}” created with size ${size}.`, 'success');
+  } catch (error) {
+    showTemporaryMessage(`Could not create group: ${error.message}`, 'error');
   }
 }
 
@@ -9311,16 +9411,12 @@ async function createGroups() {
   try {
     for (let i = 0; i < numGroups; i++) {
       let nameIndex = i;
-      let groupName = groupOrderType === 'numerical'
-        ? `Group ${nameIndex + 1}`
-        : alphaGroupName(nameIndex);
+      let groupName = nextGroupName(nameIndex);
 
       // Ensure unique name against already-created groups
       while (existingNames.has(groupName)) {
         nameIndex++;
-        groupName = groupOrderType === 'numerical'
-          ? `Group ${nameIndex + 1}`
-          : alphaGroupName(nameIndex);
+        groupName = nextGroupName(nameIndex);
       }
 
       const res    = await fetch('/api/groups/', {
