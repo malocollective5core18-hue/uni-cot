@@ -926,3 +926,54 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         self.assertEqual(prop.claimant_name, "Claimant")
         self.assertEqual(prop.item_name, "Original Wallet")
         self.assertEqual(prop.location, "Reception")
+
+    def test_manual_membership_add_keeps_existing_group_and_enforces_owner_scope(self):
+        user = User.objects.create(full_name="Multi Group User", registration_number="MULTI-001", created_by=self.owner.id)
+        first = UserGroup.objects.create(group_name="Existing Group", created_by=self.owner.id)
+        target = UserGroup.objects.create(group_name="Additional Group", created_by=self.owner.id)
+        other_owner = OwnerUser.objects.create(email="multi-other@example.com", program_name="Other", password="hash", is_owner=True, is_active=True)
+        outside = UserGroup.objects.create(group_name="Outside Scope", created_by=other_owner.id)
+        UserGroupMember.objects.create(user_id=user.id, group_id=first.id, status="active")
+        base = f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/api/group-members/"
+
+        response = self.client.post(base, data=json.dumps({"user_id": user.id, "group_id": target.id}), content_type="application/json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(set(UserGroupMember.objects.filter(user_id=user.id, status="active").values_list("group_id", flat=True)), {first.id, target.id})
+        denied = self.client.post(base, data=json.dumps({"user_id": user.id, "group_id": outside.id}), content_type="application/json")
+        self.assertEqual(denied.status_code, 404)
+
+    def test_excel_import_skips_duplicates_and_preserves_multiple_group_memberships(self):
+        from io import BytesIO
+        from openpyxl import Workbook, load_workbook
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        existing = User.objects.create(full_name="Existing", registration_number="EXCEL-DUP", created_by=self.owner.id)
+        existing_group = UserGroup.objects.create(group_name="Prior Group", created_by=self.owner.id)
+        UserGroupMember.objects.create(user_id=existing.id, group_id=existing_group.id, status="active")
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["Full Name", "Registration Number", "Phone Number", "Groups"])
+        sheet.append(["Duplicate Original", "EXCEL-DUP", "111", "Review Group"])
+        sheet.append(["New Person", "EXCEL-NEW", "222", "Review Group, Second Group"])
+        source = BytesIO()
+        workbook.save(source)
+        upload = SimpleUploadedFile("users.xlsx", source.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        base = f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/api/users/excel/"
+
+        response = self.client.post(base, {"file": upload}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["summary"], {"total_rows_processed": 2, "successfully_imported": 1, "duplicates_skipped": 1, "validation_errors": 0})
+        existing.refresh_from_db()
+        self.assertEqual(existing.full_name, "Existing")
+        imported = User.objects.get(registration_number="EXCEL-NEW")
+        imported_group_ids = set(UserGroupMember.objects.filter(user_id=imported.id, status="active").values_list("group_id", flat=True))
+        self.assertEqual(len(imported_group_ids), 2)
+        report = self.client.get(base + "?report=skipped")
+        report_sheet = load_workbook(BytesIO(report.content), read_only=True).active
+        self.assertEqual(list(report_sheet.iter_rows(min_row=2, values_only=True))[0], ("Duplicate Original", "EXCEL-DUP", "111", "Review Group"))
+        export = self.client.get(base)
+        export_sheet = load_workbook(BytesIO(export.content), read_only=True).active
+        self.assertEqual(tuple(cell.value for cell in export_sheet[1]), ("Full Name", "Registration Number", "Phone Number", "Groups"))
+        self.assertEqual(export_sheet.freeze_panes, "A2")
+        self.assertEqual(export_sheet.auto_filter.ref, export_sheet.dimensions)
+        self.assertEqual(len(list(export_sheet.iter_rows(min_row=2, values_only=True))), 2)

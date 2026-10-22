@@ -16,6 +16,7 @@ from django.db import DatabaseError, IntegrityError, OperationalError, Programmi
 from django.db.models import Avg, Count, F, Prefetch, Q, Sum
 from django.db.models.functions import Greatest
 from django.http import HttpResponseNotModified, JsonResponse
+from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -49,6 +50,37 @@ from service.models import Comment, Member, OwnerUser
 
 
 logger = logging.getLogger(__name__)
+
+EXCEL_USER_HEADERS = ('Full Name', 'Registration Number', 'Phone Number', 'Groups')
+
+
+def _user_excel_workbook(rows):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = 'Users'
+    sheet.append(EXCEL_USER_HEADERS)
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    for row in rows:
+        sheet.append([str(value or '') for value in row])
+    for column, width in zip('ABCD', (30, 24, 22, 42)):
+        sheet.column_dimensions[column].width = width
+    sheet.freeze_panes = 'A2'
+    sheet.auto_filter.ref = sheet.dimensions
+    return workbook
+
+
+def _user_excel_response(rows, filename):
+    from io import BytesIO
+    output = BytesIO()
+    _user_excel_workbook(rows).save(output)
+    response = HttpResponse(output.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['Cache-Control'] = 'private, no-store'
+    return response
 
 # ---------------------------------------------------------------------------
 # Constants  (defined at module level so all views can reference them)
@@ -1505,6 +1537,121 @@ def api_users(request, *args, **kwargs):
     return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
 
+@require_http_methods(['GET', 'POST'])
+def api_users_excel(request, *args, **kwargs):
+    """Owner-only four-column workbook export/import and latest skipped report."""
+    denied = _ensure_owner_system_access(request)
+    if denied:
+        return denied
+    if not request.session.session_key:
+        request.session.save()
+    tenant = getattr(request, 'tenant', None)
+    scope_key = getattr(tenant, 'schema_name', 'public') or 'public'
+    report_key = f'user-excel-skipped:{scope_key}:{_get_product_owner_id(request)}:{request.session.session_key}'
+
+    if request.method == 'GET':
+        if request.GET.get('report') == 'count':
+            result = cache.get(report_key) or {'rows': [], 'count': 0}
+            return JsonResponse({'success': True, 'count': result.get('count', 0)})
+        if request.GET.get('report') == 'skipped':
+            result = cache.get(report_key) or {'rows': []}
+            return _user_excel_response(result['rows'], 'skipped_users.xlsx')
+        users = list(_scope_users_queryset(request).filter(is_active=True).order_by('id'))
+        user_ids = [user.id for user in users]
+        group_ids = list(_scope_group_members_queryset(request).filter(
+            user_id__in=user_ids, status='active'
+        ).values_list('user_id', 'group_id'))
+        groups_by_id = {group.id: group.group_name for group in _scope_groups_queryset(request).filter(
+            id__in=[group_id for _user_id, group_id in group_ids]
+        )}
+        names_by_user = {}
+        for user_id, group_id in group_ids:
+            names_by_user.setdefault(user_id, []).append(groups_by_id[group_id])
+        rows = [[user.full_name, user.registration_number, user.phone or '', ', '.join(names_by_user.get(user.id, []))]
+                for user in users]
+        return _user_excel_response(rows, 'users_export.xlsx')
+
+    uploaded = request.FILES.get('file')
+    if not uploaded or not uploaded.name.lower().endswith('.xlsx'):
+        return JsonResponse({'success': False, 'error': 'Upload an .xlsx Excel file.'}, status=400)
+    if uploaded.size > 10 * 1024 * 1024:
+        return JsonResponse({'success': False, 'error': 'Excel file must be 10 MB or smaller.'}, status=400)
+    try:
+        from openpyxl import load_workbook
+        workbook = load_workbook(uploaded, read_only=True, data_only=True)
+        sheet = workbook.active
+        header = tuple(str(value or '').strip() for value in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True)))
+        if header != EXCEL_USER_HEADERS:
+            return JsonResponse({'success': False, 'error': 'Headers must be exactly: Full Name, Registration Number, Phone Number, Groups.'}, status=400)
+        data_rows = sheet.iter_rows(min_row=2, values_only=True)
+        skipped = []
+        errors = []
+        imported = 0
+        processed = 0
+        owner_id = _get_product_owner_id(request)
+        for excel_row, values in enumerate(data_rows, start=2):
+            original = list(values[:4]) + [''] * max(0, 4 - len(values))
+            original = [value if value is not None else '' for value in original]
+            full_name, registration_number, phone, group_cell = [str(value).strip() for value in original]
+            if not any((full_name, registration_number, phone, group_cell)):
+                continue
+            processed += 1
+            if not full_name or not registration_number:
+                errors.append({'row': excel_row, 'error': 'Full Name and Registration Number are required.'})
+                continue
+            if len(full_name) > 255 or len(registration_number) > 100 or len(phone) > 50:
+                errors.append({'row': excel_row, 'error': 'A value exceeds the allowed field length.'})
+                continue
+            if _scope_users_queryset(request).filter(registration_number=registration_number).exists():
+                skipped.append(original)
+                continue
+            group_names = list(dict.fromkeys(name.strip() for name in group_cell.split(',') if name.strip()))
+            if any(len(name) > 100 for name in group_names):
+                errors.append({'row': excel_row, 'error': 'Group names must be 100 characters or fewer.'})
+                continue
+            try:
+                with transaction.atomic():
+                    groups_for_user = []
+                    for name in group_names:
+                        group, _created = _scope_groups_queryset(request).get_or_create(
+                            group_name=name,
+                            defaults={'created_by': owner_id, 'max_members': 50},
+                        )
+                        if group.assignment_mode == 'restrict':
+                            count = _scope_group_members_queryset(request).filter(group_id=group.id, status='active').count()
+                            if count >= group.max_members:
+                                raise ValueError(f'Group "{name}" is full.')
+                        groups_for_user.append(group)
+                    user = User.objects.create(
+                        full_name=full_name, registration_number=registration_number,
+                        phone=phone or None, group_name=(groups_for_user[0].group_name if groups_for_user else None),
+                        created_by=owner_id,
+                    )
+                    for group in groups_for_user:
+                        UserGroupMember.objects.create(user_id=user.id, group_id=group.id, status='active')
+                        group.current_members = _scope_group_members_queryset(request).filter(group_id=group.id, status='active').count()
+                        group.save(update_fields=['current_members', 'updated_at'])
+                imported += 1
+            except (ValueError, IntegrityError) as error:
+                if registration_number and _scope_users_queryset(request).filter(registration_number=registration_number).exists():
+                    skipped.append(original)
+                else:
+                    errors.append({'row': excel_row, 'error': str(error) or 'Could not import this row.'})
+        cache.set(report_key, {'rows': skipped, 'count': len(skipped)}, 7200)
+        _invalidate_api_cache(request, 'users', 'groups')
+        return JsonResponse({
+            'success': True,
+            'summary': {'total_rows_processed': processed, 'successfully_imported': imported,
+                        'duplicates_skipped': len(skipped), 'validation_errors': len(errors)},
+            'errors': errors,
+        })
+    except (ValueError, OSError, KeyError, StopIteration) as error:
+        return JsonResponse({'success': False, 'error': f'Could not read Excel file: {error}'}, status=400)
+    except Exception:
+        logger.exception('Excel user import failed')
+        return JsonResponse({'success': False, 'error': 'Could not process this Excel file.'}, status=400)
+
+
 def api_public_members(request, *args, **kwargs):
     """Return the tenant's active member directory for the public groups page."""
     if request.method != 'GET':
@@ -1894,6 +2041,26 @@ def _assign_user_to_group(request, user, target_group):
     return member
 
 
+def _add_user_to_group(request, user, target_group):
+    """Add a membership without changing any of the user's other groups."""
+    member = _scope_group_members_queryset(request).filter(
+        user_id=user.id, group_id=target_group.id
+    ).first()
+    if member:
+        if member.status != 'active':
+            member.status = 'active'
+            member.save(update_fields=['status'])
+    else:
+        member = UserGroupMember.objects.create(
+            user_id=user.id, group_id=target_group.id, is_leader=False, status='active'
+        )
+    if not user.group_name:
+        user.group_name = target_group.group_name
+        user.save(update_fields=['group_name', 'updated_at'])
+    _refresh_group_member_count(request, target_group.id)
+    return member
+
+
 def _remove_user_from_groups(request, user):
     """Remove all group links for a user and keep denormalized state in sync."""
     memberships = _scope_group_members_queryset(request).filter(user_id=user.id)
@@ -2123,7 +2290,7 @@ def api_group_members(request, *args, **kwargs):
                     current_count = _scope_group_members_queryset(request).filter(group_id=group_id, status='active').count()
                     if current_count >= group.max_members:
                         return JsonResponse({'success': False, 'error': 'Target group is full'}, status=400)
-                member = _assign_user_to_group(request, user, group)
+                member = _add_user_to_group(request, user, group)
                 if is_leader:
                     _scope_groups_queryset(request).filter(id=group_id).update(leader_id=user_id)
                     member.is_leader = True

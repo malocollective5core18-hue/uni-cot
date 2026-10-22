@@ -20,6 +20,7 @@ urlpatterns = [
     # API endpoints for users
     path('api/public-members/', views.api_public_members, name='api_public_members'),
     path('api/users/', views.api_users, name='api_users'),
+    path('api/users/excel/', views.api_users_excel, name='api_users_excel'),
     path('api/users/<int:user_id>/', views.api_user_detail, name='api_user_detail'),
     # API endpoints for groups
     path('api/groups/', views.api_groups, name='api_groups'),

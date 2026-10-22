@@ -5483,6 +5483,10 @@ footer img:hover {
 
           <div class="form-buttons">
             <button class="form-btn secondary" onclick="exportUsers()">Export CSV</button>
+            <button class="form-btn secondary" onclick="downloadUsersExcel()">Export Excel</button>
+            <label class="form-btn secondary" for="userExcelFile" style="cursor:pointer">Import Excel</label>
+            <input id="userExcelFile" type="file" accept=".xlsx" style="display:none" onchange="importUsersExcel(this)">
+            <button class="form-btn secondary" id="skippedUsersButton" onclick="downloadSkippedUsers()" disabled>Skipped Users <span id="skippedUsersCount">0</span></button>
             <button class="form-btn primary" onclick="openAddUserModal()">+ Add New User</button>
             <button class="form-btn secondary" onclick="flushAllUsers()">Flush All Members</button>
             <button class="form-btn secondary" onclick="clearAllData()">Clear All Users&Groups</button>
@@ -8903,6 +8907,50 @@ function exportUsers() {
   a.click();
   
   showTemporaryMessage('Users exported successfully!', 'success');
+}
+
+async function refreshSkippedUsersCount() {
+  const button = document.getElementById('skippedUsersButton');
+  if (!button) return;
+  try {
+    const response = await fetch(`${API_BASE_URL}/users/excel/?report=count`);
+    const result = await response.json();
+    const count = Number(result.count) || 0;
+    document.getElementById('skippedUsersCount').textContent = count;
+    button.disabled = count === 0;
+  } catch (error) { console.warn('Could not load skipped user report count:', error); }
+}
+
+function downloadUsersExcel() {
+  window.location.href = `${API_BASE_URL}/users/excel/`;
+}
+
+function downloadSkippedUsers() {
+  if (Number(document.getElementById('skippedUsersCount')?.textContent) > 0) {
+    window.location.href = `${API_BASE_URL}/users/excel/?report=skipped`;
+  }
+}
+
+async function importUsersExcel(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const response = await fetch(`${API_BASE_URL}/users/excel/`, {
+      method: 'POST', headers: { 'X-CSRFToken': getCSRFToken() }, body: form,
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || 'Excel import failed.');
+    const summary = result.summary;
+    const rowErrors = (result.errors || []).slice(0, 3).map(item => `Row ${item.row}: ${item.error}`).join(' ');
+    const moreErrors = summary.validation_errors > 3 ? ` Plus ${summary.validation_errors - 3} more row error(s).` : '';
+    showTemporaryMessage(`Rows: ${summary.total_rows_processed}; imported: ${summary.successfully_imported}; duplicates skipped: ${summary.duplicates_skipped}; validation errors: ${summary.validation_errors}. ${rowErrors}${moreErrors}`, summary.validation_errors ? 'warning' : 'success');
+    await refreshSkippedUsersCount();
+    await loadUserData();
+  } catch (error) {
+    showTemporaryMessage(error.message || 'Excel import failed.', 'error');
+  } finally { input.value = ''; }
 }
 
 // ================= CASE MANAGEMENT =================
@@ -13205,6 +13253,7 @@ async function checkSignupButtonVisibility() {
 
 document.addEventListener('DOMContentLoaded', async function() {
   await initializePage();
+  if (OWNER_ADMIN_AUTHENTICATED_ON_LOAD) await refreshSkippedUsersCount();
   
   // Check signup button visibility from database
   await checkSignupButtonVisibility();

@@ -1273,6 +1273,27 @@
 
         <!-- Groups Tab -->
         <div class="tab-content" id="groupsTab">
+            {% if owner_directory_access %}
+            <section class="filter-section" aria-labelledby="assignmentModesTitle">
+                <h3 id="assignmentModesTitle">Group Assignment</h3>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0">
+                    <label>Automatic assignment group size <input class="filter-input" id="autoAssignSize" type="number" min="1" max="500" value="10" style="width:110px"></label>
+                    <label>Order <select class="filter-select" id="autoAssignOrder"><option value="alphabetical">Alphabetical</option><option value="numerical">Numerical</option><option value="mixed">Mixed</option></select></label>
+                    <label>Capacity mode <select class="filter-select" id="autoAssignMode"><option value="normal">Normal</option><option value="restrict">Restricted</option></select></label>
+                    <button class="filter-btn primary" type="button" onclick="runAutomaticAssignment()">Run Automatic Assignment</button>
+                </div>
+                <p>Automatic assignment deletes and recreates all groups and memberships, then redistributes active members. Confirm before it runs.</p>
+                <hr style="margin:18px 0;opacity:.25">
+                <h3>Manual Assignment — add one membership</h3>
+                <label class="filter-label" for="manualAssignmentSearch">Search by full name or registration number</label>
+                <input class="filter-input" id="manualAssignmentSearch" type="search" oninput="searchAssignmentUsers()" placeholder="Type at least 2 characters">
+                <select class="filter-select" id="manualAssignmentUser" aria-label="Select user" onchange="updateAssignmentReview()" style="margin:8px 0;width:100%"><option value="">Select a matching user</option></select>
+                <select class="filter-select" id="manualAssignmentGroup" aria-label="Select target group" onchange="updateAssignmentReview()" style="margin:8px 0;width:100%"><option value="">Select target group</option></select>
+                <p id="manualAssignmentReview" aria-live="polite">Select a user and group to review the assignment.</p>
+                <button class="filter-btn primary" type="button" onclick="confirmManualAssignment()">Confirm Add Membership</button>
+                <p id="assignmentMessage" role="status" aria-live="polite"></p>
+            </section>
+            {% endif %}
             <div class="filter-section">
                 <!-- Keep existing filters -->
                 <div class="filter-grid">
@@ -1396,6 +1417,95 @@
         // Data storage
         let members = [];
         let groups = [];
+        let assignmentUserDirectory = null;
+        let assignmentUserDirectoryPromise = null;
+        async function searchAssignmentUsers() {
+            const input = document.getElementById('manualAssignmentSearch');
+            const select = document.getElementById('manualAssignmentUser');
+            if (!input || !select) return;
+            const query = input.value.trim().toLowerCase();
+            select.innerHTML = '<option value="">Select a matching user</option>';
+            if (query.length < 2) return;
+            try {
+                assignmentUserDirectoryPromise ||= fetchAllApiPages('/api/users/').then(result => assignmentUserDirectory = result.data);
+                const directory = await assignmentUserDirectoryPromise;
+                if (input.value.trim().toLowerCase() !== query) return;
+                directory.filter(user => `${user.full_name || ''} ${user.registration_number || ''}`.toLowerCase().includes(query))
+                .slice(0, 50).forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user.id;
+                    option.textContent = `${user.full_name || 'Unnamed'} (${user.registration_number || 'No registration number'})`;
+                    select.appendChild(option);
+                });
+                updateAssignmentReview();
+            } catch (error) {
+                showMessage('Could not load the tenant user directory for search.', 'error');
+            }
+        }
+
+        function updateAssignmentReview() {
+            const user = (assignmentUserDirectory || members).find(item => Number(item.id) === Number(document.getElementById('manualAssignmentUser')?.value));
+            const group = groups.find(item => Number(item.id) === Number(document.getElementById('manualAssignmentGroup')?.value));
+            const review = document.getElementById('manualAssignmentReview');
+            if (!review) return;
+            review.textContent = user && group
+                ? `Review: add ${user.full_name} (${user.registration_number || 'no registration number'}) to ${group.name}. Existing group memberships will be preserved.`
+                : 'Select a user and group to review the assignment.';
+        }
+
+        function refreshAssignmentGroups() {
+            const select = document.getElementById('manualAssignmentGroup');
+            if (!select) return;
+            select.innerHTML = '<option value="">Select target group</option>';
+            groups.forEach(group => {
+                const option = document.createElement('option');
+                option.value = group.id;
+                option.textContent = `${group.name} (${group.members?.length || group.current_members || 0}/${group.size || 0})`;
+                select.appendChild(option);
+            });
+            updateAssignmentReview();
+        }
+
+        async function confirmManualAssignment() {
+            const userId = Number(document.getElementById('manualAssignmentUser')?.value);
+            const groupId = Number(document.getElementById('manualAssignmentGroup')?.value);
+            const user = (assignmentUserDirectory || members).find(item => Number(item.id) === userId);
+            const group = groups.find(item => Number(item.id) === groupId);
+            if (!user || !group) return showMessage('Select a user and target group first.', 'warning');
+            if (!confirm(`Add ${user.full_name} to ${group.name}? Existing memberships will remain.`)) return;
+            try {
+                const response = await fetch(`${API_BASE_URL}/group-members/`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+                    body: JSON.stringify({ user_id: userId, group_id: groupId }),
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) throw new Error(result.error || 'Assignment failed.');
+                showMessage(`Added ${user.full_name} to ${group.name}.`, 'success');
+                await Promise.all([refreshUsersFromTenantSync(), refreshGroupsFromTenantSync()]);
+                refreshGroupUserDisplay();
+                refreshAssignmentGroups();
+            } catch (error) { showMessage(error.message, 'error'); }
+        }
+
+        async function runAutomaticAssignment() {
+            const size = Number(document.getElementById('autoAssignSize')?.value);
+            if (!Number.isInteger(size) || size < 1 || size > 500) return showMessage('Group size must be between 1 and 500.', 'warning');
+            if (!confirm(`Automatic assignment will DELETE and recreate all groups and memberships, then redistribute ${members.filter(user => user.status !== 'inactive').length} active users. Continue?`)) return;
+            try {
+                const response = await fetch(`${API_BASE_URL}/groups/reformat/`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+                    body: JSON.stringify({ group_size: size, order_type: document.getElementById('autoAssignOrder').value, assign_mode: document.getElementById('autoAssignMode').value }),
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) throw new Error(result.error || 'Automatic assignment failed.');
+                showMessage(`Assigned ${result.data.member_count} members to ${result.data.group_count} groups.`, 'success');
+                assignmentUserDirectoryPromise = null;
+                assignmentUserDirectory = null;
+                await Promise.all([refreshUsersFromTenantSync(), refreshGroupsFromTenantSync()]);
+                refreshGroupUserDisplay();
+                refreshAssignmentGroups();
+            } catch (error) { showMessage(error.message, 'error'); }
+        }
         let filteredMembers = [];
         let filteredGroups = [];
         let flaggedMembers = [];
@@ -2875,6 +2985,7 @@
 
         // Refresh group/member display immediately
         function refreshGroupUserDisplay() {
+            refreshAssignmentGroups();
             flaggedMembers = members.filter(m => m.status === 'flagged');
 
             updateFlaggedCount();

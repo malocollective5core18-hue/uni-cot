@@ -1,5 +1,13 @@
 # Remediation Log
 
+## User Excel import/export and explicit group assignment (2026-10-23)
+
+- Finding: The User Database had CSV export only, and group assignment actions did not provide the requested Excel workflow or a safe add-to-another-group path. The existing group move helper removes a user's other memberships; automatic reformat deletes and recreates groups and memberships.
+- Change: Added owner-scoped four-column Excel export/import, row validation and duplicate skipping, a session-and-tenant-scoped two-hour latest skipped-row report, and import summary/count UI. Added an add-membership helper that preserves other memberships and used it in the existing add-member endpoint. The groups page now labels automatic assignment and warns that it deletes/recreates groups/memberships, and has a searchable, review-and-confirm manual assignment flow.
+- Files touched: `mysite/core/views.py`, `mysite/core/urls.py`, `mysite/core/tests.py`, `templates/system_index.html`, `templates/groups.html`, `requirements.txt`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added regression tests for duplicate import continuation, multi-group membership, skipped report values, four-column export formatting, manual membership preservation, and tenant owner scope. Final `python3 -m compileall -q .` and `git diff --check` passed. Django checks and tests could not run because the available Python environment has neither Django nor openpyxl installed; the requested openpyxl install was not completed.
+- Remaining risk: The new dependency and endpoint behavior still require verification in the project's Django/PostgreSQL environment. No commit, push, or deployment was performed.
+
 ## Spinner lifecycle and external-table registration (2026-09-21)
 
 - Finding: several system/external-table actions did not show progress, while
