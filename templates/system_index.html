@@ -2637,8 +2637,8 @@ footer img:hover {
 
 .user-database-filter-topline {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(170px, max-content);
-  gap: 14px;
+  grid-template-columns: minmax(0, 420px) minmax(170px, max-content);
+  gap: 12px;
   align-items: end;
 }
 
@@ -2650,18 +2650,18 @@ footer img:hover {
 .user-database-filter-group {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 4px;
 }
 
 .user-database-filter-group-part {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 8px;
 }
 
 .user-database-filter-label {
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.7rem;
   font-weight: 600;
 }
 
@@ -2669,12 +2669,13 @@ footer img:hover {
 .user-database-filter-select {
   width: 100%;
   min-width: 0;
-  padding: 9px 12px;
+  padding: 6px 9px;
   background: rgba(12, 16, 36, 0.8);
   border: 1px solid rgba(91, 140, 255, 0.3);
   border-radius: 8px;
   color: var(--text);
-  font-size: 0.84rem;
+  font-size: 0.76rem;
+  line-height: 1.25;
 }
 
 .user-database-filter-input:focus,
@@ -2695,14 +2696,17 @@ footer img:hover {
 
 .user-database-add-user-row {
   display: flex;
-  justify-content: flex-end;
-  margin-top: 8px;
+  justify-content: flex-start;
+  margin-top: 7px;
 }
 
 .user-database-add-user-btn {
   display: inline-flex;
   width: 42px;
   height: 42px;
+  flex: 0 0 42px;
+  position: static;
+  margin: 0;
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -2751,7 +2755,7 @@ footer img:hover {
 
 @media (max-width: 900px) {
   .user-database-filter-topline {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 420px);
     gap: 9px;
   }
 
@@ -2781,9 +2785,9 @@ footer img:hover {
     gap: 8px;
   }
 
-  .user-database-filter-label { font-size: 0.74rem; }
+  .user-database-filter-label { font-size: 0.68rem; }
   .user-database-filter-select,
-  .user-database-filter-input { padding: 8px; font-size: 0.78rem; }
+  .user-database-filter-input { padding: 6px 8px; font-size: 0.74rem; }
 }
 
 .user-search-box {
