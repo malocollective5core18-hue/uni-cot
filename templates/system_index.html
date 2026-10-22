@@ -2616,17 +2616,17 @@ footer img:hover {
   background: rgba(12, 16, 36, 0.5);
   border: 1px solid rgba(91, 140, 255, 0.2);
   border-radius: 12px;
-  padding: 16px 18px;
-  margin-bottom: 18px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
 }
 
 .user-database-filter-toolbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
+  flex-wrap: nowrap;
+  margin-top: 10px;
 }
 
 .user-database-filter-toolbar .form-btn {
@@ -2635,9 +2635,9 @@ footer img:hover {
   font-size: 0.82rem;
 }
 
-.user-database-filter-grid {
+.user-database-filter-topline {
   display: grid;
-  grid-template-columns: minmax(220px, 1.2fr) minmax(300px, 1.35fr) minmax(170px, max-content);
+  grid-template-columns: minmax(0, 1fr) minmax(170px, max-content);
   gap: 14px;
   align-items: end;
 }
@@ -2684,9 +2684,51 @@ footer img:hover {
   box-shadow: 0 0 0 3px rgba(91, 140, 255, 0.16);
 }
 
-.user-database-filter-grid .data-table-zoom-controls {
+.user-database-filter-topline .data-table-zoom-controls {
   align-self: end;
   margin-left: 0;
+}
+
+.user-database-filter-search {
+  margin-top: 10px;
+}
+
+.user-database-add-user-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.user-database-add-user-btn {
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: #16a34a;
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.25);
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.user-database-add-user-btn:hover {
+  background: #15803d;
+  box-shadow: 0 5px 15px rgba(22, 163, 74, 0.32);
+  transform: translateY(-1px);
+}
+
+.user-database-add-user-btn:focus-visible {
+  outline: 3px solid rgba(34, 197, 94, 0.35);
+  outline-offset: 2px;
+}
+
+.user-database-add-user-btn svg {
+  width: 21px;
+  height: 21px;
 }
 
 .user-database-filter-toolbar #skippedUsersButton {
@@ -2708,13 +2750,13 @@ footer img:hover {
 }
 
 @media (max-width: 900px) {
-  .user-database-filter-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  .user-database-filter-topline {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
   }
 
-  .user-database-filter-search,
-  .user-database-filter-grid .data-table-zoom-controls {
-    grid-column: 1 / -1;
+  .user-database-filter-topline .data-table-zoom-controls {
+    justify-content: flex-end;
   }
 }
 
@@ -2724,22 +2766,24 @@ footer img:hover {
   }
 
   .user-database-filter-toolbar {
-    justify-content: stretch;
+    gap: 6px;
+    overflow-x: auto;
   }
 
   .user-database-filter-toolbar .form-btn {
-    flex: 1 1 calc(50% - 8px);
+    flex: 0 0 auto;
+    padding: 8px 10px;
+    font-size: 0.76rem;
   }
 
-  .user-database-filter-grid,
   .user-database-filter-group-part {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
-  .user-database-filter-search,
-  .user-database-filter-grid .data-table-zoom-controls {
-    grid-column: auto;
-  }
+  .user-database-filter-label { font-size: 0.74rem; }
+  .user-database-filter-select,
+  .user-database-filter-input { padding: 8px; font-size: 0.78rem; }
 }
 
 .user-search-box {
@@ -5563,20 +5607,7 @@ footer img:hover {
           <div class="card-form-title">User Database</div>
           
           <div class="user-database-filter-section">
-            <div class="user-database-filter-toolbar" role="group" aria-label="User Excel tools">
-              <label class="form-btn secondary" for="userExcelFile" style="cursor:pointer">Import Excel</label>
-              <input id="userExcelFile" type="file" accept=".xlsx" style="display:none" onchange="importUsersExcel(this)">
-              <button class="form-btn primary" type="button" onclick="downloadUsersExcel()">Export Excel</button>
-              <button class="form-btn secondary" id="skippedUsersButton" type="button" onclick="downloadSkippedUsers()" disabled>
-                Skipped Users <span id="skippedUsersCount">0</span>
-              </button>
-            </div>
-            <div class="user-database-filter-grid">
-              <div class="user-database-filter-group user-database-filter-search">
-                <label class="user-database-filter-label" for="userSearch">Search Users</label>
-                <input type="text" class="user-database-filter-input" id="userSearch" placeholder="Search by name, email, or registration number..." oninput="searchUsers()">
-              </div>
-
+            <div class="user-database-filter-topline">
               <div class="user-database-filter-group-part">
                 <div class="user-database-filter-group">
                   <label class="user-database-filter-label" for="statusFilter">Filter by Status</label>
@@ -5595,12 +5626,32 @@ footer img:hover {
                   </select>
                 </div>
               </div>
-
               <div class="data-table-zoom-controls">
                 <button class="zoom-btn" type="button" onclick="changeUserManagementTableZoom(-0.08)">Zoom Out</button>
                 <span class="zoom-level-badge" id="userManagementTableZoomBadge">88%</span>
                 <button class="zoom-btn" type="button" onclick="changeUserManagementTableZoom(0.08)">Zoom In</button>
               </div>
+            </div>
+            <div class="user-database-filter-group user-database-filter-search">
+              <label class="user-database-filter-label" for="userSearch">Search Users</label>
+              <input type="text" class="user-database-filter-input" id="userSearch" placeholder="Search by name, email, or registration number..." oninput="searchUsers()">
+            </div>
+            <div class="user-database-filter-toolbar" role="group" aria-label="User Excel tools">
+              <label class="form-btn secondary" for="userExcelFile" style="cursor:pointer">Import Excel</label>
+              <input id="userExcelFile" type="file" accept=".xlsx" style="display:none" onchange="importUsersExcel(this)">
+              <button class="form-btn primary" type="button" onclick="downloadUsersExcel()">Export Excel</button>
+              <button class="form-btn secondary" id="skippedUsersButton" type="button" onclick="downloadSkippedUsers()" disabled>
+                Skipped Users <span id="skippedUsersCount">0</span>
+              </button>
+            </div>
+            <div class="user-database-add-user-row">
+              <button class="user-database-add-user-btn" type="button" onclick="openAddUserModal()" aria-label="Add user" title="Add user">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                  <circle cx="9" cy="8" r="3"></circle>
+                  <path d="M3.5 20a5.5 5.5 0 0 1 11 0"></path>
+                  <path d="M19 8v6m-3-3h6"></path>
+                </svg>
+              </button>
             </div>
           </div>
 
@@ -5624,8 +5675,6 @@ footer img:hover {
           </div>
 
           <div class="form-buttons">
-            <button class="form-btn secondary" onclick="exportUsers()">Export CSV</button>
-            <button class="form-btn primary" onclick="openAddUserModal()">+ Add New User</button>
             <button class="form-btn secondary" onclick="flushAllUsers()">Flush All Members</button>
             <button class="form-btn secondary" onclick="clearAllData()">Clear All Users&Groups</button>
           </div>
