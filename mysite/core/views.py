@@ -56,17 +56,27 @@ EXCEL_USER_HEADERS = ('Full Name', 'Registration Number', 'Phone Number', 'Group
 
 def _user_excel_workbook(rows):
     from openpyxl import Workbook
-    from openpyxl.styles import Font
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = 'Users'
     sheet.append(EXCEL_USER_HEADERS)
+    header_fill = PatternFill(fill_type='solid', fgColor='FFD1FAE5')
+    header_font = Font(name='Calibri', size=12, bold=True, color='FF047857')
+    header_border = Border(*(Side(style='thin', color='FF10B981') for _ in range(4)))
     for cell in sheet[1]:
-        cell.font = Font(bold=True)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.border = header_border
+    sheet.row_dimensions[1].height = 24
     for row in rows:
         sheet.append([str(value or '') for value in row])
-    for column, width in zip('ABCD', (30, 24, 22, 42)):
+        for cell in sheet[sheet.max_row]:
+            cell.font = Font(name='Calibri', size=11, color='FF000000')
+            cell.alignment = Alignment(vertical='center', wrap_text=(cell.column == 4))
+    for column, width in zip('ABCD', (40, 28, 22, 42)):
         sheet.column_dimensions[column].width = width
     sheet.freeze_panes = 'A2'
     sheet.auto_filter.ref = sheet.dimensions

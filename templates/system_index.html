@@ -2611,6 +2611,137 @@ footer img:hover {
   align-items: flex-end;
 }
 
+/* User database filters follow the compact Groups page layout. */
+.user-database-filter-section {
+  background: rgba(12, 16, 36, 0.5);
+  border: 1px solid rgba(91, 140, 255, 0.2);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+}
+
+.user-database-filter-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.user-database-filter-toolbar .form-btn {
+  min-width: 0;
+  padding: 8px 14px;
+  font-size: 0.82rem;
+}
+
+.user-database-filter-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) minmax(300px, 1.35fr) minmax(170px, max-content);
+  gap: 14px;
+  align-items: end;
+}
+
+.user-database-filter-group,
+.user-database-filter-group-part {
+  min-width: 0;
+}
+
+.user-database-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.user-database-filter-group-part {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.user-database-filter-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.user-database-filter-input,
+.user-database-filter-select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 12px;
+  background: rgba(12, 16, 36, 0.8);
+  border: 1px solid rgba(91, 140, 255, 0.3);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.user-database-filter-input:focus,
+.user-database-filter-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(91, 140, 255, 0.16);
+}
+
+.user-database-filter-grid .data-table-zoom-controls {
+  align-self: end;
+  margin-left: 0;
+}
+
+.user-database-filter-toolbar #skippedUsersButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.user-database-filter-toolbar #skippedUsersCount {
+  display: inline-flex;
+  min-width: 21px;
+  height: 21px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(91, 140, 255, 0.2);
+  font-size: 0.72rem;
+}
+
+@media (max-width: 900px) {
+  .user-database-filter-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .user-database-filter-search,
+  .user-database-filter-grid .data-table-zoom-controls {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .user-database-filter-section {
+    padding: 13px;
+  }
+
+  .user-database-filter-toolbar {
+    justify-content: stretch;
+  }
+
+  .user-database-filter-toolbar .form-btn {
+    flex: 1 1 calc(50% - 8px);
+  }
+
+  .user-database-filter-grid,
+  .user-database-filter-group-part {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .user-database-filter-search,
+  .user-database-filter-grid .data-table-zoom-controls {
+    grid-column: auto;
+  }
+}
+
 .user-search-box {
   min-width: 0;
 }
@@ -5431,34 +5562,45 @@ footer img:hover {
         <div class="card-form-container">
           <div class="card-form-title">User Database</div>
           
-          <div class="user-search-filter">
-            <div class="form-group user-filter-box">
-              <label class="form-label">Filter by Status</label>
-              <select class="form-select" id="statusFilter" onchange="filterUsers()">
-                <option value="all">All Users</option>
-                <option value="active">Active</option>
-                <option value="flagged">Flagged</option>
-                <option value="inactive">Inactive</option>
-              </select>
+          <div class="user-database-filter-section">
+            <div class="user-database-filter-toolbar" role="group" aria-label="User Excel tools">
+              <label class="form-btn secondary" for="userExcelFile" style="cursor:pointer">Import Excel</label>
+              <input id="userExcelFile" type="file" accept=".xlsx" style="display:none" onchange="importUsersExcel(this)">
+              <button class="form-btn primary" type="button" onclick="downloadUsersExcel()">Export Excel</button>
+              <button class="form-btn secondary" id="skippedUsersButton" type="button" onclick="downloadSkippedUsers()" disabled>
+                Skipped Users <span id="skippedUsersCount">0</span>
+              </button>
             </div>
+            <div class="user-database-filter-grid">
+              <div class="user-database-filter-group user-database-filter-search">
+                <label class="user-database-filter-label" for="userSearch">Search Users</label>
+                <input type="text" class="user-database-filter-input" id="userSearch" placeholder="Search by name, email, or registration number..." oninput="searchUsers()">
+              </div>
 
-            <div class="form-group user-filter-box">
-              <label class="form-label" for="groupFilter">Filter by Group</label>
-              <select class="form-select" id="groupFilter" onchange="filterUsers()" aria-label="Filter users by group">
-                <option value="all">All groups</option>
-                <option value="unassigned">Unassigned</option>
-              </select>
-            </div>
+              <div class="user-database-filter-group-part">
+                <div class="user-database-filter-group">
+                  <label class="user-database-filter-label" for="statusFilter">Filter by Status</label>
+                  <select class="user-database-filter-select" id="statusFilter" onchange="filterUsers()">
+                    <option value="all">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="flagged">Flagged</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+                <div class="user-database-filter-group">
+                  <label class="user-database-filter-label" for="groupFilter">Filter by Group</label>
+                  <select class="user-database-filter-select" id="groupFilter" onchange="filterUsers()" aria-label="Filter users by group">
+                    <option value="all">All groups</option>
+                    <option value="unassigned">Unassigned</option>
+                  </select>
+                </div>
+              </div>
 
-            <div class="form-group user-search-box">
-              <label class="form-label">Search Users</label>
-              <input type="text" class="form-input" id="userSearch" placeholder="Search by name, email, or registration number..." onkeyup="searchUsers()">
-            </div>
-
-            <div class="data-table-zoom-controls">
-              <button class="zoom-btn" type="button" onclick="changeUserManagementTableZoom(-0.08)">Zoom Out</button>
-              <span class="zoom-level-badge" id="userManagementTableZoomBadge">88%</span>
-              <button class="zoom-btn" type="button" onclick="changeUserManagementTableZoom(0.08)">Zoom In</button>
+              <div class="data-table-zoom-controls">
+                <button class="zoom-btn" type="button" onclick="changeUserManagementTableZoom(-0.08)">Zoom Out</button>
+                <span class="zoom-level-badge" id="userManagementTableZoomBadge">88%</span>
+                <button class="zoom-btn" type="button" onclick="changeUserManagementTableZoom(0.08)">Zoom In</button>
+              </div>
             </div>
           </div>
 
@@ -5483,10 +5625,6 @@ footer img:hover {
 
           <div class="form-buttons">
             <button class="form-btn secondary" onclick="exportUsers()">Export CSV</button>
-            <button class="form-btn secondary" onclick="downloadUsersExcel()">Export Excel</button>
-            <label class="form-btn secondary" for="userExcelFile" style="cursor:pointer">Import Excel</label>
-            <input id="userExcelFile" type="file" accept=".xlsx" style="display:none" onchange="importUsersExcel(this)">
-            <button class="form-btn secondary" id="skippedUsersButton" onclick="downloadSkippedUsers()" disabled>Skipped Users <span id="skippedUsersCount">0</span></button>
             <button class="form-btn primary" onclick="openAddUserModal()">+ Add New User</button>
             <button class="form-btn secondary" onclick="flushAllUsers()">Flush All Members</button>
             <button class="form-btn secondary" onclick="clearAllData()">Clear All Users&Groups</button>

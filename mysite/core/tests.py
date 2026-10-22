@@ -972,8 +972,10 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         report_sheet = load_workbook(BytesIO(report.content), read_only=True).active
         self.assertEqual(list(report_sheet.iter_rows(min_row=2, values_only=True))[0], ("Duplicate Original", "EXCEL-DUP", "111", "Review Group"))
         export = self.client.get(base)
-        export_sheet = load_workbook(BytesIO(export.content), read_only=True).active
+        export_sheet = load_workbook(BytesIO(export.content), read_only=False).active
         self.assertEqual(tuple(cell.value for cell in export_sheet[1]), ("Full Name", "Registration Number", "Phone Number", "Groups"))
+        self.assertEqual(export_sheet["A1"].fill.fgColor.rgb, "FFD1FAE5")
+        self.assertEqual(export_sheet["A1"].font.color.rgb, "FF047857")
         self.assertEqual(export_sheet.freeze_panes, "A2")
         self.assertEqual(export_sheet.auto_filter.ref, export_sheet.dimensions)
         self.assertEqual(len(list(export_sheet.iter_rows(min_row=2, values_only=True))), 2)
