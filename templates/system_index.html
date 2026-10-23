@@ -3292,6 +3292,29 @@ footer img:hover {
 .group-detail-modal .group-member { flex-wrap: wrap; gap: 6px; }
 .group-detail-modal .group-member > div { display: flex; flex-wrap: wrap; gap: 4px; }
 .group-detail-modal .group-title { color: #35d07f; font-weight: 700; }
+.add-member-choice-overlay { z-index: 6100; }
+.add-member-choice-card { width: min(460px, 100%); padding: 20px; }
+.add-member-choice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.manual-group-member-card { width: min(680px, 100%); padding: 16px; }
+.manual-group-member-search { display: grid; grid-template-columns: minmax(0, 3.5fr) minmax(115px, 1.5fr); gap: 8px; margin: 12px 0; }
+.manual-group-member-search input,
+.manual-group-member-search select { min-width: 0; width: 100%; }
+.manual-group-member-results { max-height: min(48vh, 400px); overflow-y: auto; margin: 10px 0; }
+.manual-group-member-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,.1); }
+.manual-group-member-info { min-width: 0; }
+.manual-group-member-name { font-weight: 650; overflow-wrap: anywhere; }
+.manual-group-member-reg { color: var(--muted); font-size: .76rem; }
+.manual-group-member-groups { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.manual-group-member-badge { display: inline-flex; padding: 2px 6px; border-radius: 999px; background: rgba(91,140,255,.16); color: #c9d7ff; font-size: .68rem; }
+.manual-group-member-badge.current { background: rgba(22,163,74,.2); color: #86efac; }
+.manual-group-add-btn { flex: 0 0 auto; min-width: 32px; min-height: 30px; padding: 3px 9px; border: 0; border-radius: 8px; background: #16a34a; color: #fff; cursor: pointer; font-size: 1rem; }
+.manual-group-add-btn:hover { background: #15803d; }
+.manual-group-add-btn:disabled { background: rgba(255,255,255,.12); color: var(--muted); cursor: default; }
+.manual-group-member-done { display: flex; justify-content: flex-end; margin-top: 10px; }
+@media (max-width: 560px) {
+  .manual-group-member-search { grid-template-columns: minmax(0, 3.5fr) minmax(90px, 1.5fr); gap: 6px; }
+  .manual-group-member-row { align-items: flex-start; }
+}
 #groupsTab #groupManagementSearch { min-width: 0; }
 #ownerGroupConfigModal { position: fixed; inset: 0; z-index: 12000; display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.72); }
 #ownerGroupConfigModal .group-dialog { width: min(460px, 100%); background: var(--card); border: 1px solid rgba(91,140,255,.3); border-radius: 14px; padding: 20px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
@@ -10364,13 +10387,6 @@ async function addMemberToGroup(groupId) {
     return showTemporaryMessage('Group is full.', 'warning');
   }
 
-  const assignedIds    = new Set(groups.flatMap(g => (g.members || []).map(toId)));
-  const unassignedUsers = userData.filter(u => !assignedIds.has(toId(u.id)));
-
-  if (unassignedUsers.length === 0) {
-    return showTemporaryMessage('No unassigned users available.', 'warning');
-  }
-
   if (!(await hasOwnerAdminSession())) {
     showTemporaryMessage('Owner admin login required to add members to groups', 'warning');
     pendingAdminTarget = `${tenantPathPrefix() || ''}/groups/?admin=direct`;
@@ -10378,6 +10394,167 @@ async function addMemberToGroup(groupId) {
     return;
   }
 
+  document.getElementById('groupAddMemberModeModal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'groupAddMemberModeModal';
+  modal.className = 'case-modal-overlay active add-member-choice-overlay';
+  modal.setAttribute('role', 'presentation');
+  modal.onclick = event => { if (event.target === modal) closeAddMemberModeModal(); };
+  modal.onkeydown = event => { if (event.key === 'Escape') closeAddMemberModeModal(); };
+  modal.innerHTML = `<section class="case-modal-content add-member-choice-card" role="dialog" aria-modal="true" aria-labelledby="addMemberModeTitle" tabindex="-1">
+    <h3 id="addMemberModeTitle" style="color:var(--accent);margin:0 0 8px">Add a member to ${escapeHtml(group.name)}</h3>
+    <p style="color:var(--muted);margin:0">Choose how you want to find and add a member.</p>
+    <div class="add-member-choice-actions">
+      <button class="form-btn primary" type="button" onclick="closeAddMemberModeModal(); addMemberToGroupAutomatically(${groupId})">Automatic</button>
+      <button class="form-btn secondary" type="button" onclick="openManualGroupMemberCard(${groupId})">Manual</button>
+      <button class="form-btn secondary" type="button" onclick="closeAddMemberModeModal()">Cancel</button>
+    </div>
+  </section>`;
+  document.body.appendChild(modal);
+  modal.querySelector('[role="dialog"]')?.focus({ preventScroll: true });
+}
+
+function closeAddMemberModeModal() {
+  document.getElementById('groupAddMemberModeModal')?.remove();
+}
+
+function openManualGroupMemberCard(groupId) {
+  groupId = toId(groupId);
+  const group = groups.find(item => toId(item.id) === groupId);
+  if (!group) return showTemporaryMessage('Group not found.', 'error');
+  closeAddMemberModeModal();
+  document.getElementById('manualGroupMemberModal')?.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'manualGroupMemberModal';
+  modal.className = 'case-modal-overlay active group-detail-overlay add-member-choice-overlay';
+  modal.setAttribute('role', 'presentation');
+  modal.onclick = event => { if (event.target === modal) closeManualGroupMemberCard(); };
+  modal.onkeydown = event => { if (event.key === 'Escape') closeManualGroupMemberCard(); };
+  modal.innerHTML = `<section class="case-modal-content group-detail-modal manual-group-member-card" role="dialog" aria-modal="true" aria-labelledby="manualGroupMemberTitle" tabindex="-1">
+    <h3 id="manualGroupMemberTitle" style="color:var(--accent);margin:0">Add member to ${escapeHtml(group.name)}</h3>
+    <div class="manual-group-member-search">
+      <input class="filter-input" id="manualGroupMemberSearch" type="search" autocomplete="off" placeholder="Search members…" aria-label="Search members by name or registration number" oninput="renderManualGroupMemberResults(${groupId})">
+      <select class="filter-select" id="manualGroupMemberSearchBy" aria-label="Search field" onchange="renderManualGroupMemberResults(${groupId})">
+        <option value="all">All</option><option value="name">Name</option><option value="registration_number">RegNo</option>
+      </select>
+    </div>
+    <div id="manualGroupMemberResults" class="manual-group-member-results" aria-live="polite"><p style="color:var(--muted)">Search by name or registration number to find members.</p></div>
+    <div class="manual-group-member-done"><button class="form-btn secondary" type="button" onclick="closeManualGroupMemberCard()">Done</button></div>
+  </section>`;
+  document.body.appendChild(modal);
+  modal.querySelector('[role="dialog"]')?.focus({ preventScroll: true });
+}
+
+function closeManualGroupMemberCard() {
+  document.getElementById('manualGroupMemberModal')?.remove();
+}
+
+function renderManualGroupMemberResults(groupId) {
+  const group = groups.find(item => toId(item.id) === toId(groupId));
+  const resultBox = document.getElementById('manualGroupMemberResults');
+  const searchInput = document.getElementById('manualGroupMemberSearch');
+  if (!group || !resultBox || !searchInput) return;
+
+  const query = String(searchInput.value || '').trim().toLocaleLowerCase();
+  const searchBy = document.getElementById('manualGroupMemberSearchBy')?.value || 'all';
+  if (!query) {
+    resultBox.innerHTML = '<p style="color:var(--muted)">Search by name or registration number to find members.</p>';
+    return;
+  }
+
+  const matches = userData.filter(user => {
+    const name = String(user.full_name || '').toLocaleLowerCase();
+    const registration = String(user.registration_number || '').toLocaleLowerCase();
+    if (searchBy === 'name') return name.includes(query);
+    if (searchBy === 'registration_number') return registration.includes(query);
+    return name.includes(query) || registration.includes(query);
+  }).slice(0, 50);
+
+  if (!matches.length) {
+    resultBox.innerHTML = '<p style="color:var(--muted)">No members match that search.</p>';
+    return;
+  }
+
+  resultBox.innerHTML = matches.map(user => {
+    const userId = toId(user.id);
+    const memberGroupList = groups.filter(item => (item.members || []).some(memberId => toId(memberId) === userId));
+    const alreadyInSelectedGroup = memberGroupList.some(item => toId(item.id) === toId(group.id));
+    const isFull = group.assignmentMode === 'restrict' && (group.members || []).length >= Number(group.size || group.max_members || 0);
+    const badges = memberGroupList.length
+      ? memberGroupList.map(item => `<span class="manual-group-member-badge${toId(item.id) === toId(group.id) ? ' current' : ''}">Group ${toId(item.id)} · ${escapeHtml(item.name)}</span>`).join('')
+      : '<span class="manual-group-member-badge">No group memberships</span>';
+    const action = alreadyInSelectedGroup
+      ? '<button class="manual-group-add-btn" type="button" disabled aria-label="Already in selected group">✓</button>'
+      : isFull
+        ? '<button class="manual-group-add-btn" type="button" disabled aria-label="Selected group is full">Full</button>'
+        : `<button class="manual-group-add-btn" type="button" aria-label="Add ${escapeHtml(user.full_name || 'member')} to group" onclick="addManualMemberToSelectedGroup(${userId},${toId(group.id)})">+</button>`;
+    return `<div class="manual-group-member-row">
+      <div class="manual-group-member-info">
+        <div class="manual-group-member-name">${escapeHtml(user.full_name || 'Unnamed member')}</div>
+        <div class="manual-group-member-reg">${escapeHtml(user.registration_number || 'No registration number')}</div>
+        <div class="manual-group-member-groups">${badges}</div>
+      </div>${action}
+    </div>`;
+  }).join('');
+}
+
+async function addManualMemberToSelectedGroup(userId, groupId) {
+  userId = toId(userId);
+  groupId = toId(groupId);
+  const user = userData.find(item => toId(item.id) === userId);
+  const group = groups.find(item => toId(item.id) === groupId);
+  if (!user || !group) return showTemporaryMessage('Member or group not found.', 'error');
+  if ((group.members || []).map(toId).includes(userId)) {
+    return showTemporaryMessage(`${user.full_name} is already in ${group.name}.`, 'warning');
+  }
+  if (group.assignmentMode === 'restrict' && (group.members || []).length >= Number(group.size || group.max_members || 0)) {
+    return showTemporaryMessage('Group is full.', 'warning');
+  }
+  if (!(await hasOwnerAdminSession())) {
+    showTemporaryMessage('Owner admin login required to add members to groups', 'warning');
+    pendingAdminTarget = `${tenantPathPrefix() || ''}/groups/?admin=direct`;
+    openAdminModal();
+    return;
+  }
+  if (!confirm(`Add ${user.full_name} to ${group.name}? Their existing group memberships will be kept.`)) return;
+
+  showLoadingSpinner('Adding…', `Adding ${user.full_name} to ${group.name}`);
+  stopAllAutoRefresh();
+  try {
+    const response = await fetch('/api/group-members/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
+      body: JSON.stringify({ user_id: userId, group_id: groupId }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || 'Could not add member to the selected group.');
+    closeManualGroupMemberCard();
+    await Promise.all([loadGroups({ silent: true }), loadUserData({ silent: true })]);
+    populateGroups();
+    populateUserTable();
+    showTemporaryMessage(`${user.full_name} added to ${group.name}.`, 'success');
+  } catch (error) {
+    showTemporaryMessage(`Could not add member: ${error.message}`, 'error');
+  } finally {
+    hideLoadingSpinner();
+    startAutoRefresh();
+  }
+}
+
+async function addMemberToGroupAutomatically(groupId) {
+  groupId = toId(groupId);
+  const group = groups.find(g => g.id === groupId);
+  if (!group) return showTemporaryMessage('Group not found.', 'error');
+  if (groupAssignMode === 'restrict' && (group.members || []).length >= group.size) {
+    return showTemporaryMessage('Group is full.', 'warning');
+  }
+
+  const assignedIds = new Set(groups.flatMap(g => (g.members || []).map(toId)));
+  const unassignedUsers = userData.filter(user => !assignedIds.has(toId(user.id)));
+  if (unassignedUsers.length === 0) {
+    return showTemporaryMessage('No unassigned users available.', 'warning');
+  }
   return _doAddMember(unassignedUsers[0], group);
 }
 
