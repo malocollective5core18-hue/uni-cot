@@ -2637,7 +2637,7 @@ footer img:hover {
 
 .user-database-filter-topline {
   display: grid;
-  grid-template-columns: minmax(0, 420px) minmax(170px, max-content);
+  grid-template-columns: minmax(0, 420px);
   gap: 12px;
   align-items: end;
 }
@@ -2685,9 +2685,9 @@ footer img:hover {
   box-shadow: 0 0 0 3px rgba(91, 140, 255, 0.16);
 }
 
-.user-database-filter-topline .data-table-zoom-controls {
-  align-self: end;
-  margin-left: 0;
+.user-database-zoom-controls {
+  justify-content: flex-end;
+  margin: 6px 0 10px;
 }
 
 .user-database-filter-search {
@@ -2756,11 +2756,6 @@ footer img:hover {
 @media (max-width: 900px) {
   .user-database-filter-topline {
     grid-template-columns: minmax(0, 420px);
-    gap: 9px;
-  }
-
-  .user-database-filter-topline .data-table-zoom-controls {
-    justify-content: flex-end;
   }
 }
 
@@ -2781,13 +2776,13 @@ footer img:hover {
   }
 
   .user-database-filter-group-part {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 162px));
     gap: 8px;
   }
 
   .user-database-filter-label { font-size: 0.68rem; }
   .user-database-filter-select,
-  .user-database-filter-input { padding: 6px 8px; font-size: 0.74rem; }
+  .user-database-filter-input { padding: 3px 7px; font-size: 0.74rem; }
 }
 
 .user-search-box {
@@ -5630,11 +5625,6 @@ footer img:hover {
                   </select>
                 </div>
               </div>
-              <div class="data-table-zoom-controls">
-                <button class="zoom-btn" type="button" onclick="changeUserManagementTableZoom(-0.08)">Zoom Out</button>
-                <span class="zoom-level-badge" id="userManagementTableZoomBadge">88%</span>
-                <button class="zoom-btn" type="button" onclick="changeUserManagementTableZoom(0.08)">Zoom In</button>
-              </div>
             </div>
             <div class="user-database-filter-group user-database-filter-search">
               <label class="user-database-filter-label" for="userSearch">Search Users</label>
@@ -5657,6 +5647,11 @@ footer img:hover {
                 </svg>
               </button>
             </div>
+          </div>
+          <div class="data-table-zoom-controls user-database-zoom-controls">
+            <button class="zoom-btn" type="button" onclick="changeUserManagementTableZoom(-0.08)">Zoom Out</button>
+            <span class="zoom-level-badge" id="userManagementTableZoomBadge">88%</span>
+            <button class="zoom-btn" type="button" onclick="changeUserManagementTableZoom(0.08)">Zoom In</button>
           </div>
 
           <div class="user-table-container">
