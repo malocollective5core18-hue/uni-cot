@@ -3299,6 +3299,22 @@ footer img:hover {
 .manual-group-member-search { display: grid; grid-template-columns: minmax(0, 3.5fr) minmax(115px, 1.5fr); gap: 8px; margin: 12px 0; }
 .manual-group-member-search input,
 .manual-group-member-search select { min-width: 0; width: 100%; }
+.manual-group-member-search input,
+.manual-group-member-search select {
+  box-sizing: border-box;
+  height: 38px;
+  padding: 8px 10px;
+  border: 1px solid rgba(91,140,255,.35);
+  border-radius: 8px;
+  background: rgba(12,16,36,.9);
+  color: var(--text);
+  font: inherit;
+  font-size: .82rem;
+}
+.manual-group-member-search input::placeholder { color: var(--muted); }
+.manual-group-member-search input:focus,
+.manual-group-member-search select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91,140,255,.16); }
+.manual-group-member-search select option { background: #12172b; color: #fff; }
 .manual-group-member-results { max-height: min(48vh, 400px); overflow-y: auto; margin: 10px 0; }
 .manual-group-member-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,.1); }
 .manual-group-member-info { min-width: 0; }
@@ -10429,13 +10445,11 @@ function openManualGroupMemberCard(groupId) {
   modal.id = 'manualGroupMemberModal';
   modal.className = 'case-modal-overlay active group-detail-overlay add-member-choice-overlay';
   modal.setAttribute('role', 'presentation');
-  modal.onclick = event => { if (event.target === modal) closeManualGroupMemberCard(); };
-  modal.onkeydown = event => { if (event.key === 'Escape') closeManualGroupMemberCard(); };
   modal.innerHTML = `<section class="case-modal-content group-detail-modal manual-group-member-card" role="dialog" aria-modal="true" aria-labelledby="manualGroupMemberTitle" tabindex="-1">
     <h3 id="manualGroupMemberTitle" style="color:var(--accent);margin:0">Add member to ${escapeHtml(group.name)}</h3>
     <div class="manual-group-member-search">
-      <input class="filter-input" id="manualGroupMemberSearch" type="search" autocomplete="off" placeholder="Search members…" aria-label="Search members by name or registration number" oninput="renderManualGroupMemberResults(${groupId})">
-      <select class="filter-select" id="manualGroupMemberSearchBy" aria-label="Search field" onchange="renderManualGroupMemberResults(${groupId})">
+      <input id="manualGroupMemberSearch" type="search" autocomplete="off" placeholder="Search members…" aria-label="Search members by name or registration number" oninput="renderManualGroupMemberResults(${groupId})">
+      <select id="manualGroupMemberSearchBy" aria-label="Search field" onchange="renderManualGroupMemberResults(${groupId})">
         <option value="all">All</option><option value="name">Name</option><option value="registration_number">RegNo</option>
       </select>
     </div>
@@ -10482,7 +10496,7 @@ function renderManualGroupMemberResults(groupId) {
     const alreadyInSelectedGroup = memberGroupList.some(item => toId(item.id) === toId(group.id));
     const isFull = group.assignmentMode === 'restrict' && (group.members || []).length >= Number(group.size || group.max_members || 0);
     const badges = memberGroupList.length
-      ? memberGroupList.map(item => `<span class="manual-group-member-badge${toId(item.id) === toId(group.id) ? ' current' : ''}">Group ${toId(item.id)} · ${escapeHtml(item.name)}</span>`).join('')
+      ? memberGroupList.map(item => `<span class="manual-group-member-badge${toId(item.id) === toId(group.id) ? ' current' : ''}">${escapeHtml(item.name)}</span>`).join('')
       : '<span class="manual-group-member-badge">No group memberships</span>';
     const action = alreadyInSelectedGroup
       ? '<button class="manual-group-add-btn" type="button" disabled aria-label="Already in selected group">✓</button>'
@@ -10529,10 +10543,10 @@ async function addManualMemberToSelectedGroup(userId, groupId) {
     });
     const result = await response.json();
     if (!response.ok || !result.success) throw new Error(result.error || 'Could not add member to the selected group.');
-    closeManualGroupMemberCard();
     await Promise.all([loadGroups({ silent: true }), loadUserData({ silent: true })]);
     populateGroups();
     populateUserTable();
+    renderManualGroupMemberResults(groupId);
     showTemporaryMessage(`${user.full_name} added to ${group.name}.`, 'success');
   } catch (error) {
     showTemporaryMessage(`Could not add member: ${error.message}`, 'error');
