@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Countdown card selected time persistence (2026-11-05)
+
+- Finding: Countdown card creation and editing passed the selected local date/time through the browser's string date parser before saving, which could reinterpret the selected time and cause posted cards to display a different end time.
+- Change: Added strict local date/time parsing that constructs the selected date and time explicitly before converting it to the API's ISO timestamp for create and update requests.
+- Files touched: `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: `git diff --check` passed; the create and update paths now use the same validated local parser and preserve the selected end date/time before API serialization.
+- Remaining risk: Browser-level verification against a live tenant and the full Django test suite remains pending.
+
 ## User Excel import/export and explicit group assignment (2026-10-23)
 
 - Finding: The User Database had CSV export only, and group assignment actions did not provide the requested Excel workflow or a safe add-to-another-group path. The existing group move helper removes a user's other memberships; automatic reformat deletes and recreates groups and memberships.

@@ -6574,6 +6574,36 @@ function formatForInput(date) {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
+function parseLocalDateTime(dateValue, timeValue) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(
+    `${dateValue}T${timeValue}`
+  );
+  if (!match) return null;
+
+  const [, year, month, day, hours, minutes] = match;
+  const date = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hours),
+    Number(minutes),
+    0,
+    0
+  );
+
+  if (
+    date.getFullYear() !== Number(year) ||
+    date.getMonth() !== Number(month) - 1 ||
+    date.getDate() !== Number(day) ||
+    date.getHours() !== Number(hours) ||
+    date.getMinutes() !== Number(minutes)
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
 function initializeDashboard() {
   loadCardsFromStorage();
   renderActiveCards();
@@ -6640,9 +6670,9 @@ async function createCard() {
     }
   }
 
-  const endTime = endDateVal && endTimeVal ? `${endDateVal}T${endTimeVal}` : null;
+  const endDate = parseLocalDateTime(endDateVal, endTimeVal);
 
-  console.log('Creating card with data:', { title, description, fileUrl, startTime, endTime });
+  console.log('Creating card with data:', { title, description, fileUrl, startTime, endDate });
 
   if (!(await hasOwnerAdminSession())) {
     showTemporaryMessage('Owner admin login is required before saving a card.', 'warning');
@@ -6650,13 +6680,12 @@ async function createCard() {
     return false;
   }
 
-  if (!title || !description || !fileUrl || !startTime || !endTime) {
+  if (!title || !description || !fileUrl || !startTime || !endDate) {
     showTemporaryMessage('Please fill in all fields', 'warning');
     return false;
   }
 
-  const startDate = new Date(startTime);
-  const endDate = new Date(endTime);
+  const startDate = new Date();
 
   if (endDate <= startDate) {
     showTemporaryMessage('End time must be after start time', 'warning');
@@ -6761,9 +6790,9 @@ async function updateCard() {
   const startDate = new Date(cardToEdit.start);
   const endDateInput = document.getElementById('cardEndDate') ? document.getElementById('cardEndDate').value : '';
   const endTimeInput = document.getElementById('cardEndTime') ? document.getElementById('cardEndTime').value : '';
-  const endDate = new Date(endDateInput && endTimeInput ? `${endDateInput}T${endTimeInput}` : endTime);
+  const endDate = parseLocalDateTime(endDateInput, endTimeInput);
 
-  if (endDate <= startDate) {
+  if (!endDate || endDate <= startDate) {
     showTemporaryMessage('End time must be after start time', 'warning');
     return;
   }
