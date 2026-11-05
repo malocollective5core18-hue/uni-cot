@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Groups member table priority (2026-11-06)
+
+- Finding: The groups page rendered the full groups cards and flagged table during the first member response, blocking the browser while large tenants were being processed and delaying search interaction.
+- Change: The first member page now prioritizes the member table and defers secondary groups and flagged-table rendering until the browser is idle.
+- Files touched: `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template JavaScript syntax and focused rendering-path checks passed; live tenant interaction timing remains recommended.
+- Remaining risk: Rendering many group cards can still consume resources after the member table becomes interactive.
+
 ## Groups member data fast initial loading (2026-11-06)
 
 - Finding: The groups page fetched paginated users and groups sequentially and waited for every page before rendering the member table, delaying search availability for large directories.

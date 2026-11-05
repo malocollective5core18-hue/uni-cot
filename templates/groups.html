@@ -1833,12 +1833,21 @@ function mapUsers(rows) {
 }
 
 // Everything that depends on members/groups, except the members table itself
-function afterDataChange() {
+function afterDataChange({ deferSecondary = false } = {}) {
     flaggedMembers = members.filter(m => m.status === 'flagged');
     updateFlaggedCount();
     updateStats();
-    loadGroupsDisplay();
-    loadFlaggedTable();
+    const renderSecondaryTables = () => {
+        loadGroupsDisplay();
+        loadFlaggedTable();
+    };
+    if (deferSecondary && typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(renderSecondaryTables, { timeout: 500 });
+    } else if (deferSecondary) {
+        window.setTimeout(renderSecondaryTables, 0);
+    } else {
+        renderSecondaryTables();
+    }
 }
 
 async function loadData() {
@@ -1856,7 +1865,7 @@ async function loadData() {
                 members = mapUsers(rows);
                 membersLastUpdatedAt = new Date();
                 setMembersLoadState(members.length ? 'data' : 'empty');
-                afterDataChange();
+                afterDataChange({ deferSecondary: true });
             }),
             fetchAllApiPages('/api/groups/?include_members=1'),
         ]);
