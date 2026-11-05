@@ -1392,1992 +1392,1145 @@
         </div>
     </div>
 
-    <script>
+   <script>
+// =====================================================================
+// RING-0 Member page — full script (reliable search / filter version)
+// Replaces BOTH original <script> blocks at the bottom of the page.
+// =====================================================================
 
-        
-        // Data storage
-        let members = [];
-        let groups = [];
-        let filteredMembers = [];
-        let filteredGroups = [];
-        let flaggedMembers = [];
-        let groupMemberDetails = new Map();
-        let currentCaseId = null;
-        let dataFramework = [];
-        let registrationsRefreshTimer = null;
-        let registrationsRetryDelay = 30000;
-        let registrationsPollingDisabled = false;
-        const registrationsEtags = { framework: null, users: null, groups: null };
+// ---------- Data storage ----------
+let members = [];
+let groups = [];
+let flaggedMembers = [];
+let groupMemberDetails = new Map();
+let currentCaseId = null;
+let dataFramework = [];
+let registrationsRefreshTimer = null;
 
-        function normalizeFilterText(value) {
-            return String(value || '').toLowerCase().trim();
-        }
+const TENANT_BASE_PATH = "{{ tenant_base_path|default:'' }}";
+const INDEX_URL = TENANT_BASE_PATH ? `${TENANT_BASE_PATH}/system/` : "/system/";
+const API_BASE_URL = TENANT_BASE_PATH ? `${TENANT_BASE_PATH}/api` : '/api';
+const OWNER_DIRECTORY_ACCESS = {{ owner_directory_access|yesno:"true,false" }};
 
-        function memberSearchValues(member) {
-            return {
-                name: member.full_name || member.name,
-                regno: member.registration_number || member.registrationNumber,
-                group: member.group || member.group_name,
-                email: member.email || member.email_address,
-                phone: member.phone || member.phone_number,
-            };
-        }
+let membersLoadState = 'loading';
+let membersLoadError = null;
+let membersLastUpdatedAt = null;
 
-        function hasActiveMemberFilters() {
-            return normalizeFilterText(document.getElementById('searchMembers')?.value) !== '' ||
-                (document.getElementById('statusFilter')?.value || 'all') !== 'all' ||
-                (document.getElementById('memberSearchField')?.value || 'all') !== 'all';
-        }
+const MEMBER_PAGE_SIZE = 200;
+let memberRenderLimit = MEMBER_PAGE_SIZE;
 
-        function hasActiveGroupFilters() {
-            return normalizeFilterText(document.getElementById('searchGroups')?.value) !== '' ||
-                (document.getElementById('leaderFilter')?.value || 'all') !== 'all';
-        }
+// ---------- Text helpers ----------
+function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+}
 
-        const TENANT_BASE_PATH = "{{ tenant_base_path|default:'' }}";
-        const INDEX_URL = TENANT_BASE_PATH ? `${TENANT_BASE_PATH}/system/` : "/system/";
-        const API_BASE_URL = TENANT_BASE_PATH ? `${TENANT_BASE_PATH}/api` : '/api';
-        const OWNER_DIRECTORY_ACCESS = {{ owner_directory_access|yesno:"true,false" }};
-        let membersLoadState = 'loading';
-        let membersLoadError = null;
-        let membersLastUpdatedAt = null;
+// lowercase, strip accents, collapse spaces
+function normalizeFilterText(value) {
+    return String(value ?? '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase().replace(/\s+/g, ' ').trim();
+}
 
-        function setMembersLoadState(state, error = null) {
-            membersLoadState = state;
-            membersLoadError = error;
-            const hint = document.getElementById('membersLastUpdated');
-            if (hint && membersLastUpdatedAt) hint.textContent = `Last updated ${membersLastUpdatedAt.toLocaleTimeString()}`;
-            loadMembersTable();
-        }
+// letters + digits only: "AB/123-20" -> "ab12320"
+function compactText(value) {
+    return normalizeFilterText(value).replace(/[^a-z0-9]/g, '');
+}
 
-        function publishTenantMutation(path) {
-            if (!OWNER_DIRECTORY_ACCESS || !window.TenantSync || !/\/api\//.test(path)) return;
-            if (/\/api\/(users|users\/clear-all)/.test(path)) window.TenantSync.publish('users');
-            if (/\/api\/(groups|group-members)/.test(path)) window.TenantSync.publish('groups');
-            if (/\/api\/groups\/move-member/.test(path)) window.TenantSync.publish('users');
-        }
+// Every typed word must appear, in any order ("doe john" finds "John Doe").
+// Falls back to a punctuation-insensitive match for registration numbers.
+function textMatches(haystack, query) {
+    const q = normalizeFilterText(query);
+    if (!q) return true;
+    const h = normalizeFilterText(haystack);
+    if (!h) return false;
+    if (q.split(' ').every(token => h.includes(token))) return true;
+    const qc = compactText(q);
+    return qc.length >= 2 && compactText(h).includes(qc);
+}
 
-        function showPageLoader(message = 'Loading') {
-            const loader = document.getElementById('pageLoader');
-            const loaderText = document.getElementById('pageLoaderText');
-            if (!loader) return;
-            if (loaderText) loaderText.textContent = message;
-            loader.classList.add('is-visible');
-            loader.setAttribute('aria-hidden', 'false');
-            document.body.classList.add('page-loading');
-        }
+// "0712 345 678", "+255712345678" and "712345678" all match each other
+function phoneMatches(phone, query) {
+    if (!/^[\d\s+\-().]+$/.test(String(query ?? ''))) return false;
+    const q = String(query).replace(/\D/g, '');
+    if (q.length < 3) return false;
+    const p = String(phone ?? '').replace(/\D/g, '');
+    const qLocal = q.replace(/^0+/, '');
+    return p.includes(q) || (qLocal.length >= 3 && p.includes(qLocal));
+}
 
-        function hidePageLoader() {
-            const loader = document.getElementById('pageLoader');
-            if (!loader) return;
-            loader.classList.remove('is-visible');
-            loader.setAttribute('aria-hidden', 'true');
-            document.body.classList.remove('page-loading');
-        }
+function memberSearchValues(member) {
+    return {
+        name: member.full_name || member.name,
+        regno: member.registration_number || member.registrationNumber,
+        group: member.group || member.group_name,
+        email: member.email || member.email_address,
+        phone: member.phone || member.phone_number,
+    };
+}
 
-        function navigateWithLoader(url, message = 'Opening') {
-            if (!url) return;
-            showPageLoader(message);
-            window.location.href = url;
-        }
+function memberMatches(member, query, field) {
+    if (!normalizeFilterText(query)) return true;
+    const v = memberSearchValues(member);
+    const testOne = key => {
+        if (key === 'phone') return phoneMatches(v.phone, query) || textMatches(v.phone, query);
+        if (key === 'group') return [v.group, extractGroupLetter(v.group)].some(x => textMatches(x, query));
+        return textMatches(v[key], query);
+    };
+    if (field !== 'all') return testOne(field);
+    // "all": words may be spread across fields ("john group a")
+    const combined = [v.name, v.regno, v.group, extractGroupLetter(v.group), v.email, v.phone].join(' ');
+    return textMatches(combined, query) || Object.keys(v).some(testOne);
+}
 
-        function apiUrl(path) {
-            return path.startsWith('/api/') ? `${API_BASE_URL}${path.slice(4)}` : path;
-        }
+function hasActiveMemberFilters() {
+    return normalizeFilterText(document.getElementById('searchMembers')?.value) !== '' ||
+        (document.getElementById('statusFilter')?.value || 'all') !== 'all' ||
+        (document.getElementById('memberSearchField')?.value || 'all') !== 'all';
+}
 
-        const nativeFetch = window.fetch.bind(window);
-        window.fetch = function(input, init) {
-            if (typeof input === 'string') {
-                const resolved = apiUrl(input);
-                const method = String(init?.method || 'GET').toUpperCase();
-                return nativeFetch(resolved, init).then(response => {
-                    if (response.ok && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-                        publishTenantMutation(new URL(resolved, window.location.origin).pathname);
-                    }
-                    return response;
-                });
-            }
-            return nativeFetch(input, init);
-        };
+function hasActiveGroupFilters() {
+    return normalizeFilterText(document.getElementById('searchGroups')?.value) !== '' ||
+        (document.getElementById('leaderFilter')?.value || 'all') !== 'all';
+}
 
-        function goBack() {
-            navigateWithLoader(INDEX_URL, 'Returning...');
-        }
+// Results are computed on demand from the live lists, so they can never go stale.
+function getFilteredMembers() {
+    const query = document.getElementById('searchMembers')?.value || '';
+    const status = normalizeFilterText(document.getElementById('statusFilter')?.value || 'all');
+    const field = document.getElementById('memberSearchField')?.value || 'all';
+    return members.filter(m =>
+        (status === 'all' || normalizeFilterText(m.status) === status) &&
+        memberMatches(m, query, field)
+    );
+}
 
-        window.addEventListener('pageshow', hidePageLoader);
+function getFilteredGroups() {
+    const query = document.getElementById('searchGroups')?.value || '';
+    const leaderFilter = document.getElementById('leaderFilter')?.value || 'all';
+    const sortBy = document.getElementById('groupSort')?.value || 'name';
+    const byName = (a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' });
 
-        document.addEventListener('submit', (event) => {
-            const form = event.target;
-            if (!(form instanceof HTMLFormElement)) return;
-            const submitter = event.submitter;
-            if (submitter instanceof HTMLElement) {
-                submitter.setAttribute('disabled', 'disabled');
-            }
-            showPageLoader('Submitting');
-        }, true);
-
-        document.addEventListener('click', (event) => {
-            const link = event.target.closest('a[href]');
-            if (!link) return;
-            const href = link.getAttribute('href') || '';
-            if (
-                !href ||
-                href.startsWith('#') ||
-                link.target === '_blank' ||
-                link.hasAttribute('download') ||
-                event.metaKey ||
-                event.ctrlKey ||
-                event.shiftKey ||
-                event.altKey
-            ) {
-                return;
-            }
-            try {
-                const url = new URL(link.href, window.location.href);
-                if (url.origin === window.location.origin) {
-                    showPageLoader('Opening');
-                }
-            } catch (error) {
-                // Ignore malformed links.
-            }
-        }, true);
-
-        // Initialize page
-        document.addEventListener('DOMContentLoaded', function() {
-            loadData();
-            initializeFilters();
-            switchTab('members');
-
-            // Set up real-time synchronization with index.html
-            setupRealTimeSync();
-
-            // Set up search listeners
-            setupSearchListeners();
-
-            // Temporary page-open table lumination for attention (1 minute only).
-            enableInitialTableLumination();
-
+    const list = groups.filter(group => {
+        if (leaderFilter === 'with-leader' && !group.leader) return false;
+        if (leaderFilter === 'without-leader' && group.leader) return false;
+        if (!normalizeFilterText(query)) return true;
+        // match group name, leader, or any member in it ("which group is John in?")
+        const parts = [group.name, extractGroupLetter(group.name)];
+        if (group.leader) parts.push(getGroupLeaderName(group));
+        group.members.forEach(id => {
+            const m = getMemberById(id);
+            if (m) parts.push(m.full_name, m.registration_number);
         });
+        return textMatches(parts.join(' '), query);
+    });
 
-        function enableInitialTableLumination() {
-            document.body.classList.add('table-attention-mode');
-            setTimeout(() => {
-                document.body.classList.remove('table-attention-mode');
-            }, 20000);
-        }
+    list.sort((a, b) => {
+        if (sortBy === 'size') return (b.members.length - a.members.length) || byName(a, b);
+        if (sortBy === 'leader') return ((a.leader ? 0 : 1) - (b.leader ? 0 : 1)) || byName(a, b);
+        return byName(a, b);
+    });
+    return list;
+}
 
-        function scrollToBottomOfMembers() {
-            const membersTable = document.getElementById('membersTable');
-            if (!membersTable) return false;
+function debounce(func, wait) {
+    let timeout;
+    return function (...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func(...args), wait);
+    };
+}
 
-            membersTable.scrollIntoView({ behavior: 'smooth', block: 'end' });
-            setTimeout(highlightLastRow, 220);
-            return true;
-        }
+// ---------- Load state ----------
+function setMembersLoadState(state, error = null) {
+    membersLoadState = state;
+    membersLoadError = error;
+    const hint = document.getElementById('membersLastUpdated');
+    if (hint && membersLastUpdatedAt) hint.textContent = `Last updated ${membersLastUpdatedAt.toLocaleTimeString()}`;
+    loadMembersTable();
+}
 
-        function highlightLastRow() {
-            const rows = document.querySelectorAll('#membersTableBody tr');
-            if (!rows.length) return;
+// ---------- Tenant sync publishing ----------
+function publishTenantMutation(path) {
+    if (!OWNER_DIRECTORY_ACCESS || !window.TenantSync || !/\/api\//.test(path)) return;
+    if (/\/api\/(users|users\/clear-all)/.test(path)) window.TenantSync.publish('users');
+    if (/\/api\/(groups|group-members)/.test(path)) window.TenantSync.publish('groups');
+    if (/\/api\/groups\/move-member/.test(path)) window.TenantSync.publish('users');
+}
 
-            rows.forEach(row => row.classList.remove('row-highlight'));
-            rows[rows.length - 1].classList.add('row-highlight');
-        }
+// ---------- Page loader / navigation ----------
+function showPageLoader(message = 'Loading') {
+    const loader = document.getElementById('pageLoader');
+    const loaderText = document.getElementById('pageLoaderText');
+    if (!loader) return;
+    if (loaderText) loaderText.textContent = message;
+    loader.classList.add('is-visible');
+    loader.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('page-loading');
+}
 
-        let continuousScrollInterval = null;
+function hidePageLoader() {
+    const loader = document.getElementById('pageLoader');
+    if (!loader) return;
+    loader.classList.remove('is-visible');
+    loader.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('page-loading');
+}
 
-        // Enhanced tab switching with auto-scroll
-        function enhancedSwitchTab(tabId) {
-            // Hide all tab contents
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            // Remove active class from all tab buttons
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            
-            // Show selected tab
-            const selectedTab = document.getElementById(tabId + 'Tab');
-            if (selectedTab) {
-                selectedTab.classList.add('active');
-                
-                // Activate corresponding tab button
-                const tabBtn = document.querySelector(`.tab-btn[onclick="switchTab('${tabId}')"]`);
-                if (tabBtn) {
-                    tabBtn.classList.add('active');
-                }
-                
-                // Refresh data for the tab
-                switch(tabId) {
-                    case 'members':
-                        loadMembersTable();
-                        break;
-                    case 'groups':
-                        loadGroupsDisplay();
-                        break;
-                    case 'flagged':
-                        loadFlaggedTable();
-                        break;
-                }
+function navigateWithLoader(url, message = 'Opening') {
+    if (!url) return;
+    showPageLoader(message);
+    window.location.href = url;
+}
+
+function goBack() {
+    navigateWithLoader(INDEX_URL, 'Returning...');
+}
+
+function apiUrl(path) {
+    return path.startsWith('/api/') ? `${API_BASE_URL}${path.slice(4)}` : path;
+}
+
+const nativeFetch = window.fetch.bind(window);
+window.fetch = function (input, init) {
+    if (typeof input === 'string') {
+        const resolved = apiUrl(input);
+        const method = String(init?.method || 'GET').toUpperCase();
+        return nativeFetch(resolved, init).then(response => {
+            if (response.ok && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+                publishTenantMutation(new URL(resolved, window.location.origin).pathname);
             }
-        }
-        
-        // Add CSS animation for highlighting last row
-        const scrollAnimationStyle = document.createElement('style');
-        scrollAnimationStyle.textContent = `
-            @keyframes pulse {
-                0% { background-color: transparent; }
-                50% { background-color: rgba(91, 140, 255, 0.2); }
-                100% { background-color: transparent; }
-            }
-            
-            @keyframes enhancedPulse {
-                0% { 
-                    background-color: transparent; 
-                    transform: scale(1);
-                    box-shadow: none;
-                }
-                25% { 
-                    background-color: rgba(91, 140, 255, 0.1); 
-                    transform: scale(1.01);
-                    box-shadow: 0 0 8px rgba(91, 140, 255, 0.3);
-                }
-                50% { 
-                    background-color: rgba(91, 140, 255, 0.15); 
-                    transform: scale(1.02);
-                    box-shadow: 0 0 12px rgba(91, 140, 255, 0.5);
-                }
-                75% { 
-                    background-color: rgba(91, 140, 255, 0.1); 
-                    transform: scale(1.01);
-                    box-shadow: 0 0 8px rgba(91, 140, 255, 0.3);
-                }
-                100% { 
-                    background-color: transparent; 
-                    transform: scale(1);
-                    box-shadow: none;
-                }
-            }
-            
-            .members-table-container {
-                max-height: 60vh;
-                overflow-y: auto;
-                border-radius: 12px;
-                background: rgba(12, 16, 36, 0.3);
-                padding: 5px;
-                margin-top: 15px;
-            }
-            
-            .members-table-container::-webkit-scrollbar {
-                width: 6px;
-            }
-            
-            .members-table-container::-webkit-scrollbar-track {
-                background: rgba(12, 16, 36, 0.3);
-                border-radius: 3px;
-            }
-            
-            .members-table-container::-webkit-scrollbar-thumb {
-                background: rgba(91, 140, 255, 0.5);
-                border-radius: 3px;
-            }
-            
-            .members-table-container::-webkit-scrollbar-thumb:hover {
-                background: rgba(91, 140, 255, 0.7);
-            }
-            
-            /* Auto-scroll indicator */
-            .auto-scroll-indicator {
-                position: fixed;
-                bottom: 20px;
-                right: 20px;
-                background: rgba(91, 140, 255, 0.9);
-                color: white;
-                padding: 10px 15px;
-                border-radius: 25px;
-                font-size: 0.8rem;
-                font-weight: 600;
-                z-index: 1000;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                animation: bounce 2s infinite;
-            }
-            
-            @keyframes bounce {
-                0%, 20%, 50%, 80%, 100% {
-                    transform: translateY(0);
-                }
-                40% {
-                    transform: translateY(-5px);
-                }
-                60% {
-                    transform: translateY(-3px);
-                }
-            }
-        `;
-        document.head.appendChild(scrollAnimationStyle);
-        
-        // Auto-scroll control functionality
-        let autoScrollActive = false;
-        let autoScrollTimer = null;
-        
-        function toggleAutoScroll() {
-            if (autoScrollActive) {
-                stopAutoScroll();
-            } else {
-                startAutoScroll();
-            }
-        }
-        
-        function startAutoScroll() {
-            autoScrollActive = true;
-            
-            
-            autoScrollTimer = setInterval(() => {
-                const activeTab = document.querySelector('.tab-content.active');
-                if (activeTab && activeTab.id === 'membersTab') {
-                    scrollToBottomOfMembers();
-                }
-            }, 3000); // Scroll every 3 seconds
-            
-            // Update indicator
-            updateAutoScrollIndicator();
-        }
-        
-        function stopAutoScroll() {
-            autoScrollActive = false;
-            if (autoScrollTimer) {
-                clearInterval(autoScrollTimer);
-                autoScrollTimer = null;
-            }
-            hideAutoScrollIndicator();
-        }
-        
-        function showAutoScrollIndicator() {
-            if (!document.querySelector('.auto-scroll-indicator')) {
-                const indicator = document.createElement('div');
-                indicator.className = 'auto-scroll-indicator';
-                indicator.id = 'autoScrollIndicator';
-                indicator.innerHTML = '⬇️ Auto-scrolling... Click to stop';
-                indicator.onclick = stopAutoScroll;
-                document.body.appendChild(indicator);
-            }
-        }
-        
-        function hideAutoScrollIndicator() {
-            const indicator = document.querySelector('.auto-scroll-indicator');
-            if (indicator) {
-                indicator.remove();
-            }
-        }
-        
-        function updateAutoScrollIndicator() {
-            const indicator = document.querySelector('.auto-scroll-indicator');
-            if (indicator) {
-                indicator.innerHTML = autoScrollActive ? '⬇️ Auto-scrolling... Click to stop' : 'Start auto-scroll';
-            }
-        }
-        
-        // Auto-scroll is manual-only in this page; no automatic start on load.
-        
-        // Stop auto-scroll when user manually scrolls
-        let userScrolling = false;
-        window.addEventListener('scroll', function() {
-            if (autoScrollActive && !userScrolling) {
-                userScrolling = true;
-                setTimeout(() => {
-                    userScrolling = false;
-                }, 1000);
-            }
+            return response;
         });
-        
-
-        
-        // Enhanced continuous scroll with better positioning
-        function startContinuousScroll() {
-            if (continuousScrollInterval) {
-                stopContinuousScroll();
-            }
-            
-            continuousScrollInterval = setInterval(() => {
-                const activeTab = document.querySelector('.tab-content.active');
-                if (activeTab && activeTab.id === 'membersTab') {
-                    scrollToBottomOfMembers();
-                }
-            }, 2500); // Scroll every 2.5 seconds for smoother experience
-        }
-        
-        function stopContinuousScroll() {
-            if (continuousScrollInterval) {
-                clearInterval(continuousScrollInterval);
-                continuousScrollInterval = null;
-            }
-        }
-        
-        // Force scroll to bottom - ensures last member touches header
-        function forceScrollToBottom() {
-            const membersTable = document.getElementById('membersTable');
-            if (!membersTable) return false;
-            
-            const lastRow = membersTable.querySelector('tbody tr:last-child');
-            if (!lastRow) return false;
-            
-            // Get positions
-            const header = document.querySelector('.header');
-            const headerHeight = header ? header.offsetHeight : 80;
-            const lastRowRect = lastRow.getBoundingClientRect();
-            const viewportHeight = window.innerHeight;
-            
-            // Calculate exact scroll position needed
-            const currentScrollTop = window.pageYOffset;
-            const targetScrollTop = lastRowRect.top + currentScrollTop - headerHeight - 15;
-            
-            // Scroll to exact position
-            window.scrollTo({
-                top: Math.max(targetScrollTop, 0),
-                behavior: 'smooth'
-            });
-            
-            // Verify positioning and adjust if needed
-            setTimeout(() => {
-                const newLastRowRect = lastRow.getBoundingClientRect();
-                const headerRect = header.getBoundingClientRect();
-                
-                // If last row is not touching header, adjust
-                if (newLastRowRect.top > headerRect.bottom + 10) {
-                    const adjustment = newLastRowRect.top - headerRect.bottom - 10;
-                    window.scrollBy({
-                        top: -adjustment,
-                        behavior: 'smooth'
-                    });
-                }
-                
-                highlightLastRow();
-            }, 400);
-            
-            return true;
-        }
-        
-        // Scroll to top of members list
-        function scrollToTopOfMembers() {
-            const membersTable = document.getElementById('membersTable');
-            if (membersTable) {
-                membersTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-        }
-        
-        // Replace the original scroll function with the enhanced one
-        const originalScrollToBottom = scrollToBottomOfMembers;
-        scrollToBottomOfMembers = function() {
-            return forceScrollToBottom();
-        };
-        
-        function resolveMemberFieldProperty(field) {
-            const rawKey = String(field?.key || field?.name || field?.label || '').trim().toLowerCase();
-
-            if (['full_name', 'name', 'full name', 'display_name', 'fullname'].includes(rawKey) || rawKey.includes('full')) {
-                return 'full_name';
-            }
-            if (['registration_number', 'registration number', 'reg_no', 'regno', 'reg_number'].includes(rawKey) || rawKey.includes('registration') || rawKey.includes('reg')) {
-                return 'registration_number';
-            }
-            if (['phone', 'phone_number', 'phone number', 'contact_phone', 'tel'].includes(rawKey) || rawKey.includes('phone')) {
-                return 'phone';
-            }
-            if (['email', 'email_address', 'email address'].includes(rawKey) || rawKey.includes('email')) {
-                return 'email';
-            }
-
-            return String(field?.key || field?.name || field?.label || '')
-                .trim()
-                .toLowerCase()
-                .replace(/\s+/g, '_');
-        }
-
-        function getDisplayableMemberFields() {
-            const seenProperties = new Set();
-            const displayFields = [];
-
-            dataFramework.forEach(field => {
-                const property = resolveMemberFieldProperty(field);
-                if (!property || seenProperties.has(property)) {
-                    return;
-                }
-                seenProperties.add(property);
-                displayFields.push({
-                    label: field.label || field.name || field.key || property,
-                    property,
-                    type: field.type || 'text',
-                });
-            });
-
-            if (!displayFields.length) {
-                return [
-                    { label: 'Full Name', property: 'full_name', type: 'text' },
-                    { label: 'Registration Number', property: 'registration_number', type: 'text' },
-                    { label: 'Phone Number', property: 'phone', type: 'tel' },
-                    { label: 'Email', property: 'email', type: 'email' },
-                ];
-            }
-
-            return displayFields;
-        }
-
-        async function fetchAllApiPages(path) {
-            const url = new URL(path, window.location.origin);
-            url.searchParams.set('page_size', '100');
-            const data = [];
-            let page = 1;
-            let totalPages = 1;
-            while (page <= totalPages) {
-                url.searchParams.set('page', String(page));
-                const response = await fetch(url.pathname + url.search);
-                if (!response.ok) {
-                    const error = new Error(`HTTP ${response.status}`);
-                    error.status = response.status;
-                    error.retryAfter = Number(response.headers.get('Retry-After') || 0);
-                    throw error;
-                }
-                const result = await response.json();
-                if (!result.success || !Array.isArray(result.data)) {
-                    throw new Error(result.error || 'Unexpected paginated API response');
-                }
-                data.push(...result.data);
-                totalPages = Number(result.meta?.total_pages || 1);
-                page += 1;
-            }
-            return { success: true, data };
-        }
-
-        function explainMemberAccessError(error) {
-            const status = Number(error?.status || 0);
-            if (status === 401 || status === 403) return 'Members are unavailable on this page.';
-            if (status === 429) {
-                return 'Too many requests, retrying shortly.';
-            }
-            if (status >= 500 || !status) return 'Could not load members, retry.';
-            return 'Could not load members, retry.';
-        }
-
-        function handleMemberPollingError(error) {
-            const status = Number(error?.status || 0);
-            if (![401, 403, 429].includes(status)) return true;
-
-            stopRealtimeSync();
-            showMessage(explainMemberAccessError(error), 'error');
-            if (status === 429) {
-                registrationsRetryDelay = Math.max(30000, (error.retryAfter || 30) * 1000);
-                registrationsRefreshTimer = window.setTimeout(() => {
-                    registrationsRefreshTimer = null;
-                    startRealtimeSync(registrationsRetryDelay);
-                }, registrationsRetryDelay);
-            } else {
-                registrationsPollingDisabled = true;
-            }
-            return false;
-        }
-
-        // Load data from database
-        async function loadData() {
-            try {
-                const defaultFramework = [
-                    { name: 'Full Name', type: 'text', required: 'yes', order: 1 },
-                    { name: 'Registration Number', type: 'text', required: 'yes', order: 2 },
-                    { name: 'Phone Number', type: 'phone', required: 'yes', order: 3 }
-                ];
-
-                const [frameworkResult, usersResult, groupsResult] = await Promise.allSettled([
-                    fetch('/api/registration-fields/').then(response => response.json()),
-                    fetchAllApiPages(OWNER_DIRECTORY_ACCESS ? '/api/users/' : '/api/public-members/'),
-                    fetchAllApiPages('/api/groups/?include_members=1'),
-                ]);
-
-                if (frameworkResult.status === 'fulfilled' && frameworkResult.value.success) {
-                    dataFramework = frameworkResult.value.data.map(field => ({
-                        id: field.id,
-                        name: field.label,
-                        key: field.key,
-                        type: field.type,
-                        required: field.required,
-                        order: field.order,
-                        placeholder: field.placeholder || '',
-                        options: field.options || ''
-                    }));
-                    if (!OWNER_DIRECTORY_ACCESS) {
-                        dataFramework = dataFramework.filter(field => !['email', 'email_address'].includes(String(field.key || '').toLowerCase()));
-                    }
-                } else {
-                    dataFramework = defaultFramework;
-                    if (frameworkResult.status === 'rejected') {
-                        console.warn('Could not load data framework from database:', frameworkResult.reason);
-                    }
-                }
-
-                if (usersResult.status === 'fulfilled' && usersResult.value.success) {
-                    members = usersResult.value.data.map(user => ({
-                        ...user,
-                        id: user.id,
-                        full_name: user.full_name,
-                        registration_number: user.registration_number,
-                        phone: user.phone || '',
-                        email: user.email || '',
-                        group: user.group_name || '',
-                        status: user.status || 'active',
-                        case_info: user.case_info || ''
-                    }));
-                    membersLastUpdatedAt = new Date();
-                    setMembersLoadState(members.length ? 'data' : 'empty');
-                    console.log('Loaded members from database:', members.length);
-                } else {
-                    const error = usersResult.reason;
-                    const accessError = error || { status: 500 };
-                    setMembersLoadState('error', accessError || { status: 500 });
-                    console.warn('Unable to load members from the API:', accessError);
-                    if (accessError) handleMemberPollingError(accessError);
-                }
-
-                if (groupsResult.status === 'fulfilled' && groupsResult.value.success) {
-                    const rawGroups = groupsResult.value.data || [];
-                    groupMemberDetails = new Map();
-                    const publicMembers = [];
-                    groups = rawGroups.map((group) => {
-                        const membersData = Array.isArray(group.members) ? group.members : [];
-                        membersData.forEach((member) => {
-                            const memberId = Number(member.user_id);
-                            if (!Number.isFinite(memberId) || !member.display_name) return;
-                            const publicMember = {
-                                id: memberId,
-                                full_name: member.display_name,
-                                registration_number: member.registration_number || '',
-                                phone: member.phone || '',
-                                email: '',
-                                group: member.group_name || group.group_name || '',
-                                group_name: member.group_name || group.group_name || '',
-                                case_info: member.case_info || '',
-                                status: member.status || 'active',
-                                public_group_member: true,
-                            };
-                            groupMemberDetails.set(memberId, publicMember);
-                            if (!OWNER_DIRECTORY_ACCESS && !publicMembers.some(item => item.id === memberId)) {
-                                publicMembers.push(publicMember);
-                            }
-                        });
-                        const leaderMember = membersData.find(m => m.is_leader === true);
-                        const groupData = {
-                            id: Number(group.id),
-                            name: group.group_name || `Group ${group.id}`,
-                            group_name: group.group_name || `Group ${group.id}`,
-                            size: group.max_members || 0,
-                            current_members: Number(group.current_members) || membersData.length,
-                            leader: leaderMember ? Number(leaderMember.user_id) : (group.leader_id || null),
-                            members: membersData.map(m => Number(m.user_id))
-                        };
-
-                        return groupData;
-                    });
-                    if (!OWNER_DIRECTORY_ACCESS) {
-                        members = publicMembers;
-                        membersLastUpdatedAt = new Date();
-                        setMembersLoadState(members.length ? 'data' : 'empty');
-                        console.log('Loaded public group members from database:', members.length);
-                    }
-                    console.log('Loaded groups from database:', groups.length);
-                } else {
-                    groups = [];
-                    console.warn('No groups found in database');
-                }
-
-                // Filter flagged members
-                flaggedMembers = members.filter(member => member.status === 'flagged');
-
-                // Update notification badge
-                updateFlaggedCount();
-
-                // Load initial data
-                loadMembersTable();
-                loadGroupsDisplay();
-                loadFlaggedTable();
-                initializeFilters();
-                updateStats();
-
-            } catch (e) {
-                console.error('Error loading data:', e);
-                showMessage('Error loading data. Please refresh the page.', 'error');
-            }
-        }
-
-        // Extract just the letter/number from group name (e.g., "Group A" -> "A")
-        function extractGroupLetter(groupName) {
-            if (!groupName) return '';
-            
-            // If it contains "Group ", remove it
-            if (groupName.includes('Group ')) {
-                return groupName.replace('Group ', '');
-            }
-            
-            // If it's something like "GroupA" (no space)
-            if (groupName.includes('Group')) {
-                return groupName.replace('Group', '');
-            }
-            
-            // Otherwise return as-is
-            return groupName;
-        }
-
-        // Initialize member filter controls
-        function initializeFilters() {
-            const memberSearchField = document.getElementById('memberSearchField');
-            if (memberSearchField && !memberSearchField.value) memberSearchField.value = 'all';
-        }
-
-        // Set up search listeners
-        function setupSearchListeners() {
-            // Members search
-            const searchMembers = document.getElementById('searchMembers');
-            if (searchMembers) {
-                searchMembers.addEventListener('input', applyFilters);
-            }
-            const statusFilter = document.getElementById('statusFilter');
-            if (statusFilter) {
-                statusFilter.addEventListener('change', applyFilters);
-            }
-            const memberSearchField = document.getElementById('memberSearchField');
-            if (memberSearchField) {
-                memberSearchField.addEventListener('change', applyFilters);
-            }
-            
-            // Groups search
-            const searchGroups = document.getElementById('searchGroups');
-            if (searchGroups) {
-                searchGroups.addEventListener('input', debounce(applyGroupFilters, 300));
-            }
-            const leaderFilter = document.getElementById('leaderFilter');
-            if (leaderFilter) {
-                leaderFilter.addEventListener('change', applyGroupFilters);
-            }
-            const groupSort = document.getElementById('groupSort');
-            if (groupSort) {
-                groupSort.addEventListener('change', applyGroupFilters);
-            }
-            
-            // Flagged search
-            const searchFlagged = document.getElementById('searchFlagged');
-            if (searchFlagged) {
-                searchFlagged.addEventListener('input', debounce(loadFlaggedTable, 300));
-            }
-            const flaggedSort = document.getElementById('flaggedSort');
-            if (flaggedSort) {
-                flaggedSort.addEventListener('change', loadFlaggedTable);
-            }
-        }
-
-        // Debounce function for search
-        function debounce(func, wait) {
-            let timeout;
-            return function executedFunction(...args) {
-                const later = () => {
-                    clearTimeout(timeout);
-                    func(...args);
-                };
-                clearTimeout(timeout);
-                timeout = setTimeout(later, wait);
-            };
-        }
-
-        // Switch between tabs
-        function switchTab(tabId) {
-            // Hide all tab contents
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            // Remove active class from all tab buttons
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            
-            // Show selected tab
-            const selectedTab = document.getElementById(tabId + 'Tab');
-            if (selectedTab) {
-                selectedTab.classList.add('active');
-                
-                // Activate corresponding tab button
-                const tabBtn = document.querySelector(`.tab-btn[onclick="switchTab('${tabId}')"]`);
-                if (tabBtn) {
-                    tabBtn.classList.add('active');
-                }
-                
-                // Refresh data for the tab
-                switch(tabId) {
-                    case 'members':
-                        loadMembersTable();
-                        break;
-                    case 'groups':
-                        loadGroupsDisplay();
-                        break;
-                    case 'flagged':
-                        loadFlaggedTable();
-                        break;
-                }
-            }
-        }
-
-        // Open flagged tab from notification
-        function openFlaggedTab() {
-            switchTab('flagged');
-        }
-
-        // Go back to main page
-        function goBack() {
-            navigateWithLoader(INDEX_URL, 'Returning...');
-        }
-
-        // Generate dynamic table headers based on data framework
-        function generateTableHeaders() {
-            const thead = document.getElementById('membersTableHead');
-            if (!thead) return;
-
-            const headerRow = thead.querySelector('tr');
-            if (!headerRow) return;
-
-            // Clear existing headers except the first one (No.)
-            const firstTh = headerRow.querySelector('th:first-child');
-            headerRow.innerHTML = '';
-            headerRow.appendChild(firstTh);
-
-            // Add headers based on the member fields the backend actually returns
-            getDisplayableMemberFields().forEach(field => {
-                const th = document.createElement('th');
-                th.textContent = field.label;
-                headerRow.appendChild(th);
-            });
-
-            // Add fixed columns
-            const groupTh = document.createElement('th');
-            groupTh.textContent = 'Group';
-            headerRow.appendChild(groupTh);
-
-            const statusTh = document.createElement('th');
-            statusTh.textContent = 'Status';
-            headerRow.appendChild(statusTh);
-
-            const actionsTh = document.createElement('th');
-            actionsTh.textContent = 'Actions';
-            headerRow.appendChild(actionsTh);
-        }
-
-        // Load members table
-        function loadMembersTable() {
-            const tbody = document.getElementById('membersTableBody');
-            if (!tbody) return;
-
-            // Generate table headers first
-            generateTableHeaders();
-
-            tbody.innerHTML = '';
-
-            if (membersLoadState === 'loading') {
-                tbody.innerHTML = '<tr><td colspan="' + (getDisplayableMemberFields().length + 4) + '" class="empty-state"><h3>Loading members…</h3><p>Checking the member directory.</p></td></tr>';
-                return;
-            }
-
-            if (membersLoadState === 'error') {
-                const status = Number(membersLoadError?.status || 0);
-                const message = status === 403 || status === 401
-                        ? 'Members are unavailable on this page.'
-                    : status === 429
-                        ? 'Too many requests, retrying shortly.'
-                        : 'Could not load members, retry.';
-                tbody.innerHTML = `<tr><td colspan="${getDisplayableMemberFields().length + 4}" class="empty-state"><h3>Members unavailable</h3><p>${message}</p></td></tr>`;
-                return;
-            }
-
-            if (filteredMembers.length === 0 && !hasActiveMemberFilters()) {
-                filteredMembers = [...members];
-            }
-
-            if (membersLoadState === 'empty' && filteredMembers.length === 0) {
-                const colspan = getDisplayableMemberFields().length + 4;
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="${colspan}" class="empty-state">
-                            <div class="empty-icon">👤</div>
-                            <h3>No Members Found</h3>
-                            <p>${hasActiveMemberFilters()
-                                ? 'No members match the current search or filters.'
-                                : (OWNER_DIRECTORY_ACCESS
-                                    ? 'No members have been registered yet.'
-                                    : 'No members have been assigned to a group yet.')}</p>
-                        </td>
-                    </tr>
-                `;
-                return;
-            }
-
-            const displayFields = getDisplayableMemberFields();
-
-            filteredMembers.forEach((member, index) => {
-                const row = document.createElement('tr');
-                if (member.status === 'flagged') {
-                    row.classList.add('red-flag');
-                }
-
-                // Start building row HTML with number column
-                let rowHTML = `<td>${index + 1}</td>`;
-
-                // Add data based on framework fields using proper mapping
-                displayFields.forEach(field => {
-                    let fieldValue = member[field.property] || 'N/A';
-
-                    // Handle different field types
-                    if (field.type === 'email' && fieldValue !== 'N/A') {
-                        fieldValue = `<a href="mailto:${fieldValue}" style="color: var(--accent);">${fieldValue}</a>`;
-                    } else if (field.type === 'phone' && fieldValue !== 'N/A') {
-                        fieldValue = `<a href="tel:${fieldValue}" style="color: var(--accent);">${fieldValue}</a>`;
-                    }
-
-                    rowHTML += `<td>${fieldValue}</td>`;
-                });
-
-                // Determine status badge
-                let statusBadge = '';
-                if (member.status === 'flagged') {
-                    statusBadge = `<span class="compact-badge badge-flagged">Flagged</span>`;
-                } else if (member.status === 'active') {
-                    statusBadge = `<span class="compact-badge badge-active">Active</span>`;
-                } else {
-                    statusBadge = `<span class="compact-badge badge-inactive">Inactive</span>`;
-                }
-
-                // Check if member is a group leader
-                let isLeader = false;
-                groups.forEach(group => {
-                    if (group.leader === member.id) {
-                        isLeader = true;
-                    }
-                });
-
-                // Add leader badge if applicable
-                let groupDisplay = member.group ? extractGroupLetter(member.group) : 'Not assigned';
-                if (isLeader) {
-                    groupDisplay += ' <span class="compact-badge badge-leader">👑</span>';
-                }
-
-                // Complete row HTML
-                rowHTML += `
-                    <td>${groupDisplay}</td>
-                    <td>${statusBadge}</td>
-                    <td>
-                        ${member.case_info ? `
-                            <button class="action-btn action-view-btn" onclick="viewCaseInfo('${member.id}')">
-                                View Case
-                            </button>
-                        ` : 'No case'}
-                    </td>
-                `;
-
-                row.innerHTML = rowHTML;
-                tbody.appendChild(row);
-            });
-
-            // Enable row click highlighting after the table renders.
-            tbody.querySelectorAll('tr').forEach(row => {
-                row.addEventListener('click', function() {
-                    tbody.querySelectorAll('tr').forEach(r => r.classList.remove('row-highlight'));
-                    this.classList.add('row-highlight');
-                });
-            });
-        }
-
-        // Enhanced group loading function
-        function loadGroupsDisplay() {
-            const container = document.getElementById('groupsListContainer');
-            if (!container) return;
-            
-            container.innerHTML = '';
-            
-            if (filteredGroups.length === 0 && !hasActiveGroupFilters()) {
-                filteredGroups = [...groups];
-            }
-            
-            if (filteredGroups.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-icon">🏢</div>
-                        <h3>${hasActiveGroupFilters() ? 'No Groups Found' : 'No Groups Created'}</h3>
-                        <p>${hasActiveGroupFilters() ? 'No groups match the current search or filters.' : 'No groups have been created yet.'}</p>
-                    </div>
-                `;
-                return;
-            }
-            
-            // Update group stats
-            updateGroupStats();
-            
-            // Apply sorting
-            const sortBy = document.getElementById('groupSort')?.value || 'name';
-            filteredGroups.sort((a, b) => {
-                switch(sortBy) {
-                    case 'size':
-                        return b.members.length - a.members.length;
-                    case 'leader':
-                        return (a.leader ? 0 : 1) - (b.leader ? 0 : 1);
-                    default:
-                        return a.name.localeCompare(b.name);
-                }
-            });
-            
-            filteredGroups.forEach(group => {
-                const groupCard = document.createElement('div');
-                groupCard.className = 'group-list-card';
-                
-                // Add class for groups without leader
-                if (!group.leader) {
-                    groupCard.classList.add('no-leader');
-                }
-                
-                // Get group leader info
-                const leaderName = getGroupLeaderName(group);
-                const leaderPhone = group.leader ? getMemberById(group.leader)?.phone || 'Not provided' : 'Not provided';
-                
-                // Get group members (first 5 for preview)
-                const previewMembers = group.members.slice(0, 5).map(memberId => {
-                    const member = getMemberById(memberId);
-                    return {
-                        id: memberId,
-                        full_name: member ? member.full_name : `User ${memberId}`,
-                        isLeader: memberId === group.leader,
-                        status: member ? member.status : 'inactive'
-                    };
-                });
-                
-                groupCard.innerHTML = `
-                    <div class="group-list-header">
-                        <div class="group-list-title">${group.name}</div>
-                        <div class="group-list-count">${group.members.length} members</div>
-                    </div>
-                    
-                    <div class="leader-section">
-                        <span class="leader-label">Group Leader:</span>
-                        ${group.leader ? 
-                            `<div class="leader-name">${leaderName} (${leaderPhone})</div>` :
-                            `<div class="no-leader-indicator">⚠️ No leader assigned</div>`
-                        }
-                    </div>
-                    
-                    <div class="members-preview">
-                        ${previewMembers.map(member => `
-                            <div class="member-chip ${member.isLeader ? 'leader' : ''} ${member.status === 'flagged' ? 'flagged' : ''}" 
-                                 title="${member.full_name}${member.isLeader ? ' (Leader)' : ''}${member.status === 'flagged' ? ' - ⚠️ Flagged' : ''}">
-                                ${member.isLeader ? '👑 ' : ''}${member.full_name}
-                            </div>
-                        `).join('')}
-                        
-                        ${group.members.length > 5 ? 
-                            `<div class="member-chip">+${group.members.length - 5} more</div>` : ''
-                        }
-                    </div>
-                    
-                    <button class="view-all-btn" onclick="openGroupDetails('${group.id}')">
-                        👁️ View All Members (${group.members.length})
-                    </button>
-                `;
-                
-                container.appendChild(groupCard);
-            });
-        }
-
-        // New function to update group statistics
-        function updateGroupStats() {
-            const groupsWithLeader = groups.filter(g => g.leader).length;
-            const groupsWithoutLeader = groups.length - groupsWithLeader;
-            const totalGroupMembers = groups.reduce((sum, group) => sum + group.members.length, 0);
-            
-            document.getElementById('groupsWithLeader').textContent = groupsWithLeader;
-            document.getElementById('groupsWithoutLeader').textContent = groupsWithoutLeader;
-            document.getElementById('totalGroupMembers').textContent = totalGroupMembers;
-        }
-
-        // New function to get member by ID
-        function getMemberById(id) {
-            return members.find(m => m.id === id) || groupMemberDetails.get(Number(id));
-        }
-
-        // New function to open group details modal
-        function openGroupDetails(groupId) {
-            groupId = Number(groupId);
-            const group = groups.find(g => g.id === groupId);
-            if (!group) return;
-            
-            const leaderName = getGroupLeaderName(group);
-            const leaderPhone = group.leader ? getMemberById(group.leader)?.phone || 'Not provided' : 'Not provided';
-            
-            // Get all members with details
-            const groupMembers = group.members.map(memberId => {
-                const member = getMemberById(memberId);
-                return {
-                    ...(member || {
-                        id: memberId,
-                        full_name: `User ${memberId}`,
-                        registration_number: 'N/A',
-                        email: 'N/A',
-                        phone: 'N/A',
-                        status: 'inactive',
-                    }),
-                    isLeader: memberId === group.leader
-                };
-            });
-            
-            // Create modal HTML
-            const modalHTML = `
-                <div class="group-details-modal active" id="groupDetailsModal">
-                    <div class="group-details-content">
-                        <div class="group-details-title">
-                            <span>${group.name} - ${group.members.length} Members</span>
-                            <button class="modal-btn cancel" onclick="closeGroupDetails()" style="font-size: 0.8rem; padding: 5px 10px;">Close</button>
-                        </div>
-                        
-                        <div class="leader-section" style="margin-bottom: 20px;">
-                            <span class="leader-label">Group Leader:</span>
-                            ${group.leader ? 
-                                `<div style="display: flex; flex-direction: column;">
-                                    <span class="leader-name">${leaderName}</span>
-                                    <span style="font-size: 0.8rem; color: var(--muted);">${leaderPhone}</span>
-                                </div>` : 
-                                `<div class="no-leader-indicator">⚠️ No leader assigned</div>`
-                            }
-                        </div>
-                        
-                        <div class="members-list">
-                            <h3 style="color: var(--accent); margin-bottom: 15px; font-size: 1rem;">All Members</h3>
-                            ${groupMembers.map(member => `
-                                <div class="member-detail-item">
-                                    <div class="member-info">
-                                        <span class="member-name">
-                                            ${member.isLeader ? '👑 ' : ''}${member.full_name}
-                                            ${member.status === 'flagged' ? ' ⚠️' : ''}
-                                        </span>
-                                        <span class="member-details">
-                                            ${member.registration_number || 'No registration number'} • ${member.phone || 'Phone not provided'} • ${member.group_name || group.name}
-                                            ${member.case_info ? ` • Case: ${member.case_info}` : ''}
-                                        </span>
-                                    </div>
-                                    <div class="member-actions">
-                                        ${member.status === 'flagged' ? 
-                                            `<button class="action-btn action-view-btn" onclick="viewCaseInfo('${member.id}')">View Case</button>` : 
-                                            ''
-                                        }
-                                        <span class="compact-badge ${member.status === 'active' ? 'badge-active' : member.status === 'flagged' ? 'badge-flagged' : 'badge-inactive'}">
-                                            ${member.status === 'active' ? 'Active' : member.status === 'flagged' ? 'Flagged' : 'Inactive'}
-                                        </span>
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            // Add modal to body
-            const modalContainer = document.createElement('div');
-            modalContainer.innerHTML = modalHTML;
-            document.body.appendChild(modalContainer);
-            
-            // Close modal when clicking outside
-            modalContainer.querySelector('.group-details-modal').addEventListener('click', function(e) {
-                if (e.target === this) {
-                    closeGroupDetails();
-                }
-            });
-        }
-
-        // Close group details modal
-        function closeGroupDetails() {
-            const modal = document.getElementById('groupDetailsModal');
-            if (modal) {
-                modal.remove();
-            }
-        }
-
-        // Load flagged table
-        function loadFlaggedTable() {
-            const tbody = document.getElementById('flaggedTableBody');
-            if (!tbody) return;
-            
-            tbody.innerHTML = '';
-            
-            let filteredFlagged = [...flaggedMembers];
-            
-            // Apply search filter
-            const searchTerm = document.getElementById('searchFlagged')?.value.toLowerCase() || '';
-            if (searchTerm) {
-                filteredFlagged = filteredFlagged.filter(member => 
-                    member.full_name.toLowerCase().includes(searchTerm) ||
-                    member.registration_number.toLowerCase().includes(searchTerm) ||
-                    (member.case_info && member.case_info.toLowerCase().includes(searchTerm))
-                );
-            }
-            
-            // Sort flagged members
-            const sortBy = document.getElementById('flaggedSort')?.value || 'recent';
-            filteredFlagged.sort((a, b) => {
-                switch(sortBy) {
-                    case 'name':
-                        return a.full_name.localeCompare(b.full_name);
-                    case 'group':
-                        return (a.group || '').localeCompare(b.group || '');
-                    default:
-                        return 0;
-                }
-            });
-            
-            if (filteredFlagged.length === 0) {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="6" class="empty-state">
-                            <div class="empty-icon">⚠️</div>
-                            <h3>No Flagged Cases</h3>
-                            <p>${searchTerm ? 'No flagged cases match the current search.' : 'There are no flagged members at the moment.'}</p>
-                        </td>
-                    </tr>
-                `;
-                return;
-            }
-            
-            filteredFlagged.forEach((member, index) => {
-                const row = document.createElement('tr');
-                row.classList.add('red-flag');
-                
-                // Shorten case info for display
-                const shortCaseInfo = member.case_info && member.case_info.length > 50 
-                    ? member.case_info.substring(0, 50) + '...' 
-                    : (member.case_info || '');
-                
-                row.innerHTML = `
-                    <td>${index + 1}</td>
-                    <td>${member.full_name}</td>
-                    <td>${member.registration_number}</td>
-                    <td>${member.group ? extractGroupLetter(member.group) : 'Not assigned'}</td>
-                    <td title="${member.case_info || ''}">${shortCaseInfo}</td>
-                    <td>
-                        <button class="action-btn action-view-btn" onclick="viewCaseInfo('${member.id}')">
-                            View Details
-                        </button>
-                    </td>
-                `;
-                tbody.appendChild(row);
-            });
-        }
-
-        // Apply filters to members
-        function applyFilters() {
-            const searchTerm = normalizeFilterText(document.getElementById('searchMembers')?.value);
-            const statusFilter = document.getElementById('statusFilter')?.value || 'all';
-            const searchField = document.getElementById('memberSearchField')?.value || 'all';
-            
-            filteredMembers = members.filter(member => {
-                // Search filter
-                const searchableFields = memberSearchValues(member);
-                const fieldsToSearch = searchField === 'all'
-                    ? Object.values(searchableFields)
-                    : [searchableFields[searchField]];
-                if (searchTerm && !fieldsToSearch.some(field =>
-                    normalizeFilterText(field).includes(searchTerm)
-                )) {
-                    return false;
-                }
-                
-                // Status filter
-                if (
-                    statusFilter !== 'all' &&
-                    normalizeFilterText(member.status) !== normalizeFilterText(statusFilter)
-                ) {
-                    return false;
-                }
-                
-                return true;
-            });
-            
-            loadMembersTable();
-        }
-
-        // Apply filters to groups
-        function applyGroupFilters() {
-            const searchTerm = normalizeFilterText(document.getElementById('searchGroups')?.value);
-            const leaderFilter = document.getElementById('leaderFilter')?.value || 'all';
-            
-            filteredGroups = groups.filter(group => {
-                // Search filter
-                if (searchTerm) {
-                    const leaderName = normalizeFilterText(getGroupLeaderName(group));
-                    if (!normalizeFilterText(group.name).includes(searchTerm) && !leaderName.includes(searchTerm)) {
-                        return false;
-                    }
-                }
-                
-                // Leader status filter
-                if (leaderFilter !== 'all') {
-                    if (leaderFilter === 'with-leader' && !group.leader) {
-                        return false;
-                    }
-                    if (leaderFilter === 'without-leader' && group.leader) {
-                        return false;
-                    }
-                }
-                
-                return true;
-            });
-            
-            loadGroupsDisplay();
-        }
-
-        // Reset filters
-        function resetFilters() {
-            document.getElementById('searchMembers').value = '';
-            document.getElementById('statusFilter').value = 'all';
-            document.getElementById('memberSearchField').value = 'all';
-            filteredMembers = [...members];
-            loadMembersTable();
-        }
-
-        // Reset group filters
-        function resetGroupFilters() {
-            document.getElementById('searchGroups').value = '';
-            document.getElementById('leaderFilter').value = 'all';
-            document.getElementById('groupSort').value = 'name';
-            filteredGroups = [...groups];
-            loadGroupsDisplay();
-        }
-
-        // Get group leader name
-        function getGroupLeaderName(group) {
-            if (!group.leader) return 'No leader assigned';
-            const leader = getMemberById(group.leader);
-            return leader ? leader.full_name : 'Unknown';
-        }
-
-        // Get member status
-        function getMemberStatus(memberId) {
-            const member = members.find(m => m.id === memberId);
-            if (!member) return 'badge-inactive';
-            
-            switch(member.status) {
-                case 'active': return 'badge-active';
-                case 'flagged': return 'badge-flagged';
-                default: return 'badge-inactive';
-            }
-        }
-
-        // Get member status text
-        function getMemberStatusText(memberId) {
-            const member = members.find(m => m.id === memberId);
-            if (!member) return 'Inactive';
-            
-            switch(member.status) {
-                case 'active': return 'Active';
-                case 'flagged': return 'Flagged';
-                default: return 'Inactive';
-            }
-        }
-
-        // Update statistics
-        function updateStats() {
-            document.getElementById('totalMembers').textContent = members.length;
-            document.getElementById('totalGroups').textContent = groups.length;
-            document.getElementById('flaggedMembers').textContent = flaggedMembers.length;
-            
-            // Count group leaders
-            const leaderCount = groups.filter(g => g.leader).length;
-            document.getElementById('groupLeaders').textContent = leaderCount;
-        }
-
-        // Update flagged count in notification badge
-        function updateFlaggedCount() {
-            const badge = document.getElementById('flaggedCount');
-            if (badge) {
-                badge.textContent = flaggedMembers.length;
-                badge.style.display = flaggedMembers.length > 0 ? 'flex' : 'none';
-            }
-        }
-
-        // View case information
-        async function viewCaseInfo(memberId) {
-            const numericMemberId = Number(memberId);
-            let member = members.find(m => Number(m.id) === numericMemberId);
-
-            try {
-                const response = await fetch(`/api/users/${numericMemberId}/?cache=refresh`);
-                const result = await response.json();
-                if (result.success && result.data) {
-                    member = {
-                        ...(member || {}),
-                        ...result.data,
-                        id: Number(result.data.id),
-                        group: result.data.group_name || result.data.group || member?.group || '',
-                        case_info: result.data.case_info || '',
-                    };
-
-                    const index = members.findIndex(m => Number(m.id) === numericMemberId);
-                    if (index !== -1) {
-                        members[index] = member;
-                    }
-                    flaggedMembers = members.filter(m => m.status === 'flagged');
-                    updateStats();
-                    updateFlaggedCount();
-                }
-            } catch (error) {
-                console.warn('Could not refresh case details:', error);
-            }
-
-            if (!member || !member.case_info) {
-                showMessage('No case information found for this flagged member.', 'warning');
-                return;
-            }
-            
-            currentCaseId = numericMemberId;
-            
-            document.getElementById('caseMemberName').textContent = member.full_name || 'Unknown';
-            document.getElementById('caseRegNo').textContent = member.registration_number || 'N/A';
-            document.getElementById('caseGroup').textContent = member.group ? extractGroupLetter(member.group) : 'Not assigned';
-            document.getElementById('caseDetailsText').textContent = member.case_info || '';
-            
-            document.getElementById('caseModal').classList.add('active');
-        }
-
-        // Close case modal
-        function closeCaseModal() {
-            document.getElementById('caseModal').classList.remove('active');
-            currentCaseId = null;
-        }
-
-        // Contact admin about case
-        function contactAdmin() {
-            if (!currentCaseId) return;
-            
-            const member = members.find(m => Number(m.id) === Number(currentCaseId));
-            if (!member) return;
-            
-            const subject = encodeURIComponent(`Regarding Case: ${member.full_name} (${member.registration_number})`);
-            const body = encodeURIComponent(`Hello Admin,\n\nI'm contacting you regarding the case of ${member.full_name}.\n\nCase Details: ${member.case_info || ''}\n\nPlease provide assistance with this matter.`);
-            
-            // In a real application, you would have an admin contact email
-            // For now, we'll just show an alert
-            alert(`To contact the admin about ${member.full_name}'s case:\n\nSubject: Regarding Case: ${member.full_name} (${member.registration_number})\n\nMessage: I'm contacting you regarding the case of ${member.full_name}.\n\nCase Details: ${member.case_info || ''}\n\nPlease provide assistance with this matter.`);
-            
-            closeCaseModal();
-        }
-
-        // Refresh group/member display immediately
-        function refreshGroupUserDisplay() {
-            flaggedMembers = members.filter(m => m.status === 'flagged');
-
-            updateFlaggedCount();
-            updateStats();
-            initializeFilters();
-
-            // Always clear rendering container first
-            const membersTable = document.getElementById('membersTableBody');
-            if (membersTable) membersTable.innerHTML = '';
-            const groupContainer = document.getElementById('groupsListContainer');
-            if (groupContainer) groupContainer.innerHTML = '';
-
-            applyFilters();
-            applyGroupFilters();
-            loadFlaggedTable();
-        }
-
-        // Check for real-time updates
-        function checkForUpdates() {
-            return;
-        }
-
-        function applyPublicGroupsPayload(rawGroups) {
-            const publicMembers = [];
-            groupMemberDetails = new Map();
-            groups = (Array.isArray(rawGroups) ? rawGroups : []).map(group => {
-                const membersData = Array.isArray(group.members) ? group.members : [];
-                membersData.forEach(member => {
-                    const memberId = Number(member.user_id);
-                    if (!Number.isFinite(memberId) || !member.display_name) return;
-                    const publicMember = {
-                        id: memberId,
-                        full_name: member.display_name,
-                        registration_number: member.registration_number || '',
-                        phone: member.phone || '',
-                        email: '',
-                        group: member.group_name || group.group_name || '',
-                        group_name: member.group_name || group.group_name || '',
-                        case_info: member.case_info || '',
-                        status: member.status || 'active',
-                        public_group_member: true,
-                    };
-                    groupMemberDetails.set(memberId, publicMember);
-                    if (!publicMembers.some(item => item.id === memberId)) publicMembers.push(publicMember);
-                });
-                return {
-                    id: Number(group.id), name: group.group_name || `Group ${group.id}`,
-                    group_name: group.group_name || `Group ${group.id}`,
-                    size: group.max_members || 0,
-                    current_members: Number(group.current_members) || membersData.length,
-                    leader: (membersData.find(m => m.is_leader === true)?.user_id) || group.leader_id || null,
-                    members: membersData.map(member => Number(member.user_id)),
-                };
-            });
-            members = publicMembers;
-            membersLastUpdatedAt = new Date();
-            setMembersLoadState(members.length ? 'data' : 'empty');
-            flaggedMembers = members.filter(member => member.status === 'flagged');
-            updateFlaggedCount();
-            updateStats();
-            initializeFilters();
-            loadGroupsDisplay();
-        }
-
-        // Show message
-        function showMessage(message, type) {
-            const messageDiv = document.createElement('div');
-            messageDiv.textContent = message;
-            messageDiv.style.cssText = `
-                position: fixed;
-                top: 80px;
-                left: 50%;
-                transform: translateX(-50%);
-                background: ${type === 'error' ? 'rgba(255, 107, 107, 0.9)' : 'rgba(91, 140, 255, 0.9)'};
-                color: white;
-                padding: 10px 20px;
-                border-radius: 10px;
-                z-index: 9999;
-                font-weight: 600;
-                box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-                animation: slideDown 0.3s ease;
-            `;
-            
-            document.body.appendChild(messageDiv);
-            
-            setTimeout(() => {
-                messageDiv.style.animation = 'slideUp 0.3s ease';
-                setTimeout(() => {
-                    document.body.removeChild(messageDiv);
-                }, 300);
-            }, 3000);
-            
-            // Add CSS animations if not already present
-            if (!document.querySelector('#message-animations')) {
-                const style = document.createElement('style');
-                style.id = 'message-animations';
-                style.textContent = `
-                    @keyframes slideDown {
-                        from { transform: translateX(-50%) translateY(-20px); opacity: 0; }
-                        to { transform: translateX(-50%) translateY(0); opacity: 1; }
-                    }
-                    @keyframes slideUp {
-                        from { transform: translateX(-50%) translateY(0); opacity: 1; }
-                        to { transform: translateX(-50%) translateY(-20px); opacity: 0; }
-                    }
-                `;
-                document.head.appendChild(style);
-            }
-        }
-
-        // Close modal when clicking outside
-        document.getElementById('caseModal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeCaseModal();
-            }
+    }
+    return nativeFetch(input, init);
+};
+
+window.addEventListener('pageshow', hidePageLoader);
+
+document.addEventListener('submit', (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    const submitter = event.submitter;
+    if (submitter instanceof HTMLElement) submitter.setAttribute('disabled', 'disabled');
+    showPageLoader('Submitting');
+}, true);
+
+document.addEventListener('click', (event) => {
+    const link = event.target.closest('a[href]');
+    if (!link) return;
+    const href = link.getAttribute('href') || '';
+    if (
+        !href || href.startsWith('#') || link.target === '_blank' || link.hasAttribute('download') ||
+        href.startsWith('mailto:') || href.startsWith('tel:') ||
+        event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
+    ) {
+        return;
+    }
+    try {
+        const url = new URL(link.href, window.location.href);
+        if (url.origin === window.location.origin) showPageLoader('Opening');
+    } catch (error) {
+        // Ignore malformed links.
+    }
+}, true);
+
+// ---------- Init ----------
+document.addEventListener('DOMContentLoaded', function () {
+    loadData();
+    initializeFilters();
+    switchTab('members');
+    setupRealTimeSync();
+    setupSearchListeners();
+    enableInitialTableLumination();
+
+    // one delegated listener for row highlighting (survives re-renders)
+    document.getElementById('membersTableBody')?.addEventListener('click', e => {
+        const row = e.target.closest('tr');
+        if (!row || e.target.closest('button, a')) return;
+        document.querySelectorAll('#membersTableBody tr').forEach(r => r.classList.remove('row-highlight'));
+        row.classList.add('row-highlight');
+    });
+});
+
+function enableInitialTableLumination() {
+    document.body.classList.add('table-attention-mode');
+    setTimeout(() => document.body.classList.remove('table-attention-mode'), 20000);
+}
+
+// ---------- Scrolling ----------
+function scrollToTopOfMembers() {
+    const membersTable = document.getElementById('membersTable');
+    if (membersTable) membersTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function highlightLastRow() {
+    const rows = document.querySelectorAll('#membersTableBody tr');
+    if (!rows.length) return;
+    rows.forEach(row => row.classList.remove('row-highlight'));
+    rows[rows.length - 1].classList.add('row-highlight');
+}
+
+function scrollToBottomOfMembers() {
+    const membersTable = document.getElementById('membersTable');
+    if (!membersTable) return false;
+    const lastRow = membersTable.querySelector('tbody tr:last-child');
+    if (!lastRow) return false;
+
+    const header = document.querySelector('.header');
+    const headerHeight = header ? header.offsetHeight : 80;
+    const targetScrollTop = lastRow.getBoundingClientRect().top + window.pageYOffset - headerHeight - 15;
+    window.scrollTo({ top: Math.max(targetScrollTop, 0), behavior: 'smooth' });
+    setTimeout(highlightLastRow, 400);
+    return true;
+}
+
+// ---------- Member field mapping ----------
+function resolveMemberFieldProperty(field) {
+    const rawKey = String(field?.key || field?.name || field?.label || '').trim().toLowerCase();
+
+    if (['full_name', 'name', 'full name', 'display_name', 'fullname'].includes(rawKey) || rawKey.includes('full')) return 'full_name';
+    if (['registration_number', 'registration number', 'reg_no', 'regno', 'reg_number'].includes(rawKey) || rawKey.includes('registration') || rawKey.includes('reg')) return 'registration_number';
+    if (['phone', 'phone_number', 'phone number', 'contact_phone', 'tel'].includes(rawKey) || rawKey.includes('phone')) return 'phone';
+    if (['email', 'email_address', 'email address'].includes(rawKey) || rawKey.includes('email')) return 'email';
+
+    return String(field?.key || field?.name || field?.label || '')
+        .trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+function getDisplayableMemberFields() {
+    const seenProperties = new Set();
+    const displayFields = [];
+
+    dataFramework.forEach(field => {
+        const property = resolveMemberFieldProperty(field);
+        if (!property || seenProperties.has(property)) return;
+        seenProperties.add(property);
+        displayFields.push({
+            label: field.label || field.name || field.key || property,
+            property,
+            type: field.type || 'text',
         });
+    });
 
-        // Close modal with Escape key
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                closeCaseModal();
-                closeGroupDetails(); // Add this line
-            }
-        });
+    if (!displayFields.length) {
+        return [
+            { label: 'Full Name', property: 'full_name', type: 'text' },
+            { label: 'Registration Number', property: 'registration_number', type: 'text' },
+            { label: 'Phone Number', property: 'phone', type: 'tel' },
+            { label: 'Email', property: 'email', type: 'email' },
+        ];
+    }
+    return displayFields;
+}
 
-        // Check for newly registered users from database and update tables dynamically
-        async function checkForNewRegistrations() {
-            console.log('Checking for new registrations from database...');
-
-            if (!OWNER_DIRECTORY_ACCESS) {
-                try {
-                    const response = await fetch('/api/public-members/', {
-                        headers: registrationsEtags.users ? { 'If-None-Match': registrationsEtags.users } : {}
-                    });
-                    if (response.status === 304) return true;
-                    if (!response.ok) return true;
-                    registrationsEtags.users = response.headers.get('ETag') || registrationsEtags.users;
-                    const result = await response.json();
-                    if (result.success && Array.isArray(result.data)) {
-                        members = result.data.map(user => ({
-                            ...user,
-                            group: user.group_name || '',
-                            email: '',
-                            status: user.status || 'active',
-                            case_info: user.case_info || '',
-                        }));
-                        membersLastUpdatedAt = new Date();
-                        setMembersLoadState(members.length ? 'data' : 'empty');
-                        refreshGroupUserDisplay();
-                    }
-                } catch (error) {
-                    console.warn('Could not check public members:', error);
-                }
-                return true;
-            }
-
-            // Check if data framework has been updated
-            try {
-                const frameworkResponse = await fetch('/api/registration-fields/', {
-                    headers: registrationsEtags.framework ? { 'If-None-Match': registrationsEtags.framework } : {}
-                });
-                if (frameworkResponse.status === 304) throw new Error('not-modified');
-                registrationsEtags.framework = frameworkResponse.headers.get('ETag') || registrationsEtags.framework;
-                const frameworkResult = await frameworkResponse.json();
-                if (frameworkResult.success) {
-                    const newFramework = frameworkResult.data.map(field => ({
-                        id: field.id,
-                        name: field.label,
-                        key: field.key,
-                        type: field.type,
-                        required: field.required,
-                        order: field.order,
-                        placeholder: field.placeholder || '',
-                        options: field.options || ''
-                    }));
-                    if (JSON.stringify(dataFramework) !== JSON.stringify(newFramework)) {
-                        console.log('Data framework updated from database, regenerating table headers...');
-                        dataFramework = newFramework;
-                        // Regenerate table headers and reload data
-                        loadMembersTable();
-                        showMessage('Table structure updated from admin changes!', 'success');
-                    }
-                }
-            } catch (e) {
-                if (e.message !== 'not-modified') {
-                    console.warn('Could not check for framework updates:', e);
-                }
-            }
-
-            // Check if user data has been updated
-            try {
-                const usersResponse = await fetch('/api/users/', {
-                    headers: registrationsEtags.users ? { 'If-None-Match': registrationsEtags.users } : {}
-                });
-                if (usersResponse.status === 304) return true;
-                if (!usersResponse.ok) {
-                    const error = new Error(`HTTP ${usersResponse.status}`);
-                    error.status = usersResponse.status;
-                    error.retryAfter = Number(usersResponse.headers.get('Retry-After') || 0);
-                    return handleMemberPollingError(error);
-                }
-                registrationsEtags.users = usersResponse.headers.get('ETag') || registrationsEtags.users;
-                const usersResult = await usersResponse.json();
-                if (usersResult.success) {
-                        const newMembers = usersResult.data.map(user => ({
-                            ...user,
-                            id: user.id,
-                            full_name: user.full_name,
-                            registration_number: user.registration_number,
-                            phone: user.phone || '',
-                            email: user.email || '',
-                        group: user.group_name || '',
-                        status: user.status || 'active',
-                        case_info: user.case_info || ''
-                    }));
-                    if (JSON.stringify(members) !== JSON.stringify(newMembers)) {
-                        console.log('User data updated from database, reloading tables...');
-                        members = newMembers;
-                        refreshGroupUserDisplay();
-                        showMessage('Data updated from database!', 'success');
-                    }
-                }
-            } catch (e) {
-                if (e.message !== 'not-modified') {
-                    console.warn('Could not check for user updates:', e);
-                }
-            }
-
-// Check if groups data has been updated
-             try {
-                 const groupsResponse = await fetch('/api/groups/', {
-                     headers: registrationsEtags.groups ? { 'If-None-Match': registrationsEtags.groups } : {}
-                 });
-                 if (groupsResponse.status === 304) throw new Error('not-modified');
-                 registrationsEtags.groups = groupsResponse.headers.get('ETag') || registrationsEtags.groups;
-                 const groupsResult = await groupsResponse.json();
-                 if (groupsResult.success) {
-                     // Preserve existing member data while updating group info
-                     const existingGroupMap = {};
-                     groups.forEach(g => existingGroupMap[g.id] = { members: g.members, leader: g.leader });
-                     
-                     const newGroups = groupsResult.data.map(group => ({
-                         id: Number(group.id),
-                         name: group.group_name || `Group ${group.id}`,
-                         group_name: group.group_name || `Group ${group.id}`,
-                         size: group.max_members || 0,
-                         current_members: group.current_members || 0,
-                         leader: group.leader_id || existingGroupMap[group.id]?.leader || null,
-                         members: existingGroupMap[group.id]?.members || []
-                     }));
-
-                     if (JSON.stringify(groups) !== JSON.stringify(newGroups)) {
-                         console.log('Groups data updated from database, reloading...');
-                         groups = newGroups;
-                         refreshGroupUserDisplay();
-                         showMessage('Groups updated from database!', 'success');
-                     }
-                 }
-             } catch (e) {
-                 if (e.message !== 'not-modified') {
-                     console.warn('Could not check for groups updates:', e);
-                 }
-             }
-            return true;
+// ---------- API ----------
+async function fetchAllApiPages(path) {
+    const url = new URL(path, window.location.origin);
+    url.searchParams.set('page_size', '100');
+    const data = [];
+    let page = 1;
+    let totalPages = 1;
+    while (page <= totalPages) {
+        url.searchParams.set('page', String(page));
+        const response = await fetch(url.pathname + url.search);
+        if (!response.ok) {
+            const error = new Error(`HTTP ${response.status}`);
+            error.status = response.status;
+            error.retryAfter = Number(response.headers.get('Retry-After') || 0);
+            throw error;
         }
-
-        const tenantSyncPending = new Set();
-        function memberEditorActive() {
-            const active = document.activeElement;
-            return Boolean(active && (active.matches('input, textarea, select') || active.closest('form, .modal, [role="dialog"]')));
+        const result = await response.json();
+        if (!result.success || !Array.isArray(result.data)) {
+            throw new Error(result.error || 'Unexpected paginated API response');
         }
+        data.push(...result.data);
+        totalPages = Number(result.meta?.total_pages || 1);
+        page += 1;
+    }
+    return { success: true, data };
+}
 
-        async function refreshUsersFromTenantSync() {
-            if (!OWNER_DIRECTORY_ACCESS) return;
-            const response = await fetch('/api/users/', {
-                headers: registrationsEtags.users ? { 'If-None-Match': registrationsEtags.users } : {}
-            });
-            if (response.status === 304) return;
-            if (!response.ok) {
-                const error = new Error(`HTTP ${response.status}`);
-                error.status = response.status;
-                error.retryAfter = Number(response.headers.get('Retry-After') || 0);
-                setMembersLoadState('error', error);
-                handleMemberPollingError(error);
-                return;
-            }
-            registrationsEtags.users = response.headers.get('ETag') || registrationsEtags.users;
-            const result = await response.json();
-            if (!result.success || !Array.isArray(result.data)) return;
-            members = result.data.map(user => ({ ...user, phone: user.phone || '', email: user.email || '', group: user.group_name || '', status: user.status || 'active', case_info: user.case_info || '' }));
-            flaggedMembers = members.filter(member => member.status === 'flagged');
-            membersLastUpdatedAt = new Date();
-            setMembersLoadState(members.length ? 'data' : 'empty');
-            updateStats();
-        }
+function explainMemberAccessError(error) {
+    const status = Number(error?.status || 0);
+    if (status === 401 || status === 403) return 'Members are unavailable on this page.';
+    if (status === 429) return 'Too many requests, retrying shortly.';
+    return 'Could not load members, retry.';
+}
 
-        async function refreshPublicMembersFromTenantSync() {
-            if (OWNER_DIRECTORY_ACCESS) return;
-            const response = await fetch('/api/public-members/', {
-                headers: registrationsEtags.users ? { 'If-None-Match': registrationsEtags.users } : {}
-            });
-            if (response.status === 304) return;
-            if (!response.ok) return;
-            registrationsEtags.users = response.headers.get('ETag') || registrationsEtags.users;
-            const result = await response.json();
-            if (!result.success || !Array.isArray(result.data)) return;
-            members = result.data.map(user => ({
-                ...user,
-                group: user.group_name || '', email: '',
-                status: user.status || 'active', case_info: user.case_info || '',
-            }));
-            membersLastUpdatedAt = new Date();
-            setMembersLoadState(members.length ? 'data' : 'empty');
-            refreshGroupUserDisplay();
-        }
+function handleMemberPollingError(error) {
+    const status = Number(error?.status || 0);
+    if (![401, 403, 429].includes(status)) return true;
 
-        async function refreshGroupsFromTenantSync() {
-            const result = await fetchAllApiPages('/api/groups/?include_members=1');
-            groupMemberDetails = new Map();
-            result.data.forEach(group => (Array.isArray(group.members) ? group.members : []).forEach(member => {
-                const memberId = Number(member.user_id);
-                if (Number.isFinite(memberId) && member.display_name) {
-                    groupMemberDetails.set(memberId, { id: memberId, full_name: member.display_name, status: 'active', public_group_member: true });
-                }
-            }));
-            groups = result.data.map(group => ({
-                id: Number(group.id), name: group.group_name || `Group ${group.id}`,
-                group_name: group.group_name || `Group ${group.id}`,
-                size: group.max_members || 0, current_members: Number(group.current_members) || 0,
-                leader: group.leader_id || null,
-                members: (Array.isArray(group.members) ? group.members : []).map(member => Number(member.user_id))
-            }));
-            loadGroupsDisplay();
-        }
-
-        function receiveTenantSync(message) {
-            if (!['members', 'users', 'groups'].includes(message.resource)) return;
-            if (document.hidden || memberEditorActive()) {
-                tenantSyncPending.add(message.resource);
-                showMessage('Updated — refresh will run when ready.', 'info');
-                return;
-            }
-            const refresh = !OWNER_DIRECTORY_ACCESS && message.resource === 'members'
-                ? refreshPublicMembersFromTenantSync
-                : message.resource === 'users' ? refreshUsersFromTenantSync : refreshGroupsFromTenantSync;
-            refresh().catch(error => console.warn('Tenant sync refresh failed:', error));
-        }
-
-        // TenantLive owns the single polling/subscription path; it delegates to
-        // window.TenantSync.subscribe internally without a duplicate listener.
-
-        // Set up one ETag-aware tenant poller per displayed resource.
-        function setupRealTimeSync() {
-            registrationsPollingDisabled = true;
-            if (!window.TenantLive) return;
-            window.TenantLive.register({
-                resource: 'members',
-                url: () => OWNER_DIRECTORY_ACCESS ? '/api/users/?page_size=100&page=1' : '/api/public-members/?page_size=100&page=1',
-                isEditing: memberEditorActive,
-                onData: result => {
-                    if (!result.success || !Array.isArray(result.data)) return;
-                    members = result.data.map(user => ({ ...user, phone: user.phone || '', email: OWNER_DIRECTORY_ACCESS ? (user.email || '') : '', group: user.group_name || '', status: user.status || 'active', case_info: user.case_info || '' }));
-                    flaggedMembers = members.filter(member => member.status === 'flagged');
-                    membersLastUpdatedAt = new Date();
-                    setMembersLoadState(members.length ? 'data' : 'empty');
-                    updateStats();
-                    if (!OWNER_DIRECTORY_ACCESS) refreshGroupUserDisplay();
-                },
-                onError: error => { if (error.type === 'updated') showMessage('Updated — refresh will run when ready.', 'info'); else handleMemberPollingError(error); }
-            });
-            window.TenantLive.register({
-                resource: 'groups', url: '/api/groups/?include_members=1&page_size=100&page=1',
-                isEditing: memberEditorActive,
-                onData: result => {
-                    if (!result.success || !Array.isArray(result.data)) return;
-                    groups = result.data.map(group => ({ id: Number(group.id), name: group.group_name || `Group ${group.id}`, group_name: group.group_name || `Group ${group.id}`, size: group.max_members || 0, current_members: Number(group.current_members) || 0, leader: group.leader_id || null, members: (Array.isArray(group.members) ? group.members : []).map(member => Number(member.user_id)) }));
-                    loadGroupsDisplay();
-                },
-                onError: error => { if (error.type === 'updated') showMessage('Updated — refresh will run when ready.', 'info'); else console.warn('Could not refresh groups:', error); }
-            });
-        }
-
-        function startRealtimeSync(delay = 30000) {
-            if (registrationsRefreshTimer || document.hidden || registrationsPollingDisabled) {
-                return;
-            }
-            registrationsRefreshTimer = window.setTimeout(async () => {
-                registrationsRefreshTimer = null;
-                const keepPolling = await checkForNewRegistrations();
-                if (keepPolling !== false) {
-                    registrationsRetryDelay = 30000;
-                    startRealtimeSync(registrationsRetryDelay);
-                }
-            }, Math.max(30000, delay));
-        }
-
-        function stopRealtimeSync() {
-            if (!registrationsRefreshTimer) {
-                return;
-            }
-            clearTimeout(registrationsRefreshTimer);
+    showMessage(explainMemberAccessError(error), 'error');
+    if (status === 429 && window.TenantLive) {
+        const delay = Math.max(30000, (error.retryAfter || 30) * 1000);
+        clearTimeout(registrationsRefreshTimer);
+        registrationsRefreshTimer = setTimeout(() => {
             registrationsRefreshTimer = null;
+            window.TenantLive.refreshNow('members');
+        }, delay);
+    }
+    return false;
+}
+
+// Shared by first load and live refresh. Rebuilds groups AND the member
+// details used for names/phones/leaders.
+function normalizeGroups(rawGroups) {
+    groupMemberDetails = new Map();
+    return (Array.isArray(rawGroups) ? rawGroups : []).map(group => {
+        const membersData = Array.isArray(group.members) ? group.members : [];
+        membersData.forEach(member => {
+            const memberId = Number(member.user_id);
+            if (!Number.isFinite(memberId) || !member.display_name) return;
+            groupMemberDetails.set(memberId, {
+                id: memberId,
+                full_name: member.display_name,
+                registration_number: member.registration_number || '',
+                phone: member.phone || '',
+                email: '',
+                group: member.group_name || group.group_name || '',
+                group_name: member.group_name || group.group_name || '',
+                case_info: member.case_info || '',
+                status: member.status || 'active',
+                public_group_member: true,
+            });
+        });
+        const leaderMember = membersData.find(m => m.is_leader === true);
+        return {
+            id: Number(group.id),
+            name: group.group_name || `Group ${group.id}`,
+            group_name: group.group_name || `Group ${group.id}`,
+            size: group.max_members || 0,
+            current_members: Number(group.current_members) || membersData.length,
+            leader: leaderMember ? Number(leaderMember.user_id) : (group.leader_id || null),
+            members: membersData.map(m => Number(m.user_id)),
+        };
+    });
+}
+
+function mapUsers(rows) {
+    return rows.map(user => ({
+        ...user,
+        id: user.id,
+        full_name: user.full_name,
+        registration_number: user.registration_number,
+        phone: user.phone || '',
+        email: OWNER_DIRECTORY_ACCESS ? (user.email || '') : '',
+        group: user.group_name || '',
+        status: user.status || 'active',
+        case_info: user.case_info || '',
+    }));
+}
+
+// Everything that depends on members/groups, except the members table itself
+function afterDataChange() {
+    flaggedMembers = members.filter(m => m.status === 'flagged');
+    updateFlaggedCount();
+    updateStats();
+    loadGroupsDisplay();
+    loadFlaggedTable();
+}
+
+async function loadData() {
+    try {
+        const defaultFramework = [
+            { name: 'Full Name', type: 'text', required: 'yes', order: 1 },
+            { name: 'Registration Number', type: 'text', required: 'yes', order: 2 },
+            { name: 'Phone Number', type: 'phone', required: 'yes', order: 3 }
+        ];
+
+        const [frameworkResult, usersResult, groupsResult] = await Promise.allSettled([
+            fetch('/api/registration-fields/').then(response => response.json()),
+            fetchAllApiPages(OWNER_DIRECTORY_ACCESS ? '/api/users/' : '/api/public-members/'),
+            fetchAllApiPages('/api/groups/?include_members=1'),
+        ]);
+
+        if (frameworkResult.status === 'fulfilled' && frameworkResult.value.success) {
+            dataFramework = frameworkResult.value.data.map(field => ({
+                id: field.id,
+                name: field.label,
+                key: field.key,
+                type: field.type,
+                required: field.required,
+                order: field.order,
+                placeholder: field.placeholder || '',
+                options: field.options || ''
+            }));
+            if (!OWNER_DIRECTORY_ACCESS) {
+                dataFramework = dataFramework.filter(field => !['email', 'email_address'].includes(String(field.key || '').toLowerCase()));
+            }
+        } else {
+            dataFramework = defaultFramework;
+            if (frameworkResult.status === 'rejected') {
+                console.warn('Could not load data framework from database:', frameworkResult.reason);
+            }
         }
 
-        document.addEventListener('visibilitychange', function() {
-            if (document.hidden) {
-                stopRealtimeSync();
-            } else {
-                if (window.TenantLive) {
-                    window.TenantLive.refreshNow('members');
-                    window.TenantLive.refreshNow('groups');
-                }
-                if (!memberEditorActive()) {
-                    tenantSyncPending.forEach(resource => receiveTenantSync({ resource, ts: Date.now() }));
-                    tenantSyncPending.clear();
+        if (usersResult.status === 'fulfilled' && usersResult.value.success) {
+            members = mapUsers(usersResult.value.data);
+            membersLastUpdatedAt = new Date();
+            setMembersLoadState(members.length ? 'data' : 'empty');
+        } else {
+            const accessError = usersResult.reason || { status: 500 };
+            setMembersLoadState('error', accessError);
+            console.warn('Unable to load members from the API:', accessError);
+            handleMemberPollingError(accessError);
+        }
+
+        if (groupsResult.status === 'fulfilled' && groupsResult.value.success) {
+            groups = normalizeGroups(groupsResult.value.data);
+            if (!OWNER_DIRECTORY_ACCESS) {
+                members = Array.from(groupMemberDetails.values());
+                membersLastUpdatedAt = new Date();
+                setMembersLoadState(members.length ? 'data' : 'empty');
+            }
+        } else {
+            groups = [];
+            console.warn('No groups found in database');
+        }
+
+        initializeFilters();
+        afterDataChange();
+        loadMembersTable();
+    } catch (e) {
+        console.error('Error loading data:', e);
+        showMessage('Error loading data. Please refresh the page.', 'error');
+    }
+}
+
+// ---------- Small utilities ----------
+// "Group A" -> "A"
+function extractGroupLetter(groupName) {
+    if (!groupName) return '';
+    if (groupName.includes('Group ')) return groupName.replace('Group ', '');
+    if (groupName.includes('Group')) return groupName.replace('Group', '');
+    return groupName;
+}
+
+function initializeFilters() {
+    const memberSearchField = document.getElementById('memberSearchField');
+    if (memberSearchField && !memberSearchField.value) memberSearchField.value = 'all';
+}
+
+function getMemberById(id) {
+    return members.find(m => Number(m.id) === Number(id)) || groupMemberDetails.get(Number(id));
+}
+
+function getGroupLeaderName(group) {
+    if (!group.leader) return 'No leader assigned';
+    const leader = getMemberById(group.leader);
+    return leader ? leader.full_name : 'Unknown';
+}
+
+// ---------- Filter actions ----------
+function applyFilters() {
+    memberRenderLimit = MEMBER_PAGE_SIZE;
+    loadMembersTable();
+}
+const applyFiltersDebounced = debounce(applyFilters, 200);
+
+function showMoreMembers() {
+    memberRenderLimit += MEMBER_PAGE_SIZE;
+    loadMembersTable();
+}
+
+function resetFilters() {
+    document.getElementById('searchMembers').value = '';
+    document.getElementById('statusFilter').value = 'all';
+    document.getElementById('memberSearchField').value = 'all';
+    applyFilters();
+}
+
+function applyGroupFilters() { loadGroupsDisplay(); }
+
+function resetGroupFilters() {
+    document.getElementById('searchGroups').value = '';
+    document.getElementById('leaderFilter').value = 'all';
+    document.getElementById('groupSort').value = 'name';
+    loadGroupsDisplay();
+}
+
+function setupSearchListeners() {
+    const bind = (id, evt, fn) => document.getElementById(id)?.addEventListener(evt, fn);
+    const closeKeyboardOnEnter = e => {
+        if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } // reveals results on phones
+    };
+
+    bind('searchMembers', 'input', applyFiltersDebounced);
+    bind('searchMembers', 'keydown', closeKeyboardOnEnter);
+    bind('statusFilter', 'change', applyFilters);
+    bind('memberSearchField', 'change', applyFilters);
+
+    bind('searchGroups', 'input', debounce(applyGroupFilters, 200));
+    bind('searchGroups', 'keydown', closeKeyboardOnEnter);
+    bind('leaderFilter', 'change', applyGroupFilters);
+    bind('groupSort', 'change', applyGroupFilters);
+
+    bind('searchFlagged', 'input', debounce(loadFlaggedTable, 200));
+    bind('searchFlagged', 'keydown', closeKeyboardOnEnter);
+    bind('flaggedSort', 'change', loadFlaggedTable);
+}
+
+// ---------- Tabs ----------
+function switchTab(tabId) {
+    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+
+    const selectedTab = document.getElementById(tabId + 'Tab');
+    if (!selectedTab) return;
+    selectedTab.classList.add('active');
+
+    const tabBtn = document.querySelector(`.tab-btn[onclick="switchTab('${tabId}')"]`);
+    if (tabBtn) tabBtn.classList.add('active');
+
+    switch (tabId) {
+        case 'members': loadMembersTable(); break;
+        case 'groups': loadGroupsDisplay(); break;
+        case 'flagged': loadFlaggedTable(); break;
+    }
+}
+
+function openFlaggedTab() { switchTab('flagged'); }
+
+// ---------- Members table ----------
+function generateTableHeaders() {
+    const thead = document.getElementById('membersTableHead');
+    if (!thead) return;
+    const headerRow = thead.querySelector('tr');
+    if (!headerRow) return;
+
+    const labels = ['No.', ...getDisplayableMemberFields().map(f => f.label), 'Group', 'Status', 'Actions'];
+    headerRow.innerHTML = labels.map(l => `<th>${esc(l)}</th>`).join('');
+}
+
+function loadMembersTable() {
+    const tbody = document.getElementById('membersTableBody');
+    if (!tbody) return;
+
+    generateTableHeaders();
+    const displayFields = getDisplayableMemberFields();
+    const colspan = displayFields.length + 4;
+    const countEl = document.getElementById('membersResultCount');
+
+    if (membersLoadState === 'loading' && !members.length) {
+        tbody.innerHTML = `<tr><td colspan="${colspan}" class="empty-state"><h3>Loading members…</h3></td></tr>`;
+        if (countEl) countEl.textContent = '';
+        return;
+    }
+
+    if (membersLoadState === 'error' && !members.length) {
+        const status = Number(membersLoadError?.status || 0);
+        const blocked = status === 401 || status === 403;
+        const message = blocked ? 'Members are unavailable on this page.'
+            : status === 429 ? 'Too many requests, retrying shortly.'
+            : 'Could not load members.';
+        tbody.innerHTML = `<tr><td colspan="${colspan}" class="empty-state"><h3>Members unavailable</h3><p>${message}</p>
+            ${blocked ? '' : '<button class="filter-btn primary" style="margin-top:10px" onclick="membersLoadState=\'loading\';loadMembersTable();loadData();">Retry</button>'}
+            </td></tr>`;
+        if (countEl) countEl.textContent = '';
+        return;
+    }
+
+    const list = getFilteredMembers();
+    const filtersOn = hasActiveMemberFilters();
+    if (countEl) {
+        countEl.textContent = filtersOn
+            ? `${list.length} of ${members.length} members`
+            : `${members.length} members`;
+    }
+
+    if (!list.length) {
+        tbody.innerHTML = `<tr><td colspan="${colspan}" class="empty-state">
+            <div class="empty-icon">👤</div>
+            <h3>No Members Found</h3>
+            <p>${filtersOn ? 'No members match your search.' : (OWNER_DIRECTORY_ACCESS ? 'No members have been registered yet.' : 'No members have been assigned to a group yet.')}</p>
+            ${filtersOn ? '<button class="filter-btn secondary" style="margin-top:10px" onclick="resetFilters()">Clear search</button>' : ''}
+            </td></tr>`;
+        return;
+    }
+
+    const leaderIds = new Set(groups.map(g => Number(g.leader)).filter(Boolean));
+    const visible = list.slice(0, memberRenderLimit);
+
+    const rows = visible.map((member, index) => {
+        let cells = `<td>${index + 1}</td>`;
+
+        displayFields.forEach(field => {
+            const raw = member[field.property];
+            const value = (raw === undefined || raw === null || raw === '') ? 'N/A' : String(raw);
+            let html = esc(value);
+            if (value !== 'N/A') {
+                if (field.type === 'email') {
+                    html = `<a href="mailto:${esc(value)}" style="color:var(--accent);">${html}</a>`;
+                } else if (field.type === 'phone' || field.type === 'tel') {
+                    html = `<a href="tel:${esc(value.replace(/[^\d+]/g, ''))}" style="color:var(--accent);">${html}</a>`;
                 }
             }
+            cells += `<td>${html}</td>`;
         });
-    </script>
 
-<!-- Django API Connection Script -->
+        const statusBadge = member.status === 'flagged'
+            ? '<span class="compact-badge badge-flagged">Flagged</span>'
+            : member.status === 'active'
+                ? '<span class="compact-badge badge-active">Active</span>'
+                : '<span class="compact-badge badge-inactive">Inactive</span>';
+
+        let groupDisplay = member.group ? esc(extractGroupLetter(member.group)) : 'Not assigned';
+        if (leaderIds.has(Number(member.id))) groupDisplay += ' <span class="compact-badge badge-leader">👑</span>';
+
+        cells += `<td>${groupDisplay}</td><td>${statusBadge}</td><td>${
+            member.case_info
+                ? `<button class="action-btn action-view-btn" onclick="viewCaseInfo(${Number(member.id)})">View Case</button>`
+                : 'No case'
+        }</td>`;
+
+        return `<tr class="${member.status === 'flagged' ? 'red-flag' : ''}">${cells}</tr>`;
+    });
+
+    if (list.length > visible.length) {
+        rows.push(`<tr><td colspan="${colspan}" style="text-align:center;padding:10px;">
+            <button class="filter-btn secondary" onclick="showMoreMembers()">Show more (${list.length - visible.length} remaining)</button>
+            </td></tr>`);
+    }
+
+    tbody.innerHTML = rows.join('');
+}
+
+// ---------- Groups ----------
+function updateGroupStats() {
+    const groupsWithLeader = groups.filter(g => g.leader).length;
+    const totalGroupMembers = groups.reduce((sum, group) => sum + group.members.length, 0);
+    document.getElementById('groupsWithLeader').textContent = groupsWithLeader;
+    document.getElementById('groupsWithoutLeader').textContent = groups.length - groupsWithLeader;
+    document.getElementById('totalGroupMembers').textContent = totalGroupMembers;
+}
+
+function loadGroupsDisplay() {
+    const container = document.getElementById('groupsListContainer');
+    if (!container) return;
+
+    updateGroupStats();
+    const list = getFilteredGroups();
+
+    if (!list.length) {
+        const filtersOn = hasActiveGroupFilters();
+        container.innerHTML = `<div class="empty-state">
+            <div class="empty-icon">🏢</div>
+            <h3>${filtersOn ? 'No Groups Found' : 'No Groups Created'}</h3>
+            <p>${filtersOn ? 'No groups match your search.' : 'No groups have been created yet.'}</p>
+            ${filtersOn ? '<button class="filter-btn secondary" style="margin-top:10px" onclick="resetGroupFilters()">Clear search</button>' : ''}
+            </div>`;
+        return;
+    }
+
+    container.innerHTML = list.map(group => {
+        const leaderName = getGroupLeaderName(group);
+        const leaderPhone = group.leader ? (getMemberById(group.leader)?.phone || 'Not provided') : '';
+
+        const preview = group.members.slice(0, 5).map(memberId => {
+            const m = getMemberById(memberId);
+            return {
+                name: m ? m.full_name : `User ${memberId}`,
+                isLeader: Number(memberId) === Number(group.leader),
+                flagged: m?.status === 'flagged',
+            };
+        });
+
+        return `
+        <div class="group-list-card ${group.leader ? '' : 'no-leader'}">
+            <div class="group-list-header">
+                <div class="group-list-title">${esc(group.name)}</div>
+                <div class="group-list-count">${group.members.length} members</div>
+            </div>
+            <div class="leader-section">
+                <span class="leader-label">Group Leader:</span>
+                ${group.leader
+                    ? `<div class="leader-name">${esc(leaderName)} (${esc(leaderPhone)})</div>`
+                    : '<div class="no-leader-indicator">⚠️ No leader assigned</div>'}
+            </div>
+            <div class="members-preview">
+                ${preview.map(p => `
+                    <div class="member-chip ${p.isLeader ? 'leader' : ''} ${p.flagged ? 'flagged' : ''}"
+                         title="${esc(p.name)}${p.isLeader ? ' (Leader)' : ''}${p.flagged ? ' - Flagged' : ''}">
+                        ${p.isLeader ? '👑 ' : ''}${esc(p.name)}
+                    </div>`).join('')}
+                ${group.members.length > 5 ? `<div class="member-chip">+${group.members.length - 5} more</div>` : ''}
+            </div>
+            <button class="view-all-btn" onclick="openGroupDetails(${Number(group.id)})">
+                View All Members (${group.members.length})
+            </button>
+        </div>`;
+    }).join('');
+}
+
+function openGroupDetails(groupId) {
+    groupId = Number(groupId);
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+    closeGroupDetails();
+
+    const leaderName = getGroupLeaderName(group);
+    const leaderPhone = group.leader ? (getMemberById(group.leader)?.phone || 'Not provided') : '';
+
+    const groupMembers = group.members.map(memberId => {
+        const member = getMemberById(memberId);
+        return {
+            ...(member || {
+                id: memberId,
+                full_name: `User ${memberId}`,
+                registration_number: 'N/A',
+                phone: 'N/A',
+                status: 'inactive',
+            }),
+            isLeader: Number(memberId) === Number(group.leader)
+        };
+    });
+
+    const modalContainer = document.createElement('div');
+    modalContainer.id = 'groupDetailsHost';
+    modalContainer.innerHTML = `
+        <div class="group-details-modal active" id="groupDetailsModal">
+            <div class="group-details-content">
+                <div class="group-details-title">
+                    <span>${esc(group.name)} - ${group.members.length} Members</span>
+                    <button class="modal-btn cancel" onclick="closeGroupDetails()" style="font-size:0.8rem;padding:5px 10px;">Close</button>
+                </div>
+
+                <div class="leader-section" style="margin-bottom:20px;">
+                    <span class="leader-label">Group Leader:</span>
+                    ${group.leader
+                        ? `<div style="display:flex;flex-direction:column;">
+                               <span class="leader-name">${esc(leaderName)}</span>
+                               <span style="font-size:0.8rem;color:var(--muted);">${esc(leaderPhone)}</span>
+                           </div>`
+                        : '<div class="no-leader-indicator">⚠️ No leader assigned</div>'}
+                </div>
+
+                <div class="members-list">
+                    <h3 style="color:var(--accent);margin-bottom:15px;font-size:1rem;">All Members</h3>
+                    ${groupMembers.map(member => `
+                        <div class="member-detail-item">
+                            <div class="member-info">
+                                <span class="member-name">
+                                    ${member.isLeader ? '👑 ' : ''}${esc(member.full_name)}${member.status === 'flagged' ? ' ⚠️' : ''}
+                                </span>
+                                <span class="member-details">
+                                    ${esc(member.registration_number || 'No registration number')} • ${esc(member.phone || 'Phone not provided')} • ${esc(member.group_name || group.name)}${member.case_info ? ` • Case: ${esc(member.case_info)}` : ''}
+                                </span>
+                            </div>
+                            <div class="member-actions">
+                                ${member.status === 'flagged'
+                                    ? `<button class="action-btn action-view-btn" onclick="viewCaseInfo(${Number(member.id)})">View Case</button>`
+                                    : ''}
+                                <span class="compact-badge ${member.status === 'active' ? 'badge-active' : member.status === 'flagged' ? 'badge-flagged' : 'badge-inactive'}">
+                                    ${member.status === 'active' ? 'Active' : member.status === 'flagged' ? 'Flagged' : 'Inactive'}
+                                </span>
+                            </div>
+                        </div>`).join('')}
+                </div>
+            </div>
+        </div>`;
+    document.body.appendChild(modalContainer);
+
+    modalContainer.querySelector('.group-details-modal').addEventListener('click', function (e) {
+        if (e.target === this) closeGroupDetails();
+    });
+}
+
+function closeGroupDetails() {
+    document.getElementById('groupDetailsHost')?.remove();
+}
+
+// ---------- Flagged ----------
+function loadFlaggedTable() {
+    const tbody = document.getElementById('flaggedTableBody');
+    if (!tbody) return;
+
+    const query = document.getElementById('searchFlagged')?.value || '';
+    const sortBy = document.getElementById('flaggedSort')?.value || 'recent';
+
+    const list = flaggedMembers.filter(m => textMatches(
+        [m.full_name, m.registration_number, m.group, extractGroupLetter(m.group), m.case_info].join(' '),
+        query
+    ));
+
+    if (sortBy === 'name') list.sort((a, b) => String(a.full_name ?? '').localeCompare(String(b.full_name ?? '')));
+    if (sortBy === 'group') list.sort((a, b) => String(a.group ?? '').localeCompare(String(b.group ?? ''), undefined, { numeric: true }));
+
+    if (!list.length) {
+        tbody.innerHTML = `<tr><td colspan="6" class="empty-state">
+            <div class="empty-icon">⚠️</div><h3>No Flagged Cases</h3>
+            <p>${normalizeFilterText(query) ? 'No flagged cases match your search.' : 'There are no flagged members at the moment.'}</p>
+            </td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = list.map((m, i) => {
+        const info = String(m.case_info ?? '');
+        const short = info.length > 50 ? info.slice(0, 50) + '…' : info;
+        return `<tr class="red-flag">
+            <td>${i + 1}</td>
+            <td>${esc(m.full_name)}</td>
+            <td>${esc(m.registration_number)}</td>
+            <td>${m.group ? esc(extractGroupLetter(m.group)) : 'Not assigned'}</td>
+            <td title="${esc(info)}">${esc(short)}</td>
+            <td><button class="action-btn action-view-btn" onclick="viewCaseInfo(${Number(m.id)})">View Details</button></td>
+        </tr>`;
+    }).join('');
+}
+
+// ---------- Stats ----------
+function updateStats() {
+    document.getElementById('totalMembers').textContent = members.length;
+    document.getElementById('totalGroups').textContent = groups.length;
+    document.getElementById('flaggedMembers').textContent = flaggedMembers.length;
+    document.getElementById('groupLeaders').textContent = groups.filter(g => g.leader).length;
+}
+
+function updateFlaggedCount() {
+    const badge = document.getElementById('flaggedCount');
+    if (badge) {
+        badge.textContent = flaggedMembers.length;
+        badge.style.display = flaggedMembers.length > 0 ? 'flex' : 'none';
+    }
+}
+
+// ---------- Case modal ----------
+async function viewCaseInfo(memberId) {
+    const numericMemberId = Number(memberId);
+    let member = getMemberById(numericMemberId);
+
+    try {
+        const response = await fetch(`/api/users/${numericMemberId}/?cache=refresh`);
+        const result = await response.json();
+        if (result.success && result.data) {
+            member = {
+                ...(member || {}),
+                ...result.data,
+                id: Number(result.data.id),
+                group: result.data.group_name || result.data.group || member?.group || '',
+                case_info: result.data.case_info || '',
+            };
+            const index = members.findIndex(m => Number(m.id) === numericMemberId);
+            if (index !== -1) members[index] = member;
+            flaggedMembers = members.filter(m => m.status === 'flagged');
+            updateStats();
+            updateFlaggedCount();
+        }
+    } catch (error) {
+        console.warn('Could not refresh case details:', error);
+    }
+
+    if (!member || !member.case_info) {
+        showMessage('No case information found for this flagged member.', 'warning');
+        return;
+    }
+
+    currentCaseId = numericMemberId;
+    document.getElementById('caseMemberName').textContent = member.full_name || 'Unknown';
+    document.getElementById('caseRegNo').textContent = member.registration_number || 'N/A';
+    document.getElementById('caseGroup').textContent = member.group ? extractGroupLetter(member.group) : 'Not assigned';
+    document.getElementById('caseDetailsText').textContent = member.case_info || '';
+    document.getElementById('caseModal').classList.add('active');
+}
+
+function closeCaseModal() {
+    document.getElementById('caseModal').classList.remove('active');
+    currentCaseId = null;
+}
+
+function contactAdmin() {
+    if (!currentCaseId) return;
+    const member = getMemberById(currentCaseId);
+    if (!member) return;
+
+    // Placeholder until an admin contact channel exists
+    alert(`To contact the admin about ${member.full_name}'s case:\n\nSubject: Regarding Case: ${member.full_name} (${member.registration_number})\n\nMessage: I'm contacting you regarding the case of ${member.full_name}.\n\nCase Details: ${member.case_info || ''}\n\nPlease provide assistance with this matter.`);
+    closeCaseModal();
+}
+
+document.getElementById('caseModal').addEventListener('click', function (e) {
+    if (e.target === this) closeCaseModal();
+});
+
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+        closeCaseModal();
+        closeGroupDetails();
+    }
+});
+
+// ---------- Toast ----------
+function showMessage(message, type) {
+    if (!document.querySelector('#message-animations')) {
+        const style = document.createElement('style');
+        style.id = 'message-animations';
+        style.textContent = `
+            @keyframes slideDown {
+                from { transform: translateX(-50%) translateY(-20px); opacity: 0; }
+                to { transform: translateX(-50%) translateY(0); opacity: 1; }
+            }
+            @keyframes slideUp {
+                from { transform: translateX(-50%) translateY(0); opacity: 1; }
+                to { transform: translateX(-50%) translateY(-20px); opacity: 0; }
+            }`;
+        document.head.appendChild(style);
+    }
+
+    const messageDiv = document.createElement('div');
+    messageDiv.textContent = message;
+    messageDiv.style.cssText = `
+        position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+        background: ${type === 'error' ? 'rgba(255, 107, 107, 0.9)' : 'rgba(91, 140, 255, 0.9)'};
+        color: white; padding: 10px 20px; border-radius: 10px; z-index: 9999;
+        font-weight: 600; box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        animation: slideDown 0.3s ease;`;
+    document.body.appendChild(messageDiv);
+
+    setTimeout(() => {
+        messageDiv.style.animation = 'slideUp 0.3s ease';
+        setTimeout(() => messageDiv.remove(), 300);
+    }, 3000);
+}
+
+// ---------- Live refresh (TenantLive owns polling) ----------
+function memberEditorActive() {
+    const active = document.activeElement;
+    // typing in a search box must not block live refresh
+    if (active && active.matches('input[type="search"], input.filter-input')) return false;
+    return Boolean(active && (active.matches('input, textarea, select') || active.closest('form, .modal, [role="dialog"]')));
+}
+
+function setupRealTimeSync() {
+    if (!window.TenantLive) return;
+
+    // Page 1 alone would truncate the list to 100 rows, so pull every page
+    // whenever the API says there are more.
+    const allRows = async (result, path) => {
+        if (Number(result.meta?.total_pages || 1) <= 1) return result.data;
+        return (await fetchAllApiPages(path)).data;
+    };
+
+    window.TenantLive.register({
+        resource: 'members',
+        url: () => OWNER_DIRECTORY_ACCESS ? '/api/users/?page_size=100&page=1' : '/api/public-members/?page_size=100&page=1',
+        isEditing: memberEditorActive,
+        onData: async result => {
+            if (!result.success || !Array.isArray(result.data)) return;
+            let rows;
+            try {
+                rows = await allRows(result, OWNER_DIRECTORY_ACCESS ? '/api/users/' : '/api/public-members/');
+            } catch (e) {
+                console.warn('Could not load all member pages; keeping current list', e);
+                return;
+            }
+            members = mapUsers(rows);
+            membersLastUpdatedAt = new Date();
+            setMembersLoadState(members.length ? 'data' : 'empty'); // re-renders with current filters
+            afterDataChange();
+        },
+        onError: error => {
+            if (error.type === 'updated') showMessage('Updated — refresh will run when ready.', 'info');
+            else handleMemberPollingError(error);
+        }
+    });
+
+    window.TenantLive.register({
+        resource: 'groups',
+        url: '/api/groups/?include_members=1&page_size=100&page=1',
+        isEditing: memberEditorActive,
+        onData: async result => {
+            if (!result.success || !Array.isArray(result.data)) return;
+            let rows;
+            try {
+                rows = await allRows(result, '/api/groups/?include_members=1');
+            } catch (e) {
+                console.warn('Could not load all group pages; keeping current list', e);
+                return;
+            }
+            groups = normalizeGroups(rows);
+            loadMembersTable(); // leader crowns depend on groups
+            afterDataChange();
+        },
+        onError: error => {
+            if (error.type === 'updated') showMessage('Updated — refresh will run when ready.', 'info');
+            else console.warn('Could not refresh groups:', error);
+        }
+    });
+}
+
+document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && window.TenantLive) {
+        window.TenantLive.refreshNow('members');
+        window.TenantLive.refreshNow('groups');
+    }
+});
+</script>
+
+<!-- Django API Connection Script (unchanged) -->
 <script>
-// Fetch all groups from database
 async function fetchGroups() {
     try {
         const response = await fetch(`${API_BASE_URL}/groups/`);
         const result = await response.json();
-        if (result.success) {
-            console.log('Groups loaded:', result.data.length);
-            return result.data;
-        } else {
-            console.error('Failed to fetch groups:', result.error);
-            return [];
-        }
+        if (result.success) return result.data;
+        console.error('Failed to fetch groups:', result.error);
+        return [];
     } catch (error) {
         console.error('Error fetching groups:', error);
         return [];
     }
 }
 
-// Fetch all users from database
 async function fetchUsers() {
     try {
         const response = await fetch(`${API_BASE_URL}/users/`);
         const result = await response.json();
-        if (result.success) {
-            console.log('Users loaded:', result.data.length);
-            return result.data;
-        } else {
-            console.error('Failed to fetch users:', result.error);
-            return [];
-        }
+        if (result.success) return result.data;
+        console.error('Failed to fetch users:', result.error);
+        return [];
     } catch (error) {
         console.error('Error fetching users:', error);
         return [];
     }
 }
 
-// Create new group
 async function createGroup(groupData) {
     try {
         const response = await fetch(`${API_BASE_URL}/groups/`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCSRFToken(),
-            },
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
             body: JSON.stringify(groupData)
         });
         const result = await response.json();
-        if (result.success) {
-            console.log('Group created:', result.data);
-            return result.data;
-        } else {
-            console.error('Failed to create group:', result.error);
-            return null;
-        }
+        if (result.success) return result.data;
+        console.error('Failed to create group:', result.error);
+        return null;
     } catch (error) {
         console.error('Error creating group:', error);
         return null;
     }
 }
 
-// Create new user
 async function createUser(userData) {
     try {
         const response = await fetch(`${API_BASE_URL}/users/`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCSRFToken(),
-            },
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken() },
             body: JSON.stringify(userData)
         });
         const result = await response.json();
-        if (result.success) {
-            console.log('User created:', result.data);
-            return result.data;
-        } else {
-            console.error('Failed to create user:', result.error);
-            return null;
-        }
+        if (result.success) return result.data;
+        console.error('Failed to create user:', result.error);
+        return null;
     } catch (error) {
         console.error('Error creating user:', error);
         return null;
     }
 }
 
-// Get CSRF token from cookies
 function getCSRFToken() {
     const name = 'csrftoken';
     let cookieValue = null;
@@ -3394,13 +2547,21 @@ function getCSRFToken() {
     return cookieValue;
 }
 
-// Export functions for use in other scripts
-window.DjangoAPI = {
-    fetchGroups,
-    fetchUsers,
-    createGroup,
-    createUser
-};
+window.DjangoAPI = { fetchGroups, fetchUsers, createGroup, createUser };
 </script>
+
+<!--
+HTML edits still needed in the page body (the script depends on them):
+
+1) Members search input:
+   <input type="search" class="filter-input" id="searchMembers" placeholder="Search members..."
+          autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+   Do the same (type="search" + those attributes) for #searchGroups and #searchFlagged.
+
+2) In #memberSearchField add:  <option value="phone">Phone</option>
+
+3) Under the members .filter-buttons div add:
+   <small id="membersResultCount" style="display:block;margin-top:8px;color:var(--muted);font-size:.7rem;" aria-live="polite"></small>
+-->
 </body>
-</html>
+    </html>
