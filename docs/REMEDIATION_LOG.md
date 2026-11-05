@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Groups member filter field normalization (2026-11-05)
+
+- Finding: The member filter assumed one exact field shape, while different existing member-loading paths can expose group, registration, email, phone, and name values under equivalent aliases. This made selected search modes return no results for refreshed member data.
+- Change: Added a small shared member-search value helper and normalized status comparison so all existing member payload shapes use the same case-insensitive partial-match filtering.
+- Files touched: `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: JavaScript syntax, filter-mode, alias-field, empty-search, and status checks passed.
+- Remaining risk: Browser verification against a live tenant remains recommended.
+
 ## Countdown card mobile time picker consistency (2026-11-05)
 
 - Finding: Flatpickr automatically switched the countdown end-time field to a native mobile picker on phones and tablets, bypassing the desktop picker state synchronization and allowing a stale/default time to be restored.

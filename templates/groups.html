@@ -1413,6 +1413,16 @@
             return String(value || '').toLowerCase().trim();
         }
 
+        function memberSearchValues(member) {
+            return {
+                name: member.full_name || member.name,
+                regno: member.registration_number || member.registrationNumber,
+                group: member.group || member.group_name,
+                email: member.email || member.email_address,
+                phone: member.phone || member.phone_number,
+            };
+        }
+
         function hasActiveMemberFilters() {
             return normalizeFilterText(document.getElementById('searchMembers')?.value) !== '' ||
                 (document.getElementById('statusFilter')?.value || 'all') !== 'all' ||
@@ -2667,13 +2677,7 @@
             
             filteredMembers = members.filter(member => {
                 // Search filter
-                const searchableFields = {
-                    name: member.full_name,
-                    regno: member.registration_number,
-                    group: member.group,
-                    email: member.email,
-                    phone: member.phone,
-                };
+                const searchableFields = memberSearchValues(member);
                 const fieldsToSearch = searchField === 'all'
                     ? Object.values(searchableFields)
                     : [searchableFields[searchField]];
@@ -2684,7 +2688,10 @@
                 }
                 
                 // Status filter
-                if (statusFilter !== 'all' && member.status !== statusFilter) {
+                if (
+                    statusFilter !== 'all' &&
+                    normalizeFilterText(member.status) !== normalizeFilterText(statusFilter)
+                ) {
                     return false;
                 }
                 
