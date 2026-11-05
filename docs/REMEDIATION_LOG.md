@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Countdown card timezone-preserving end time (2026-11-05)
+
+- Finding: Countdown card create and update requests converted the selected local end time directly to a UTC ISO string, making the selected wall-clock time vulnerable to timezone reinterpretation at the API boundary.
+- Change: Countdown card requests now send the selected end date/time with the browser's explicit timezone offset while retaining strict local input validation.
+- Files touched: `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: JavaScript syntax and focused local-time serialization checks passed.
+- Remaining risk: Live browser verification against the deployed tenant and the full Django test suite remain pending.
+
 ## Countdown card selected time persistence (2026-11-05)
 
 - Finding: Countdown card creation and editing passed the selected local date/time through the browser's string date parser before saving, which could reinterpret the selected time and cause posted cards to display a different end time.

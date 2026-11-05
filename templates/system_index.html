@@ -6604,6 +6604,18 @@ function parseLocalDateTime(dateValue, timeValue) {
   return date;
 }
 
+function formatLocalDateTimeForApi(dateValue, timeValue) {
+  const date = parseLocalDateTime(dateValue, timeValue);
+  if (!date) return null;
+
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const offsetHours = String(Math.floor(absoluteOffset / 60)).padStart(2, '0');
+  const offsetRemainder = String(absoluteOffset % 60).padStart(2, '0');
+  return `${dateValue}T${timeValue}:00${sign}${offsetHours}:${offsetRemainder}`;
+}
+
 function initializeDashboard() {
   loadCardsFromStorage();
   renderActiveCards();
@@ -6671,8 +6683,9 @@ async function createCard() {
   }
 
   const endDate = parseLocalDateTime(endDateVal, endTimeVal);
+  const endTimeForApi = formatLocalDateTimeForApi(endDateVal, endTimeVal);
 
-  console.log('Creating card with data:', { title, description, fileUrl, startTime, endDate });
+  console.log('Creating card with data:', { title, description, fileUrl, startTime, endDate, endTimeForApi });
 
   if (!(await hasOwnerAdminSession())) {
     showTemporaryMessage('Owner admin login is required before saving a card.', 'warning');
@@ -6680,7 +6693,7 @@ async function createCard() {
     return false;
   }
 
-  if (!title || !description || !fileUrl || !startTime || !endDate) {
+  if (!title || !description || !fileUrl || !startTime || !endDate || !endTimeForApi) {
     showTemporaryMessage('Please fill in all fields', 'warning');
     return false;
   }
@@ -6725,7 +6738,7 @@ async function createCard() {
         description: description,
         file_url: fileUrl,
         start_time: startDate.toISOString(),
-        end_time: endDate.toISOString(),
+        end_time: endTimeForApi,
         created_by: 'admin'
       })
     });
@@ -6791,8 +6804,9 @@ async function updateCard() {
   const endDateInput = document.getElementById('cardEndDate') ? document.getElementById('cardEndDate').value : '';
   const endTimeInput = document.getElementById('cardEndTime') ? document.getElementById('cardEndTime').value : '';
   const endDate = parseLocalDateTime(endDateInput, endTimeInput);
+  const endTimeForApi = formatLocalDateTimeForApi(endDateInput, endTimeInput);
 
-  if (!endDate || endDate <= startDate) {
+  if (!endDate || !endTimeForApi || endDate <= startDate) {
     showTemporaryMessage('End time must be after start time', 'warning');
     return;
   }
@@ -6811,7 +6825,7 @@ async function updateCard() {
           description: description,
           file_url: fileUrl,
           start_time: startDate.toISOString(),
-          end_time: endDate.toISOString()
+          end_time: endTimeForApi
         })
       });
       const result = await response.json();
