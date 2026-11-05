@@ -842,6 +842,19 @@
                 padding: 12px 10px;
             }
 
+            #membersTab .filter-section {
+                position: sticky;
+                top: 0;
+                z-index: 20;
+                margin-left: -8px;
+                margin-right: -8px;
+                border-radius: 0 0 12px 12px;
+                background: rgba(15, 18, 32, 0.96);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+            }
+
             .filter-grid {
                 gap: 10px;
                 margin-bottom: 10px;
@@ -1978,8 +1991,14 @@ function setupSearchListeners() {
     const closeKeyboardOnEnter = e => {
         if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } // reveals results on phones
     };
+    const keepSearchVisible = event => {
+        window.setTimeout(() => {
+            event.target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 120);
+    };
 
     bind('searchMembers', 'input', applyFiltersDebounced);
+    bind('searchMembers', 'focus', keepSearchVisible);
     bind('searchMembers', 'keydown', closeKeyboardOnEnter);
     bind('statusFilter', 'change', applyFilters);
     bind('memberSearchField', 'change', applyFilters);

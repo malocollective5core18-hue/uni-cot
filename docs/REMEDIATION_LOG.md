@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Mobile search visibility and owner actions width (2026-11-06)
+
+- Finding: On mobile, focusing the member search field could leave the keyboard covering the table, while the owner dashboard Actions column was too narrow for the final flag/unflag button.
+- Change: Make the member filter container sticky on narrow screens and scroll the focused search field into view after the keyboard opens. Widen the owner Actions column and keep its action buttons on one line.
+- Files touched: `templates/groups.html`, `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template checks and focused DOM/CSS assertions passed; physical mobile keyboard verification remains recommended.
+- Remaining risk: Browser keyboard viewport behavior varies by mobile operating system.
+
 ## Groups refresh scheduling and owner table structure (2026-11-06)
 
 - Finding: Background-tab throttling could postpone the deferred groups/flagged rendering task until the tab regained focus. The owner user table also lacked a row-number column and allowed registration numbers to wrap.
