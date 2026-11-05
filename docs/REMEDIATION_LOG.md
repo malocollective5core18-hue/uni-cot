@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Countdown card edit-time picker synchronization (2026-11-05)
+
+- Finding: Editing a countdown card updated the visible end-time input but not Flatpickr's internal selected date, so the picker could retain the create-form default time and submit/display that stale value.
+- Change: Synchronize the Flatpickr instance whenever the default or existing card end time is written to the form.
+- Files touched: `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template JavaScript syntax and diff checks passed; the edit path now updates both the input value and Flatpickr state.
+- Remaining risk: Live browser verification against the deployed tenant and the full Django test suite remain pending.
+
 ## Countdown card timezone-preserving end time (2026-11-05)
 
 - Finding: Countdown card create and update requests converted the selected local end time directly to a UTC ISO string, making the selected wall-clock time vulnerable to timezone reinterpretation at the API boundary.

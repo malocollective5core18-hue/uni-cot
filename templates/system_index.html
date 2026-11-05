@@ -6519,7 +6519,13 @@ function setupDateTimeInputs() {
   const endDateEl = document.getElementById('cardEndDate');
   const endTimeEl = document.getElementById('cardEndTime');
   if (endDateEl) endDateEl.value = defaultEndDate;
-  if (endTimeEl) endTimeEl.value = defaultEndTime;
+  if (endTimeEl) {
+    endTimeEl.value = defaultEndTime;
+    if (endTimeEl._flatpickr) {
+      const [defaultHours, defaultMinutes] = defaultEndTime.split(':').map(Number);
+      endTimeEl._flatpickr.setDate(new Date(1970, 0, 1, defaultHours, defaultMinutes), false);
+    }
+  }
 }
 
 function setDateTime(type, preset, hour = 9, minute = 0) {
@@ -7095,7 +7101,15 @@ function editCard(cardId) {
   if (document.getElementById('cardEndDate') && document.getElementById('cardEndTime')) {
     const d = new Date(card.end);
     document.getElementById('cardEndDate').value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    document.getElementById('cardEndTime').value = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    const endTimeEl = document.getElementById('cardEndTime');
+    const endTime = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    endTimeEl.value = endTime;
+    if (endTimeEl._flatpickr) {
+      endTimeEl._flatpickr.setDate(
+        new Date(1970, 0, 1, d.getHours(), d.getMinutes()),
+        false
+      );
+    }
   }
   
   const submitBtn = document.getElementById('cardSubmitBtn');
