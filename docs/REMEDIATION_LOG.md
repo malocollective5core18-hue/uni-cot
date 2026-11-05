@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Countdown card mobile time picker consistency (2026-11-05)
+
+- Finding: Flatpickr automatically switched the countdown end-time field to a native mobile picker on phones and tablets, bypassing the desktop picker state synchronization and allowing a stale/default time to be restored.
+- Change: Disabled Flatpickr's mobile fallback for the countdown end-time field so desktop, mobile, and tablet use the same synchronized picker behavior.
+- Files touched: `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template JavaScript syntax and diff checks passed; the end-time picker now explicitly uses `disableMobile: true`.
+- Remaining risk: Live verification on physical mobile/tablet devices remains recommended.
+
 ## Countdown card edit-time picker synchronization (2026-11-05)
 
 - Finding: Editing a countdown card updated the visible end-time input but not Flatpickr's internal selected date, so the picker could retain the create-form default time and submit/display that stale value.
