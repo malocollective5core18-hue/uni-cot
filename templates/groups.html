@@ -1841,10 +1841,8 @@ function afterDataChange({ deferSecondary = false } = {}) {
         loadGroupsDisplay();
         loadFlaggedTable();
     };
-    if (deferSecondary && typeof window.requestIdleCallback === 'function') {
-        window.requestIdleCallback(renderSecondaryTables, { timeout: 500 });
-    } else if (deferSecondary) {
-        window.setTimeout(renderSecondaryTables, 0);
+    if (deferSecondary) {
+        window.setTimeout(renderSecondaryTables, 50);
     } else {
         renderSecondaryTables();
     }

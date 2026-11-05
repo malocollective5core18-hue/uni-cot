@@ -2534,6 +2534,21 @@ footer img:hover {
   max-width: 180px;
 }
 
+.user-table th:first-child,
+.user-table td:first-child {
+  width: 48px;
+  min-width: 48px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.user-table th:nth-child(3),
+.user-table td:nth-child(3) {
+  min-width: 160px;
+  white-space: nowrap;
+  word-break: normal;
+}
+
 .user-table tr:hover {
   background: rgba(91, 140, 255, 0.05);
 }
@@ -5697,6 +5712,7 @@ footer img:hover {
             <table class="user-table" id="userTable">
               <thead>
                 <tr>
+                  <th>No.</th>
                   <th>Full Name</th>
                   <th>Registration No.</th>
                   <th>Phone Number</th>
@@ -8624,7 +8640,7 @@ function saveUserData() {
 }
 
 function renderUserRows(users) {
-  return users.map(user => {
+  return users.map((user, index) => {
     const status = user.status || 'active';
     const displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
     const caseInfo = user.case_info || '';
@@ -8632,6 +8648,7 @@ function renderUserRows(users) {
 
     return `
       <tr${redFlagClass}>
+        <td>${index + 1}</td>
         <td>${user.full_name || 'Unknown'}</td>
         <td>${user.registration_number || 'N/A'}</td>
         <td>${user.phone || 'N/A'}</td>
@@ -8664,7 +8681,7 @@ function populateUserTable() {
   if (userData.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" class="user-empty-state">
+        <td colspan="8" class="user-empty-state">
           <div class="user-empty-icon">👤</div>
           <h3>No Users Found</h3>
           <p>Add your first user using the "Add New User" button.</p>
@@ -8744,7 +8761,7 @@ function updateTableWithFilteredUsers(filteredUsers) {
   if (filteredUsers.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" style="text-align: center; padding: 40px; color: var(--muted);">
+        <td colspan="8" style="text-align: center; padding: 40px; color: var(--muted);">
           No users found matching your criteria.
         </td>
       </tr>

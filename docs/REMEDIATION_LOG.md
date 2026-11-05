@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Groups refresh scheduling and owner table structure (2026-11-06)
+
+- Finding: Background-tab throttling could postpone the deferred groups/flagged rendering task until the tab regained focus. The owner user table also lacked a row-number column and allowed registration numbers to wrap.
+- Change: Use a normal short timer for deferred secondary groups rendering, add a numbered column to the owner user table, and keep registration numbers on one line with horizontal scrolling preserved.
+- Files touched: `templates/groups.html`, `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template JavaScript syntax and diff checks passed; live browser refresh and responsive verification remain recommended.
+- Remaining risk: Browser background throttling can still delay network responses, but rendering no longer depends on idle-callback execution.
+
 ## Groups member table priority (2026-11-06)
 
 - Finding: The groups page rendered the full groups cards and flagged table during the first member response, blocking the browser while large tenants were being processed and delaying search interaction.
