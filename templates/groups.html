@@ -1217,7 +1217,7 @@
                 <div class="filter-grid">
                     <div class="filter-group">
                         <label class="filter-label">Search Members</label>
-                        <input type="text" class="filter-input" id="searchMembers" placeholder="Search by name, email, or registration number...">
+                        <input type="text" class="filter-input" id="searchMembers" placeholder="Search members...">
                     </div>
 
 
@@ -1232,10 +1232,12 @@
                         </select>
                     </div>
                     <div class="filter-group">
-                        <label class="filter-label">Filter by Group</label>
-                        <select class="filter-select" id="groupFilter">
-                            <option value="all">All Groups</option>
-                            <!-- Groups will be populated dynamically -->
+                        <label class="filter-label">Filter by</label>
+                        <select class="filter-select" id="memberSearchField">
+                            <option value="all">All</option>
+                            <option value="name">Name</option>
+                            <option value="regno">Regno</option>
+                            <option value="group">Group</option>
                         </select>
                     </div>
 
@@ -1524,7 +1526,7 @@
         function hasActiveMemberFilters() {
             return normalizeFilterText(document.getElementById('searchMembers')?.value) !== '' ||
                 (document.getElementById('statusFilter')?.value || 'all') !== 'all' ||
-                (document.getElementById('groupFilter')?.value || 'all') !== 'all';
+                (document.getElementById('memberSearchField')?.value || 'all') !== 'all';
         }
 
         function hasActiveGroupFilters() {
@@ -2222,27 +2224,10 @@
             return groupName;
         }
 
-        // Initialize filter dropdowns
+        // Initialize member filter controls
         function initializeFilters() {
-            const groupFilter = document.getElementById('groupFilter');
-            if (groupFilter) {
-                const selectedValue = groupFilter.value || 'all';
-                // Clear existing options
-                groupFilter.innerHTML = '<option value="all">All Groups</option>';
-                
-                // Add unique groups
-                const uniqueGroups = [...new Set(members.map(m => m.group).filter(Boolean))];
-                uniqueGroups.forEach(group => {
-                    const option = document.createElement('option');
-                    option.value = group;
-                    option.textContent = group;
-                    groupFilter.appendChild(option);
-                });
-
-                groupFilter.value = [...groupFilter.options].some(option => option.value === selectedValue)
-                    ? selectedValue
-                    : 'all';
-            }
+            const memberSearchField = document.getElementById('memberSearchField');
+            if (memberSearchField && !memberSearchField.value) memberSearchField.value = 'all';
         }
 
         // Set up search listeners
@@ -2256,9 +2241,9 @@
             if (statusFilter) {
                 statusFilter.addEventListener('change', applyFilters);
             }
-            const groupFilter = document.getElementById('groupFilter');
-            if (groupFilter) {
-                groupFilter.addEventListener('change', applyFilters);
+            const memberSearchField = document.getElementById('memberSearchField');
+            if (memberSearchField) {
+                memberSearchField.addEventListener('change', applyFilters);
             }
             
             // Groups search
@@ -2788,26 +2773,28 @@
         function applyFilters() {
             const searchTerm = normalizeFilterText(document.getElementById('searchMembers')?.value);
             const statusFilter = document.getElementById('statusFilter')?.value || 'all';
-            const groupFilter = document.getElementById('groupFilter')?.value || 'all';
+            const searchField = document.getElementById('memberSearchField')?.value || 'all';
             
             filteredMembers = members.filter(member => {
                 // Search filter
-                if (searchTerm && !(
-                    normalizeFilterText(member.full_name).includes(searchTerm) ||
-                    normalizeFilterText(member.registration_number).includes(searchTerm) ||
-                    normalizeFilterText(member.email).includes(searchTerm) ||
-                    normalizeFilterText(member.phone).includes(searchTerm)
+                const searchableFields = {
+                    name: member.full_name,
+                    regno: member.registration_number,
+                    group: member.group,
+                    email: member.email,
+                    phone: member.phone,
+                };
+                const fieldsToSearch = searchField === 'all'
+                    ? Object.values(searchableFields)
+                    : [searchableFields[searchField]];
+                if (searchTerm && !fieldsToSearch.some(field =>
+                    normalizeFilterText(field).includes(searchTerm)
                 )) {
                     return false;
                 }
                 
                 // Status filter
                 if (statusFilter !== 'all' && member.status !== statusFilter) {
-                    return false;
-                }
-                
-                // Group filter
-                if (groupFilter !== 'all' && member.group !== groupFilter) {
                     return false;
                 }
                 
@@ -2851,7 +2838,7 @@
         function resetFilters() {
             document.getElementById('searchMembers').value = '';
             document.getElementById('statusFilter').value = 'all';
-            document.getElementById('groupFilter').value = 'all';
+            document.getElementById('memberSearchField').value = 'all';
             filteredMembers = [...members];
             loadMembersTable();
         }
