@@ -1726,13 +1726,10 @@ function getDisplayableMemberFields() {
 }
 
 // ---------- API ----------
-async function fetchAllApiPages(path) {
-    const url = new URL(path, window.location.origin);
-    url.searchParams.set('page_size', '100');
-    const data = [];
-    let page = 1;
-    let totalPages = 1;
-    while (page <= totalPages) {
+async function fetchAllApiPages(path, onFirstPage) {
+    const fetchPage = async page => {
+        const url = new URL(path, window.location.origin);
+        url.searchParams.set('page_size', '100');
         url.searchParams.set('page', String(page));
         const response = await fetch(url.pathname + url.search);
         if (!response.ok) {
@@ -1745,10 +1742,21 @@ async function fetchAllApiPages(path) {
         if (!result.success || !Array.isArray(result.data)) {
             throw new Error(result.error || 'Unexpected paginated API response');
         }
-        data.push(...result.data);
-        totalPages = Number(result.meta?.total_pages || 1);
-        page += 1;
-    }
+        return result;
+    };
+
+    const firstPage = await fetchPage(1);
+    onFirstPage?.(firstPage.data);
+    const totalPages = Number(firstPage.meta?.total_pages || 1);
+    if (totalPages === 1) return { success: true, data: firstPage.data };
+
+    const remainingPages = await Promise.all(
+        Array.from({ length: totalPages - 1 }, (_, index) => fetchPage(index + 2))
+    );
+    const data = [
+        ...firstPage.data,
+        ...remainingPages.flatMap(result => result.data),
+    ];
     return { success: true, data };
 }
 
@@ -1841,9 +1849,15 @@ async function loadData() {
             { name: 'Phone Number', type: 'phone', required: 'yes', order: 3 }
         ];
 
+        const usersPath = OWNER_DIRECTORY_ACCESS ? '/api/users/' : '/api/public-members/';
         const [frameworkResult, usersResult, groupsResult] = await Promise.allSettled([
             fetch('/api/registration-fields/').then(response => response.json()),
-            fetchAllApiPages(OWNER_DIRECTORY_ACCESS ? '/api/users/' : '/api/public-members/'),
+            fetchAllApiPages(usersPath, rows => {
+                members = mapUsers(rows);
+                membersLastUpdatedAt = new Date();
+                setMembersLoadState(members.length ? 'data' : 'empty');
+                afterDataChange();
+            }),
             fetchAllApiPages('/api/groups/?include_members=1'),
         ]);
 

@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Groups member data fast initial loading (2026-11-06)
+
+- Finding: The groups page fetched paginated users and groups sequentially and waited for every page before rendering the member table, delaying search availability for large directories.
+- Change: The first user page now renders immediately, remaining pages load concurrently, and the complete result is merged after background loading finishes.
+- Files touched: `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Focused pagination and template JavaScript checks passed; live tenant timing remains recommended.
+- Remaining risk: Very large responses still require browser memory and rendering time after all pages arrive.
+
 ## Groups member filter field normalization (2026-11-05)
 
 - Finding: The member filter assumed one exact field shape, while different existing member-loading paths can expose group, registration, email, phone, and name values under equivalent aliases. This made selected search modes return no results for refreshed member data.
