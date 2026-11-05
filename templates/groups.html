@@ -2135,7 +2135,7 @@
             // Members search
             const searchMembers = document.getElementById('searchMembers');
             if (searchMembers) {
-                searchMembers.addEventListener('input', debounce(applyFilters, 300));
+                searchMembers.addEventListener('input', applyFilters);
             }
             const statusFilter = document.getElementById('statusFilter');
             if (statusFilter) {
