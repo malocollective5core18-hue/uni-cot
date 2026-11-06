@@ -1619,7 +1619,9 @@ window.fetch = function (input, init) {
     return nativeFetch(input, init);
 };
 
-window.addEventListener('pageshow', hidePageLoader);
+window.addEventListener('pageshow', () => {
+    if (initialMemberLoadComplete) hidePageLoader();
+});
 
 document.addEventListener('submit', (event) => {
     const form = event.target;

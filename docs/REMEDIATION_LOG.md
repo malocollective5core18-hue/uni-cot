@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Groups spinner pageshow race (2026-11-06)
+
+- Finding: The normal `pageshow` event immediately called `hidePageLoader()`, hiding the member-loading spinner before the initial users request completed.
+- Change: Only hide the page loader on `pageshow` after the initial member load has completed; normal refreshes now keep the spinner visible until users are rendered or an error is shown.
+- Files touched: `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template syntax and focused pageshow lifecycle checks passed.
+- Remaining risk: Live browser verification on a cold refresh remains recommended.
+
 ## Groups stable initial loading and spinner state (2026-11-06)
 
 - Finding: Repeated page actions could start overlapping initial data loads, while the page gave no clear loading state and visibility refreshes could compete before the first member page was ready.
