@@ -2742,8 +2742,24 @@ footer img:hover {
 
 .user-database-add-user-row {
   display: flex;
+  align-items: center;
+  gap: 12px;
   justify-content: flex-start;
   margin-top: 7px;
+}
+
+.user-database-total-users-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(91, 140, 255, 0.3);
+  border-radius: 999px;
+  background: rgba(91, 140, 255, 0.1);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .user-database-add-user-btn {
@@ -5731,6 +5747,7 @@ footer img:hover {
                   <path d="M19 8v6m-3-3h6"></path>
                 </svg>
               </button>
+              <span class="user-database-total-users-badge" id="totalUsersBadge" aria-live="polite">Total users: 0</span>
             </div>
           </div>
           <div class="data-table-zoom-controls user-database-zoom-controls">
@@ -8743,6 +8760,10 @@ function renderUserRows(users) {
 function populateUserTable() {
   const tbody = document.getElementById('userTableBody');
   if (!tbody) return;
+  const totalUsersBadge = document.getElementById('totalUsersBadge');
+  if (totalUsersBadge) {
+    totalUsersBadge.textContent = `Total users: ${userData.length}`;
+  }
   populateUserGroupFilter();
   tbody.innerHTML = '';
   

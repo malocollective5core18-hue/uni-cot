@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Owner user total badge (2026-11-06)
+
+- Finding: The owner User Database showed the Add User control but did not expose the total number of users in the table.
+- Change: Added a total-users badge beside the green Add User button. The badge uses the complete `userData` collection, so filtering does not change the account total.
+- Files touched: `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template structure and JavaScript syntax checks passed.
+- Remaining risk: Live browser verification is recommended after deployment.
+
 ## Groups member data overwrite protection (2026-11-06)
 
 - Finding: After the public member directory loaded, the later groups response replaced it with group-detail members. This could clear the visible user list after the spinner had already disappeared.
