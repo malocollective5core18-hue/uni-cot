@@ -1919,7 +1919,7 @@ async function loadData() {
         }
 
         initializeFilters();
-        afterDataChange();
+        afterDataChange({ deferSecondary: true });
         loadMembersTable();
     } catch (e) {
         console.error('Error loading data:', e);
@@ -2495,9 +2495,11 @@ function setupRealTimeSync() {
 }
 
 document.addEventListener('visibilitychange', function () {
-    if (!document.hidden && window.TenantLive) {
-        window.TenantLive.refreshNow('members');
-        window.TenantLive.refreshNow('groups');
+    if (!document.hidden && window.TenantLive && membersLoadState !== 'loading') {
+        window.setTimeout(() => {
+            window.TenantLive.refreshNow('members');
+            window.TenantLive.refreshNow('groups');
+        }, 250);
     }
 });
 </script>

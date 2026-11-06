@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Groups initial refresh paint isolation (2026-11-06)
+
+- Finding: The initial member response could be followed by a synchronous full render of groups and flagged rows, blocking the browser from painting the member table. Returning to the tab triggered a visibility refresh and made the data appear.
+- Change: Defer the final secondary render after initial loading and delay visibility-triggered refreshes until initial member loading is complete.
+- Files touched: `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template syntax, scheduling, and focused first-render checks passed; live browser refresh verification remains recommended.
+- Remaining risk: Very large group/flagged datasets can still consume resources after the member table is visible.
+
 ## Groups header and owner navigation load stability (2026-11-06)
 
 - Finding: The groups header included extra Top and Flagged controls, while repeated User Management navigation could overlap full initialization and user refresh requests. Owner mobile search also lacked the groups page's focused sticky behavior, and full names could wrap.
