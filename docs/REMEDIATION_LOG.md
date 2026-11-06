@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Groups member data overwrite protection (2026-11-06)
+
+- Finding: After the public member directory loaded, the later groups response replaced it with group-detail members. This could clear the visible user list after the spinner had already disappeared.
+- Change: Preserve non-empty authoritative member-directory data and use group-detail members only when the member directory returned no users.
+- Files touched: `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template syntax and focused overwrite-protection checks passed.
+- Remaining risk: If both endpoints return empty data, the page correctly shows an empty directory.
+
 ## Groups spinner pageshow race (2026-11-06)
 
 - Finding: The normal `pageshow` event immediately called `hidePageLoader()`, hiding the member-loading spinner before the initial users request completed.

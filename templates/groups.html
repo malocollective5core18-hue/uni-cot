@@ -1423,6 +1423,7 @@ let membersLoadError = null;
 let membersLastUpdatedAt = null;
 let initialMemberLoadComplete = false;
 let initialDataLoadPromise = null;
+let authoritativeMemberDataLoaded = false;
 
 const MEMBER_PAGE_SIZE = 200;
 let memberRenderLimit = MEMBER_PAGE_SIZE;
@@ -1886,6 +1887,7 @@ async function loadDataInternal() {
             fetch('/api/registration-fields/').then(response => response.json()),
             fetchAllApiPages(usersPath, rows => {
                 members = mapUsers(rows);
+                authoritativeMemberDataLoaded = members.length > 0;
                 membersLastUpdatedAt = new Date();
                 setMembersLoadState(members.length ? 'data' : 'empty');
                 afterDataChange({ deferSecondary: true });
@@ -1916,6 +1918,7 @@ async function loadDataInternal() {
 
         if (usersResult.status === 'fulfilled' && usersResult.value.success) {
             members = mapUsers(usersResult.value.data);
+            authoritativeMemberDataLoaded = members.length > 0;
             membersLastUpdatedAt = new Date();
             setMembersLoadState(members.length ? 'data' : 'empty');
         } else {
@@ -1927,7 +1930,7 @@ async function loadDataInternal() {
 
         if (groupsResult.status === 'fulfilled' && groupsResult.value.success) {
             groups = normalizeGroups(groupsResult.value.data);
-            if (!OWNER_DIRECTORY_ACCESS) {
+            if (!OWNER_DIRECTORY_ACCESS && !authoritativeMemberDataLoaded && !members.length) {
                 members = Array.from(groupMemberDetails.values());
                 membersLastUpdatedAt = new Date();
                 setMembersLoadState(members.length ? 'data' : 'empty');
