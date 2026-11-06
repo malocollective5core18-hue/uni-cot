@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Groups stable initial loading and spinner state (2026-11-06)
+
+- Finding: Repeated page actions could start overlapping initial data loads, while the page gave no clear loading state and visibility refreshes could compete before the first member page was ready.
+- Change: Serialize the initial `loadData()` call, track completion of the first member response independently from groups loading, show the page spinner during that phase, and allow visibility refresh only after the member table is ready.
+- Files touched: `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template syntax, single-flight loading, spinner lifecycle, and visibility-guard checks passed; live refresh verification remains recommended.
+- Remaining risk: API failures still depend on the existing retry/error UI.
+
 ## Groups initial refresh paint isolation (2026-11-06)
 
 - Finding: The initial member response could be followed by a synchronous full render of groups and flagged rows, blocking the browser from painting the member table. Returning to the tab triggered a visibility refresh and made the data appear.

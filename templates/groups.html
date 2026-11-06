@@ -1421,6 +1421,8 @@ const OWNER_DIRECTORY_ACCESS = {{ owner_directory_access|yesno:"true,false" }};
 let membersLoadState = 'loading';
 let membersLoadError = null;
 let membersLastUpdatedAt = null;
+let initialMemberLoadComplete = false;
+let initialDataLoadPromise = null;
 
 const MEMBER_PAGE_SIZE = 200;
 let memberRenderLimit = MEMBER_PAGE_SIZE;
@@ -1555,6 +1557,10 @@ function setMembersLoadState(state, error = null) {
     const hint = document.getElementById('membersLastUpdated');
     if (hint && membersLastUpdatedAt) hint.textContent = `Last updated ${membersLastUpdatedAt.toLocaleTimeString()}`;
     loadMembersTable();
+    if (state === 'data' || state === 'empty' || state === 'error') {
+        initialMemberLoadComplete = true;
+        hidePageLoader();
+    }
 }
 
 // ---------- Tenant sync publishing ----------
@@ -1644,6 +1650,7 @@ document.addEventListener('click', (event) => {
 
 // ---------- Init ----------
 document.addEventListener('DOMContentLoaded', function () {
+    showPageLoader('Loading members');
     loadData();
     initializeFilters();
     switchTab('members');
@@ -1855,6 +1862,16 @@ function afterDataChange({ deferSecondary = false } = {}) {
 }
 
 async function loadData() {
+    if (initialDataLoadPromise) return initialDataLoadPromise;
+    initialDataLoadPromise = loadDataInternal();
+    try {
+        return await initialDataLoadPromise;
+    } finally {
+        initialDataLoadPromise = null;
+    }
+}
+
+async function loadDataInternal() {
     try {
         const defaultFramework = [
             { name: 'Full Name', type: 'text', required: 'yes', order: 1 },
@@ -1923,6 +1940,8 @@ async function loadData() {
         loadMembersTable();
     } catch (e) {
         console.error('Error loading data:', e);
+        initialMemberLoadComplete = true;
+        hidePageLoader();
         showMessage('Error loading data. Please refresh the page.', 'error');
     }
 }
@@ -2495,7 +2514,7 @@ function setupRealTimeSync() {
 }
 
 document.addEventListener('visibilitychange', function () {
-    if (!document.hidden && window.TenantLive && membersLoadState !== 'loading') {
+    if (!document.hidden && window.TenantLive && initialMemberLoadComplete && membersLoadState !== 'loading') {
         window.setTimeout(() => {
             window.TenantLive.refreshNow('members');
             window.TenantLive.refreshNow('groups');
