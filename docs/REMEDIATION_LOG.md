@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Owner table overflow and group sort clarity (2026-11-07)
+
+- Finding: Long owner names could overflow the constrained Full Name cell, and Group Management sort choices did not clearly communicate direction.
+- Change: Let the owner table size columns naturally, allow long names to wrap within a bounded readable column, preserve registration numbers on one line, and add explicit ascending/descending group-name, group-size, and leader-priority choices.
+- Files touched: `templates/system_index.html`, `templates/groups.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template JavaScript syntax and diff checks passed.
+- Remaining risk: Responsive behavior should still be confirmed in a deployed browser at narrow widths.
+
 ## Owner user total badge (2026-11-06)
 
 - Finding: The owner User Database showed the Add User control but did not expose the total number of users in the table.

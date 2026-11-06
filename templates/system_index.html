@@ -2516,6 +2516,7 @@ footer img:hover {
 .user-table {
   width: calc(100% / var(--user-table-zoom));
   border-collapse: collapse;
+  table-layout: auto;
   min-width: var(--user-table-min-width-base);
   font-size: calc(var(--user-table-font-base) * var(--user-table-zoom) / var(--user-table-zoom-base));
   transform: scale(var(--user-table-zoom));
@@ -2542,8 +2543,7 @@ footer img:hover {
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   vertical-align: middle;
   font-size: inherit;
-  word-break: break-word;
-  max-width: 180px;
+  overflow-wrap: anywhere;
 }
 
 .user-table th:first-child,
@@ -2556,16 +2556,17 @@ footer img:hover {
 
 .user-table th:nth-child(3),
 .user-table td:nth-child(3) {
-  min-width: 160px;
+  min-width: 190px;
   white-space: nowrap;
   word-break: normal;
 }
 
 .user-table th:nth-child(2),
 .user-table td:nth-child(2) {
-  min-width: 170px;
-  white-space: nowrap;
-  word-break: normal;
+  min-width: 220px;
+  max-width: 320px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .user-table th:last-child,

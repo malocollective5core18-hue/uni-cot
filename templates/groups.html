@@ -1301,8 +1301,11 @@
                             <label class="filter-label">Sort By</label>
                             <select class="filter-select" id="groupSort">
                                 <option value="name">Group Name (A-Z)</option>
-                                <option value="size">Group Size</option>
-                                <option value="leader">Leader Status</option>
+                                <option value="name-desc">Group Name (Z-A)</option>
+                                <option value="size-desc">Group Size (Largest First)</option>
+                                <option value="size-asc">Group Size (Smallest First)</option>
+                                <option value="leader-first">Leader Status (With Leader First)</option>
+                                <option value="leader-last">Leader Status (Without Leader First)</option>
                             </select>
                         </div>
                     </div>
@@ -1536,8 +1539,11 @@ function getFilteredGroups() {
     });
 
     list.sort((a, b) => {
-        if (sortBy === 'size') return (b.members.length - a.members.length) || byName(a, b);
-        if (sortBy === 'leader') return ((a.leader ? 0 : 1) - (b.leader ? 0 : 1)) || byName(a, b);
+        if (sortBy === 'name-desc') return byName(b, a);
+        if (sortBy === 'size-desc') return (b.members.length - a.members.length) || byName(a, b);
+        if (sortBy === 'size-asc') return (a.members.length - b.members.length) || byName(a, b);
+        if (sortBy === 'leader-first') return ((a.leader ? 0 : 1) - (b.leader ? 0 : 1)) || byName(a, b);
+        if (sortBy === 'leader-last') return ((b.leader ? 0 : 1) - (a.leader ? 0 : 1)) || byName(a, b);
         return byName(a, b);
     });
     return list;
