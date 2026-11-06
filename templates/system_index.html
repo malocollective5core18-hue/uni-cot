@@ -2304,6 +2304,18 @@ footer img:hover {
   }
 }
 
+@media (max-width: 768px) {
+  #usersTab .user-database-filter-section {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgba(15, 18, 32, 0.96);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+  }
+}
+
 /* ================= USER MANAGEMENT SPECIFIC STYLES ================= */
 /* User Management Tabs */
 .user-management-tabs {
@@ -2545,6 +2557,13 @@ footer img:hover {
 .user-table th:nth-child(3),
 .user-table td:nth-child(3) {
   min-width: 160px;
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.user-table th:nth-child(2),
+.user-table td:nth-child(2) {
+  min-width: 170px;
   white-space: nowrap;
   word-break: normal;
 }
@@ -5694,7 +5713,7 @@ footer img:hover {
             </div>
             <div class="user-database-filter-group user-database-filter-search">
               <label class="user-database-filter-label" for="userSearch">Search Users</label>
-              <input type="text" class="user-database-filter-input" id="userSearch" placeholder="Search by name, email, or registration number..." oninput="searchUsers()">
+              <input type="search" class="user-database-filter-input" id="userSearch" placeholder="Search by name, email, or registration number..." autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" oninput="searchUsers()">
             </div>
             <div class="user-database-filter-toolbar" role="group" aria-label="User Excel tools">
               <label class="form-btn secondary" for="userExcelFile" style="cursor:pointer">Import Excel</label>
@@ -7572,8 +7591,33 @@ function switchUserTab(tabId) {
 }
 
 // Initialize User Management
+let userManagementInitializationPromise = null;
+let userManagementInitialized = false;
+
 async function initializeUserManagement() {
+  if (userManagementInitializationPromise) return userManagementInitializationPromise;
+  if (userManagementInitialized) {
+    populateUserTable();
+    return true;
+  }
+  userManagementInitializationPromise = initializeUserManagementInternal();
+  try {
+    const result = await userManagementInitializationPromise;
+    userManagementInitialized = true;
+    return result;
+  } finally {
+    userManagementInitializationPromise = null;
+  }
+}
+
+async function initializeUserManagementInternal() {
   initializeUserManagementTableZoom();
+  const userSearch = document.getElementById('userSearch');
+  userSearch?.addEventListener('focus', event => {
+    window.setTimeout(() => {
+      event.target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
+  }, { once: true });
   await Promise.all([
     loadDataFramework(),
     loadUserData(),
@@ -8610,7 +8654,19 @@ function getFieldInputHTML(field, value = '') {
 
 
 // ================= USER MANAGEMENT =================
+let userDataLoadPromise = null;
+
 async function loadUserData(options = {}) {
+  if (userDataLoadPromise) return userDataLoadPromise;
+  userDataLoadPromise = loadUserDataInternal(options);
+  try {
+    return await userDataLoadPromise;
+  } finally {
+    userDataLoadPromise = null;
+  }
+}
+
+async function loadUserDataInternal(options = {}) {
   const { silent = false } = options;
   if (!ownerAdminIsAuthenticated()) {
     userData = [];

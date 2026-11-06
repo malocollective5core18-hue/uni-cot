@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Groups header and owner navigation load stability (2026-11-06)
+
+- Finding: The groups header included extra Top and Flagged controls, while repeated User Management navigation could overlap full initialization and user refresh requests. Owner mobile search also lacked the groups page's focused sticky behavior, and full names could wrap.
+- Change: Keep only Other Sign Ups and Back in the groups header, add focused sticky owner search behavior and non-wrapping names, and serialize dashboard initialization/user loads to prevent competing requests.
+- Files touched: `templates/groups.html`, `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template syntax and focused single-flight/layout checks passed; live navigation and mobile keyboard verification remain recommended.
+- Remaining risk: Network/server latency can still affect first load, but duplicate initialization requests are prevented.
+
 ## Mobile search visibility and owner actions width (2026-11-06)
 
 - Finding: On mobile, focusing the member search field could leave the keyboard covering the table, while the owner dashboard Actions column was too narrow for the final flag/unflag button.
