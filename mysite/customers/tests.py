@@ -1,4 +1,5 @@
 from datetime import timedelta
+import json
 from types import SimpleNamespace
 from importlib import import_module
 from unittest.mock import Mock, call, patch
@@ -362,7 +363,7 @@ class PathTenantProvisioningTests(CacheIsolationMixin, TestCase):
         ):
             response = run_provisioning_endpoint(request)
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json(), {"accepted": True})
+            self.assertEqual(json.loads(response.content), {"accepted": True})
         self.assertEqual(mocked_start.call_count, 2)
 
     @patch.dict("os.environ", {"PROVISIONING_CRON_TOKEN": "test-token"}, clear=False)
@@ -424,7 +425,7 @@ class PathTenantProvisioningTests(CacheIsolationMixin, TestCase):
         self.assertEqual(job.status, TenantProvisioningJob.STATUS_FAILED)
         self.assertEqual(job.last_error, "migration exploded")
         middleware = TenantMiddleware(Mock())
-        with self.assertLogs("mysite.tenant_middleware", level="ERROR") as captured:
+        with self.assertLogs("mysite.mysite.tenant_middleware", level="ERROR") as captured:
             response = middleware(self._path_request_for(tenant))
         self.assertEqual(response.status_code, 503)
         self.assertNotIn(b"meta http-equiv", response.content)

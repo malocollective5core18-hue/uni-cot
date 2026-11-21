@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.core.cache import cache
 from django.db import IntegrityError
+from django_tenants.utils import schema_context
 from django.contrib.auth.hashers import check_password, make_password
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.template.loader import render_to_string
@@ -118,6 +119,7 @@ class HealthEndpointTests(CacheIsolationMixin, TestCase):
         self.assertNotIn('sessionid', response.cookies)
 
     @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "health-tests"}})
+    @patch.dict('os.environ', {'REDIS_URL': 'redis://localhost:6379/0'}, clear=False)
     def test_readyz_reports_unhealthy_when_cache_probe_fails(self):
         with patch('mysite.health.cache.get', return_value=None):
             response = self.client.get('/readyz/')
@@ -223,9 +225,11 @@ class MemberPollingTemplateTests(SimpleTestCase):
         system_source = (settings.BASE_DIR / 'templates/system_index.html').read_text()
 
         self.assertIn('const API_BASE_URL = TENANT_BASE_PATH ?', groups_source)
-        self.assertIn('registrationsPollingDisabled = true', groups_source)
+        self.assertIn('function handleMemberPollingError(error)', groups_source)
+        self.assertIn('if (![401, 403, 429].includes(status)) return true;', groups_source)
         self.assertIn('Too many requests, retrying shortly.', groups_source)
-        self.assertIn('window.setTimeout(async () =>', groups_source)
+        self.assertIn('const delay = Math.max(30000, (error.retryAfter || 30) * 1000);', groups_source)
+        self.assertIn("window.TenantLive.refreshNow('members');", groups_source)
 
         self.assertIn('const FAST_REFRESH_MS = 30000;', system_source)
         self.assertIn('usersPollingDisabled = true', system_source)
@@ -247,15 +251,17 @@ class MemberPollingTemplateTests(SimpleTestCase):
 
         self.assertIn("membersLoadState === 'loading'", groups_source)
         self.assertIn("membersLoadState === 'error'", groups_source)
-        self.assertIn("membersLoadState === 'empty'", groups_source)
+        self.assertIn("setMembersLoadState(members.length ? 'data' : 'empty')", groups_source)
+        self.assertIn('if (!list.length)', groups_source)
         self.assertNotIn('Owner sign-in is required', groups_source)
-        self.assertIn('Loaded public group members from database', groups_source)
+        self.assertIn("const usersPath = OWNER_DIRECTORY_ACCESS ? '/api/users/' : '/api/public-members/';", groups_source)
         self.assertIn('Could not load members, retry.', groups_source)
         self.assertIn('Too many requests, retrying shortly.', groups_source)
-        self.assertIn('window.TenantSync.subscribe', groups_source)
+        self.assertIn("window.TenantLive.register({\n        resource: 'members'", groups_source)
+        self.assertIn("window.TenantLive.register({\n        resource: 'groups'", groups_source)
         self.assertIn('publishTenantMutation', system_source)
         self.assertIn('window.TenantSync.subscribe', system_source)
-        self.assertIn("fetchAllApiPages(OWNER_DIRECTORY_ACCESS ? '/api/users/' : '/api/public-members/')", groups_source)
+        self.assertIn('fetchAllApiPages(usersPath, rows =>', groups_source)
         self.assertIn('The owner form must use the same configured framework', system_source)
         self.assertLess(len(sync_source.encode('utf-8')), 2048)
 
@@ -367,7 +373,9 @@ class FounderDashboardQueryTests(CacheIsolationMixin, TestCase):
         )
         self.client.force_login(founder)
 
-        with self.assertNumQueries(4):
+        # The request executes four application queries plus django-tenants'
+        # SET search_path statement before each query.
+        with self.assertNumQueries(8):
             response = self.client.post(reverse("founder_saas_system_control"), {
                 "action": "reset_owner_password",
                 "tenant_id": tenant.id,
@@ -618,6 +626,48 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         payload = json.loads(response.content)
         self.assertEqual(len(payload["data"]), 1)
         self.assertEqual(payload["data"][0]["registration_number"], "BCIT-001")
+
+    def test_bulk_clear_users_and_groups_is_bounded_and_tenant_scoped(self):
+        other_owner = OwnerUser.objects.create(
+            email="bulk-clear-other@example.com",
+            program_name="Other",
+            password="hash",
+            is_owner=True,
+            is_active=True,
+        )
+        own_user = User.objects.create(
+            full_name="Delete Me", registration_number="CLEAR-001", created_by=self.owner.id,
+        )
+        other_user = User.objects.create(
+            full_name="Keep Me", registration_number="CLEAR-OTHER-001", created_by=other_owner.id,
+        )
+        own_group = UserGroup.objects.create(group_name="Clear Group", created_by=self.owner.id)
+        other_group = UserGroup.objects.create(group_name="Other Group", created_by=other_owner.id)
+        own_membership = UserGroupMember.objects.create(user_id=own_user.id, group_id=own_group.id)
+        other_membership = UserGroupMember.objects.create(user_id=other_user.id, group_id=other_group.id)
+
+        request = RequestFactory().post(
+            "/api/users/clear-all/",
+            data=json.dumps({"include_groups": True}),
+            content_type="application/json",
+        )
+        request.tenant = self.tenant
+        request.session = {"service_user": {"user_type": "owner", "owner_id": self.owner.id}}
+
+        with schema_context(self.tenant.schema_name):
+            with self.assertNumQueries(14):
+                response = views.api_users_clear_all(request)
+
+        self.assertEqual(response.status_code, 200)
+        result = json.loads(response.content)
+        self.assertEqual(result["users_deleted"], 1)
+        self.assertEqual(result["groups_deleted"], 1)
+        self.assertFalse(User.objects.filter(id=own_user.id).exists())
+        self.assertTrue(User.objects.filter(id=other_user.id).exists())
+        self.assertFalse(UserGroup.objects.filter(id=own_group.id).exists())
+        self.assertTrue(UserGroup.objects.filter(id=other_group.id).exists())
+        self.assertFalse(UserGroupMember.objects.filter(id=own_membership.id).exists())
+        self.assertTrue(UserGroupMember.objects.filter(id=other_membership.id).exists())
 
     def test_owner_admin_login_can_create_then_list_users_on_ready_tenant(self):
         tenant_path = f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}"

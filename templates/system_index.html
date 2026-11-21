@@ -2514,13 +2514,11 @@ footer img:hover {
 }
 
 .user-table {
-  width: calc(100% / var(--user-table-zoom));
+  width: 100%;
   border-collapse: collapse;
   table-layout: auto;
   min-width: var(--user-table-min-width-base);
   font-size: calc(var(--user-table-font-base) * var(--user-table-zoom) / var(--user-table-zoom-base));
-  transform: scale(var(--user-table-zoom));
-  transform-origin: top left;
 }
 
 .user-table th {
@@ -3749,7 +3747,7 @@ footer img:hover {
 /* Shrink export and add user buttons */
 #usersTab .form-buttons {
   gap: 12px; /* Reduced from 15px */
-  margin-top: 22px; /* Reduced from 25px */
+  margin-top: 8px;
   flex-wrap: wrap;
   justify-content: center;
 }
@@ -9270,9 +9268,33 @@ async function flushAllGroups() {
 
 async function clearAllData() {
   if (!confirm('Are you sure you want to clear all users and all groups at once?')) return;
-  await flushAllUsers();
-  await flushAllGroups();
-  showTemporaryMessage('All users and groups cleared successfully!', 'success');
+
+  showLoadingSpinner('Clearing users and groups...', 'Removing members, group assignments, and groups');
+  try {
+    const response = await fetch('/api/users/clear-all/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCSRFToken(),
+      },
+      body: JSON.stringify({ include_groups: true }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Unable to clear users and groups.');
+    }
+
+    userData = [];
+    groups = [];
+    populateUserTable();
+    populateGroups();
+    showTemporaryMessage(`${result.users_deleted} users and ${result.groups_deleted} groups cleared successfully.`, 'success');
+  } catch (error) {
+    console.error('Error clearing users and groups:', error);
+    showTemporaryMessage(error.message || 'Error clearing users and groups.', 'error');
+  } finally {
+    hideLoadingSpinner();
+  }
 }
 
 function exportUsers() {

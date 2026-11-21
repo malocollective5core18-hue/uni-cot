@@ -1,5 +1,21 @@
 # Remediation Log
 
+## Owner dashboard bulk clear and user table footer spacing (2026-11-21)
+
+- Finding: User table zoom used `transform: scale()`, shrinking the visible table while leaving its unscaled height in document layout. The combined clear action issued one DELETE request per user and group, did not show a spinner, and left integer-ID membership rows behind.
+- Change: Removed the table transform so zoomed font and cell sizing determine its actual layout height, tightened the footer action spacing, and changed the combined action to one owner-scoped bulk request with a visible loading overlay. The bulk endpoint atomically deletes scoped membership rows, groups, and users while preserving the existing user-only clear behavior.
+- Files touched: `templates/system_index.html`, `mysite/core/views.py`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: `python3.12 -m compileall -q .`, `manage.py check`, and `makemigrations --check --dry-run` pass; the deployment check exits 0 with five existing security warnings. The focused tenant-scope/query-count regression passes at 14 queries (including django-tenants search-path setup), and the full suite passes all 108 tests. Browser visual verification was not run.
+- Remaining risk: Large tenants still require database time proportional to rows deleted, but the operation no longer incurs one HTTP round trip per row.
+
+## Full-suite failure follow-up and groups serialization query (2026-11-21)
+
+- Finding: The first verification run exposed stale test assumptions for current `TenantLive` behavior, Redis-gated readiness, django-tenants search-path statements, logger names, and plain `JsonResponse` objects. It also exposed a real extra query per serialized group because `assignment_mode` was read after being deferred by `.only()`.
+- Change: Selected `assignment_mode` with the group list; updated affected tests to assert the current implementation and count schema-switch statements; explicitly enabled the Redis readiness probe in its failure test; and decoded the direct `JsonResponse` body correctly.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`, `mysite/customers/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: All 7 formerly failing tests pass; full `manage.py test` passes all 108 tests. The existing query-count assertion for group member summaries now passes at 10 queries after removing the deferred-field lookup.
+- Remaining risk: The test suite does not replace live browser confirmation of the dashboard footer spacing.
+
 ## Owner table overflow and group sort clarity (2026-11-07)
 
 - Finding: Long owner names could overflow the constrained Full Name cell, and Group Management sort choices did not clearly communicate direction.

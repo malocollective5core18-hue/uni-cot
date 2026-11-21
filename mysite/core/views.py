@@ -1816,6 +1816,7 @@ def api_groups(request, *args, **kwargs):
                     'group_code',
                     'description',
                     'max_members',
+                    'assignment_mode',
                     'current_members',
                     'is_flagged',
                     'leader_id',
@@ -2735,11 +2736,34 @@ def api_users_clear_all(request, *args, **kwargs):
 
     if request.method == 'POST':
         try:
+            try:
+                body = json.loads(request.body or b'{}')
+            except json.JSONDecodeError:
+                return JsonResponse({'success': False, 'error': 'Invalid JSON'}, status=400)
+
             users = _scope_users_queryset(request)
-            count = users.count()
-            users.delete()
+            groups = _scope_groups_queryset(request)
+            members = _scope_group_members_queryset(request)
+            users_count = users.count()
+            groups_count = groups.count() if body.get('include_groups') is True else 0
+
+            with transaction.atomic():
+                if body.get('include_groups') is True:
+                    # These models use integer IDs rather than foreign keys, so
+                    # explicitly remove tenant-scoped assignment rows as well.
+                    # Raw deletes avoid loading every row into Django's collector;
+                    # these models have no FK cascades or delete signal handlers.
+                    members._raw_delete(members.db)
+                    groups._raw_delete(groups.db)
+                users._raw_delete(users.db)
+
             _invalidate_api_cache(request, 'users', 'groups')
-            return JsonResponse({'success': True, 'message': f'{count} users deleted successfully'})
+            return JsonResponse({
+                'success': True,
+                'message': f'{users_count} users deleted successfully',
+                'users_deleted': users_count,
+                'groups_deleted': groups_count,
+            })
         except Exception as e:
             logger.exception("api_users_clear_all POST error")
             return _unexpected_api_error()
