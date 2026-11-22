@@ -1092,7 +1092,6 @@
       .desktop-only { display: none !important; }
       .hide-on-mobile { display: none !important; }
       .topbar { padding: 8px 10px; }
-      .brand-title p { display: none; }
       .controls-bar { width: 100%; }
       .control-pill { flex: 1 1 auto; min-width: 0; }
       .control-pill input, .control-pill select { max-width: 100% !important; width: 100%; }
@@ -1243,9 +1242,7 @@
         gap: 4px;
       }
 
-      .brand-title p {
-        display: none;
-      }
+      .brand-title p { display: block; font-size: 0.58rem; line-height: 1.15; }
 
       .controls-bar {
         display: grid;
@@ -1403,6 +1400,10 @@
 
       .brand-title h1 {
         font-size: 0.68rem;
+      }
+
+      .brand-title p {
+        font-size: 0.52rem;
       }
 
       .controls-bar {
@@ -1899,6 +1900,17 @@
         return { code: cleaned.slice(0, 14), title: cleaned };
       }
 
+      function formatInstitutionSubtitle(title) {
+        const normalized = String(title || '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+        const semester = normalized.match(/\b(first|second|third|summer|winter)\s+semester\b/i);
+        const academicYear = normalized.match(/\b(20\d{2})\s*[\/ -]\s*(20\d{2})\b/);
+        if (semester && academicYear) {
+          const semesterName = semester[1][0].toUpperCase() + semester[1].slice(1).toLowerCase();
+          return `NIT • ${semesterName} Semester ${academicYear[1]}/${academicYear[2]}`;
+        }
+        return normalized || 'NIT • First Semester 2026/2027';
+      }
+
       function parseNitExcelWorkbook(workbook) {
         const sheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('student')) || workbook.SheetNames[0];
         const ws = workbook.Sheets[sheetName];
@@ -2282,6 +2294,8 @@
         // KPI strip removed
 
         (document.getElementById('sheetInstitutionTitle')||{textContent:''}).textContent = state.institutionTitle;
+        const institutionSubtitle = document.getElementById('institutionSubtitle');
+        if (institutionSubtitle) institutionSubtitle.textContent = formatInstitutionSubtitle(state.institutionTitle);
         document.getElementById('cohortHeading').textContent = `${state.cohort} • ${state.week}`;
         document.getElementById('drawerCohortLabel').textContent = state.cohort;
                 const isNarrow = window.innerWidth < 900;

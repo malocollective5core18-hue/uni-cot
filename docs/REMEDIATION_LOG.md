@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Show imported timetable semester on mobile (2026-11-23)
+
+- Finding: Mobile CSS hid the header subtitle, and timetable rendering never copied the imported workbook title into the visible `institutionSubtitle` element. Mobile users therefore could not see the semester/year from the Excel timetable.
+- Change: Kept the subtitle visible at mobile widths, formatted semester and academic year from the imported institution title, and refresh the subtitle whenever the grid renders.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added template regression assertions for visible mobile subtitle and imported-title binding. Template compilation, `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass; `check --deploy` exits 0 with five existing security warnings. `manage.py test` cannot create its PostgreSQL test database because local PostgreSQL access is unavailable (`/var/run/postgresql/.s.PGSQL.5432`: Operation not permitted).
+- Remaining risk: Workbooks whose title uses an unrecognized semester or academic-year format fall back to displaying the original title.
+
 ## Move the venue action into the timetable header (2026-11-23)
 
 - Finding: The venue action sat below the timetable in a separate bottom bar. Its margin and flex positioning added to the workspace height and could make the admin timetable look displaced or overflow its frame.
