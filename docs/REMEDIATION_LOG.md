@@ -1,5 +1,21 @@
 # Remediation Log
 
+## Shrink timetable header buttons at every screen size (2026-11-23)
+
+- Finding: Global mobile button rules enlarged the timetable manager's function buttons to 36px, and the venue action was also larger than its neighboring controls.
+- Change: Set manager header buttons to compact 24px height, smaller horizontal padding, and 0.62rem text; reduced the venue plus icon as well. The scoped rule overrides the mobile and short-screen button sizing rules.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added a template assertion for the scoped compact button rule. Template compilation, `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass; `check --deploy` exits 0 with five existing security warnings. `manage.py test` cannot create its PostgreSQL test database because local PostgreSQL access is unavailable (`/var/run/postgresql/.s.PGSQL.5432`: Operation not permitted).
+- Remaining risk: The button labels remain unchanged and can wrap to a second header row on very narrow screens.
+
+## Align timetable controls to the right (2026-11-23)
+
+- Finding: The timetable controls row aligned its buttons to the left below 900px and inherited a grid layout on mobile, so the function buttons did not stay at the right edge.
+- Change: Set the controls bar to justify its items to the end and kept manager controls in a right-aligned flex row at mobile widths.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added template assertions for right-aligned controls. Template compilation, `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass; `check --deploy` exits 0 with five existing security warnings. `manage.py test` cannot create its PostgreSQL test database because local PostgreSQL access is unavailable (`/var/run/postgresql/.s.PGSQL.5432`: Operation not permitted).
+- Remaining risk: If the controls exceed the available width, they wrap while remaining right-aligned.
+
 ## Show imported timetable semester on mobile (2026-11-23)
 
 - Finding: Mobile CSS hid the header subtitle, and timetable rendering never copied the imported workbook title into the visible `institutionSubtitle` element. Mobile users therefore could not see the semester/year from the Excel timetable.

@@ -127,6 +127,7 @@
       display: flex;
       flex-wrap: wrap;
       align-items: center;
+      justify-content: flex-end;
       gap: 6px;
     }
 
@@ -1025,7 +1026,7 @@
     }
     @media (max-width: 899px) {
       .topbar { padding: 6px 10px; gap: 6px; }
-      .controls-bar { width: 100%; justify-content: flex-start; gap: 4px; }
+      .controls-bar { width: 100%; justify-content: flex-end; gap: 4px; }
       .control-pill { height: 26px; }
       .btn { height: 26px; padding: 0 8px; font-size: 0.68rem; }
       .workspace { padding: 6px 6px 36px; }
@@ -1490,6 +1491,9 @@
     body.timetable-reader .action-stack,body.timetable-reader .step-dots{display:none!important}
     body.timetable-reader #undoBtn,body.timetable-reader #resetBtn{display:none!important}
     body.timetable-reader .switch-banner,body.timetable-reader .coach-bar{display:none!important}
+    body.timetable-manager .controls-bar{display:flex;justify-content:flex-end}
+    body.timetable-manager .controls-bar > .btn{height:24px!important;min-height:24px;padding:0 7px!important;font-size:.62rem!important;gap:3px;border-radius:6px}
+    body.timetable-manager #openVenuePanelBtn span:last-child{font-size:.78rem!important}
     .manager-cohort-nav{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;max-width:100%}.manager-cohort-nav button{border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#334155;padding:4px 9px;font-size:11px;cursor:pointer}.manager-cohort-nav button.active{background:#0f766e;border-color:#0f766e;color:#fff}
     html:has(body.timetable-manager),body.timetable-manager{height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto}
     body.timetable-manager{height:auto;min-height:100dvh}
