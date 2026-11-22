@@ -8,6 +8,9 @@ urlpatterns = [
     path('groups/', views.groups, name='groups'),
     path('properties/', views.properties, name='properties'),
     path('external-tables/', views.external_tables, name='external_tables'),
+    path('timetable/', views.timetable, name='timetable'),
+    path('api/timetable/state/', views.api_timetable_state, name='api_timetable_state'),
+    path('api/founder/timetable-source/', views.api_founder_timetable_source, name='api_founder_timetable_source'),
     # API endpoints for image posts (slider images)
     path('api/slider-images/', views.api_slider_images, name='api_slider_images'),
     path('api/slider-images/<str:image_id>/', views.api_slider_image_detail, name='api_slider_image_detail'),

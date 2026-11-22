@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Shared timetable and venue management (2026-11-22)
+
+- Finding: The standalone timetable component had no project routes or persistence, and its local browser storage could not share founder updates across owner tenants. Public timetable users also had no enforced read-only path.
+- Change: Added a founder-only shared Excel source stored in the public schema, tenant-scoped schedule/venue JSON state, owner-only writes, and a timetable route that renders the existing timetable component. Founder dashboard now uploads/replaces/deletes the source workbook. Owner dashboard has Schedule and Venue Management plus compact cohort navigation; public/member views support Find/Class and show an informational read-only popup. When the founder replaces the workbook, each tenant view merges the new baseline with matching owner status/venue overrides by cohort, day, slot, course code, and title. Added PostgreSQL/Supabase schema guidance.
+- Files touched: `mysite/core/models.py`, `mysite/core/migrations/0007_timetable_state_and_shared_source.py`, `mysite/core/views.py`, `mysite/core/urls.py`, `mysite/core/tests.py`, `templates/timetable.html`, `templates/admin_only/founder_SAAS_system_control.html`, `templates/system_index.html`, `docs/TIMETABLE_SUPABASE_SCHEMA.sql`, `docs/REMEDIATION_LOG.md`.
+- Evidence: `compileall`, `git diff --check`, Django template compilation, `manage.py check`, and `makemigrations --check --dry-run` passed. Full test suite: 111 tests passed, including `assertNumQueries` coverage for the timetable read and founder-source endpoints. `check --deploy` completed with five existing DEBUG/HTTPS cookie/HSTS warnings. Database-backed tests used the isolated Django test database.
+- Remaining risk: Live browser rendering and a real Cloudinary upload/replace/delete cycle were not verified. The founder workbook contents are parsed in the browser with the project’s existing SheetJS asset. Run the new core migration in public and every tenant schema during deployment; the SQL file is the equivalent schema reference.
+
 ## Owner dashboard bulk clear and user table footer spacing (2026-11-21)
 
 - Finding: User table zoom used `transform: scale()`, shrinking the visible table while leaving its unscaled height in document layout. The combined clear action issued one DELETE request per user and group, did not show a spinner, and left integer-ID membership rows behind.

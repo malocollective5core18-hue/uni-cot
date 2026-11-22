@@ -1510,6 +1510,18 @@ body.fc-active {
           </div>
         </div>
 
+        <section class="fc-priority-box" style="margin:22px 0" aria-labelledby="shared-timetable-title">
+          <div class="fc-pbox-header"><span class="chip chip-warn">System information</span><span class="fc-pbox-title" id="shared-timetable-title">Shared timetable source</span></div>
+          <p class="fc-pstep-body" id="founderTimetableStatus">{% if founder_timetable_source %}Current file: {{ founder_timetable_source.filename }}{% else %}No shared Excel timetable has been uploaded yet.{% endif %}</p>
+          <div class="fc-btn-row" style="margin-top:14px;align-items:center">
+            <input type="file" id="founderTimetableFile" accept=".xlsx,.xls">
+            <button class="btn btn-primary" type="button" id="founderTimetableUpload">Upload / replace workbook</button>
+            <button class="btn btn-ghost" type="button" id="founderTimetableDelete" {% if not founder_timetable_source %}disabled{% endif %}>Delete workbook</button>
+            <span id="founderTimetableBusy" role="status" hidden>Working…</span>
+          </div>
+          <small class="fc-pstep-body">The current workbook is the shared starting schedule for every owner workspace.</small>
+        </section>
+
         <!-- Metrics -->
         <div class="fc-metrics">
           <div class="fc-metric">
@@ -2400,6 +2412,36 @@ body.fc-active {
     if (id && document.getElementById("page-" + id) && id !== current) {
       switchTo(id);
     }
+  });
+
+  var timetableFile = document.getElementById('founderTimetableFile');
+  var timetableStatus = document.getElementById('founderTimetableStatus');
+  var timetableBusy = document.getElementById('founderTimetableBusy');
+  function founderCsrf() {
+    var item = document.cookie.split('; ').find(function(part) { return part.indexOf('csrftoken=') === 0; });
+    return item ? decodeURIComponent(item.split('=').slice(1).join('=')) : '';
+  }
+  async function updateFounderTimetable(method) {
+    timetableBusy.hidden = false;
+    try {
+      var options = { method: method, headers: { 'X-CSRFToken': founderCsrf() } };
+      if (method === 'POST') {
+        if (!timetableFile.files[0]) throw new Error('Choose an Excel workbook first.');
+        var data = new FormData(); data.append('file', timetableFile.files[0]); options.body = data;
+      }
+      var response = await fetch('/api/founder/timetable-source/', options);
+      var payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not update timetable.');
+      timetableStatus.textContent = payload.data ? 'Current file: ' + payload.data.filename : 'No shared Excel timetable has been uploaded yet.';
+      document.getElementById('founderTimetableDelete').disabled = !payload.data;
+      timetableFile.value = '';
+    } catch (error) {
+      timetableStatus.textContent = error.message;
+    } finally { timetableBusy.hidden = true; }
+  }
+  document.getElementById('founderTimetableUpload').addEventListener('click', function() { updateFounderTimetable('POST'); });
+  document.getElementById('founderTimetableDelete').addEventListener('click', function() {
+    if (window.confirm('Delete the shared timetable workbook?')) updateFounderTimetable('DELETE');
   });
 })();
 </script>

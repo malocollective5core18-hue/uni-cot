@@ -29,10 +29,12 @@ from .models import (
     CountdownCard,
     ExternalTable,
     ExternalTableRecord,
+    FounderTimetableSource,
     ImagePost,
     Property,
     RegistrationFormField,
     SystemSetting,
+    TenantTimetableState,
     User,
     UserGroup,
     UserGroupMember,
@@ -661,6 +663,167 @@ def external_tables(request, *args, **kwargs):
     })
 
 
+@ensure_csrf_cookie
+def timetable(request, *args, **kwargs):
+    tenant = getattr(request, 'tenant', None)
+    can_manage = False
+    if tenant and getattr(tenant, 'schema_name', None) not in {None, '', 'public'}:
+        from service.views import _has_owner_admin_access
+        can_manage = _has_owner_admin_access(request, tenant)
+    return render(request, 'timetable.html', {
+        'tenant': tenant,
+        'tenant_base_path': _tenant_base_path(request),
+        'can_manage_timetable': can_manage,
+    })
+
+
+def _founder_timetable_source_payload():
+    source = FounderTimetableSource.objects.filter(pk=1).first()
+    if not source:
+        return None
+    try:
+        url = source.file.url
+    except (ValueError, OSError):
+        url = ''
+    return {
+        'filename': source.original_filename,
+        'url': url,
+        'version': source.version,
+        'uploaded_at': source.uploaded_at.isoformat() if source.uploaded_at else None,
+    }
+
+
+@require_http_methods(['GET', 'PUT'])
+def api_timetable_state(request, *args, **kwargs):
+    """Read the current tenant timetable; only its owner can save changes."""
+    tenant = getattr(request, 'tenant', None)
+    if request.method == 'GET':
+        source_data = None
+        try:
+            with schema_context('public'):
+                source_data = _founder_timetable_source_payload()
+        except (DatabaseError, OperationalError, ProgrammingError):
+            logger.exception('Could not read shared timetable source metadata')
+
+        state_row = TenantTimetableState.objects.filter(pk=1).first() if tenant and getattr(tenant, 'schema_name', None) != 'public' else None
+        return JsonResponse({
+            'success': True,
+            'data': state_row.state if state_row else None,
+            'revision': state_row.revision if state_row else 0,
+            'source_version': source_data['version'] if source_data else 0,
+            'source': source_data,
+        })
+
+    denied = _ensure_owner_system_access(request)
+    if denied:
+        return denied
+    if not tenant or getattr(tenant, 'schema_name', None) == 'public':
+        return JsonResponse({'success': False, 'error': 'A tenant workspace is required'}, status=400)
+    try:
+        if len(request.body) > 20 * 1024 * 1024:
+            return JsonResponse({'success': False, 'error': 'Timetable data exceeds the 20 MB limit'}, status=413)
+        body = json.loads(request.body or b'{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Invalid JSON payload'}, status=400)
+    if not isinstance(body, dict):
+        return JsonResponse({'success': False, 'error': 'Timetable payload must be an object'}, status=400)
+    state = body.get('state')
+    schedules = state.get('schedules') if isinstance(state, dict) else None
+    if not isinstance(schedules, list) or len(schedules) > 20000:
+        return JsonResponse({'success': False, 'error': 'Timetable state must contain a valid schedules list'}, status=400)
+
+    allowed_days = {'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'}
+    allowed_schedule_keys = {
+        'id', 'cohort', 'code', 'title', 'lecturer', 'day', 'startSlot', 'duration',
+        'venue', 'status', 'needsVenue', 'venueObtained', 'temp', 'tempId', 'dateLabel',
+        'expiresAt', 'swapType', 'swapUntil', 'activityType', 'leader', 'agenda',
+    }
+    clean_schedules = []
+    for item in schedules:
+        if not isinstance(item, dict):
+            return JsonResponse({'success': False, 'error': 'Every schedule entry must be an object'}, status=400)
+        if item.get('day') not in allowed_days:
+            return JsonResponse({'success': False, 'error': 'Schedule entry has an invalid day'}, status=400)
+        try:
+            start_slot = int(item.get('startSlot'))
+            duration = int(item.get('duration'))
+        except (TypeError, ValueError):
+            return JsonResponse({'success': False, 'error': 'Schedule entry has an invalid time slot'}, status=400)
+        if not 0 <= start_slot < 14 or not 1 <= duration <= 14 - start_slot:
+            return JsonResponse({'success': False, 'error': 'Schedule entry is outside the timetable hours'}, status=400)
+        clean_item = {key: value for key, value in item.items() if key in allowed_schedule_keys}
+        for key in ('id', 'cohort', 'code', 'title', 'lecturer', 'venue', 'status', 'swapType', 'swapUntil', 'activityType', 'leader', 'agenda'):
+            if key in clean_item and clean_item[key] is not None:
+                clean_item[key] = str(clean_item[key])[:500]
+        clean_item['startSlot'] = start_slot
+        clean_item['duration'] = duration
+        clean_schedules.append(clean_item)
+
+    raw_venues = state.get('venues', [])
+    if not isinstance(raw_venues, list):
+        return JsonResponse({'success': False, 'error': 'Venues must be a list'}, status=400)
+    try:
+        source_version = max(0, int(body.get('source_version') or 0))
+    except (TypeError, ValueError):
+        return JsonResponse({'success': False, 'error': 'Invalid timetable source version'}, status=400)
+    clean_state = {
+        'institutionTitle': str(state.get('institutionTitle') or '')[:255],
+        'sourceLabel': str(state.get('sourceLabel') or 'Founder timetable')[:255],
+        'cohort': str(state.get('cohort') or '')[:100],
+        'schedules': clean_schedules,
+        'venues': [str(value)[:255] for value in raw_venues if isinstance(value, (str, int, float))][:500],
+        'lastSundayReview': state.get('lastSundayReview'),
+        'sourceVersion': source_version,
+    }
+    with transaction.atomic():
+        state_row, _created = TenantTimetableState.objects.select_for_update().get_or_create(pk=1)
+        state_row.state = clean_state
+        state_row.source_version = clean_state['sourceVersion']
+        state_row.updated_by_owner_id = _get_product_owner_id(request)
+        state_row.revision += 1
+        state_row.save(update_fields=['state', 'source_version', 'updated_by_owner_id', 'revision', 'updated_at'])
+    return JsonResponse({'success': True, 'revision': state_row.revision})
+
+
+@require_http_methods(['GET', 'POST', 'DELETE'])
+def api_founder_timetable_source(request, *args, **kwargs):
+    """Founder-only current XLSX source shared with all public timetable views."""
+    if not request.user.is_authenticated or not request.user.is_staff or not request.user.is_active:
+        return JsonResponse({'success': False, 'error': 'Founder access required'}, status=403)
+
+    with schema_context('public'):
+        current = FounderTimetableSource.objects.filter(pk=1).first()
+        if request.method == 'GET':
+            return JsonResponse({'success': True, 'data': _founder_timetable_source_payload()})
+
+        if request.method == 'POST':
+            upload = request.FILES.get('file')
+            if not upload or not upload.name.lower().endswith(('.xlsx', '.xls')):
+                return JsonResponse({'success': False, 'error': 'Choose an Excel .xlsx or .xls file.'}, status=400)
+            if upload.size > 25 * 1024 * 1024:
+                return JsonResponse({'success': False, 'error': 'Timetable files must be 25 MB or smaller.'}, status=400)
+            old_name = current.file.name if current and current.file else None
+            if current is None:
+                current = FounderTimetableSource(pk=1)
+            current.original_filename = upload.name[:255]
+            current.uploaded_by_id = request.user.id
+            current.version = (current.version or 0) + 1
+            current.file = upload
+            current.save()
+            if old_name and old_name != current.file.name:
+                storage = current.file.storage
+                transaction.on_commit(lambda: storage.delete(old_name))
+            return JsonResponse({'success': True, 'data': _founder_timetable_source_payload()})
+
+        if current:
+            file_name = current.file.name if current.file else None
+            storage = current.file.storage if current.file else None
+            current.delete()
+            if file_name and storage:
+                transaction.on_commit(lambda: storage.delete(file_name))
+    return JsonResponse({'success': True, 'data': None})
+
+
 # ---------------------------------------------------------------------------
 # Founder / SaaS control panel
 # ---------------------------------------------------------------------------
@@ -927,6 +1090,11 @@ def founder_saas_system_control(request, *args, **kwargs):
         'review_signals': review_signals,
         'today': timezone.now().date(),
     }
+    try:
+        with schema_context('public'):
+            context['founder_timetable_source'] = _founder_timetable_source_payload()
+    except (DatabaseError, OperationalError, ProgrammingError):
+        context['founder_timetable_source'] = None
     return render(request, 'admin_only/founder_SAAS_system_control.html', context)
 
 

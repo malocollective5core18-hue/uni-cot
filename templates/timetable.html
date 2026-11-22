@@ -1,0 +1,3293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>uni-cot | Academic Timetable Console</title>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      /* system_index.html RING-0 root palette */
+      --bg: #0f1220;
+      --card: #171a2e;
+      --accent: #5b8cff;
+      --text: #e8eaf6;
+      --muted: #9aa0c6;
+      --success: #35d07f;
+      --warning: #ff6b6b;
+      --bg-canvas: #0f1220;
+      --bg-surface: #171a2e;
+      --bg-subtle: rgba(255, 255, 255, 0.06);
+      --border-hairline: rgba(255, 255, 255, 0.12);
+      --border-grid: rgba(255, 255, 255, 0.14);
+      --text-primary: #e8eaf6;
+      --text-secondary: #c5c9e8;
+      --text-muted: #9aa0c6;
+      --accent-green: #35d07f;
+      --accent-green-dark: #22b86a;
+      --accent-green-border: #35d07f;
+      --accent-green-tint: rgba(53, 208, 127, 0.18);
+      --accent-green-tint-hover: rgba(53, 208, 127, 0.28);
+      --accent-blue: #5b8cff;
+      --accent-red: #ff6b6b;
+      --accent-amber: #fbbf24;
+      --accent-purple: #8b5cf6;
+      --dash-bg: linear-gradient(120deg, #0f1220, #0b0e1a);
+      --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+      --shadow-sm: 0 4px 16px rgba(0, 0, 0, 0.4);
+      --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      background: linear-gradient(120deg, #0f1220, #0b0e1a);
+      background-attachment: fixed;
+      color: var(--text-primary);
+      font-size: 13px;
+      line-height: 1.35;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Compact SaaS Dashboard Topbar */
+    .topbar {
+      background: linear-gradient(270deg, #0f1220, #0b0e1a, #1b1f3d, #0f1220);
+      background-size: 800% 800%;
+      animation: uniGradientBG 15s ease infinite;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      padding: 6px 12px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      box-shadow: var(--shadow-sm);
+    }
+    @keyframes uniGradientBG {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .brand-badge {
+      background: linear-gradient(135deg, #5b8cff, #8b5cf6);
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 0.72rem;
+      padding: 4px 10px;
+      border-radius: 10px;
+      letter-spacing: 0.06em;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      box-shadow: 0 0 14px rgba(139, 92, 246, 0.4);
+    }
+
+    .brand-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #34d399;
+      display: inline-block;
+      box-shadow: 0 0 6px #34d399;
+    }
+
+    .brand-title h1 {
+      font-size: 0.84rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    .brand-title p {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+    }
+
+    .controls-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .control-pill {
+      display: inline-flex;
+      align-items: center;
+      background: rgba(23, 26, 46, 0.9);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-sm);
+      padding: 2px 6px;
+      height: 28px;
+      gap: 4px;
+      transition: border-color 0.15s ease;
+    }
+
+    .control-pill:focus-within {
+      border-color: rgba(56, 189, 248, 0.5);
+      background: #171a2e;
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.12);
+    }
+
+    .control-pill label {
+      font-size: 0.64rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    select, input[type="text"] {
+      border: none;
+      background: transparent;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      padding: 2px 4px;
+      outline: none;
+    }
+    select option { background: #0f172a; color: #e2e8f0; }
+
+    select {
+      cursor: pointer;
+      max-width: 175px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      padding: 0 10px;
+      height: 28px;
+      font-size: 0.74rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.14s ease;
+      white-space: nowrap;
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .btn-ghost {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: var(--border-hairline);
+      color: var(--text-secondary);
+    }
+    .btn-ghost:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-primary);
+      border-color: rgba(91, 140, 255, 0.35);
+    }
+    .btn-primary-dark {
+      background: linear-gradient(135deg, #5b8cff, #3b6fd9);
+      color: #eef8ff;
+      border-color: transparent;
+      box-shadow: 0 0 12px rgba(91, 140, 255, 0.35);
+    }
+    .btn-primary-dark:hover:not(:disabled) {
+      filter: brightness(1.08);
+      transform: translateY(-1px);
+    }
+    .btn-green {
+      background: linear-gradient(135deg, #34d399, #10b981);
+      color: #042f2e;
+      border-color: transparent;
+    }
+    .btn-green:hover:not(:disabled) { filter: brightness(1.08); }
+    .btn-red {
+      background: rgba(251, 113, 133, 0.14);
+      color: #fecdd3;
+      border-color: rgba(251, 113, 133, 0.35);
+    }
+    .btn-red:hover:not(:disabled) { background: rgba(251, 113, 133, 0.24); }
+    .btn-venue {
+      background: #5b8cff;
+      color: #ffffff;
+      font-weight: 700;
+      padding: 0 13px;
+      height: 29px;
+      border-radius: 999px;
+      box-shadow: 0 2px 12px rgba(56, 189, 248, 0.3);
+      border-color: transparent;
+    }
+    .btn-venue:hover { filter: brightness(1.08); transform: translateY(-1px); }
+
+    /* Slim Utility Sub-bar (Import + KPI Metrics Strip like Chap-Record) */
+    .sub-strip {
+      background: #0f1220;
+      border-bottom: 1px solid var(--border-hairline);
+      padding: 6px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .sub-strip.dragover {
+      background: rgba(52, 211, 153, 0.12);
+      outline: 1.5px dashed var(--accent-green);
+    }
+
+    .kpi-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .kpi-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-hairline);
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+    }
+
+    .kpi-chip strong {
+      color: var(--text-primary);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .kpi-chip.green strong { color: var(--accent-green); }
+    .kpi-chip.red strong { color: var(--accent-red); }
+    .kpi-chip.amber strong { color: var(--accent-amber); }
+
+    .import-strip-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    /* Switch Mode Slim Alert */
+    .switch-banner {
+      display: none;
+      background: rgba(251, 191, 36, 0.12);
+      border-bottom: 1px solid rgba(251, 191, 36, 0.35);
+      padding: 6px 16px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 0.74rem;
+      color: #fde68a;
+    }
+
+    .switch-banner.active {
+      display: flex;
+    }
+
+    /* Workspace Container */
+    .workspace {
+      padding: 10px 12px 40px;
+      max-width: 1760px;
+      width: 100%;
+      margin: 0 auto;
+      flex: 1;
+    }
+
+    .sheet-card {
+      background: var(--card);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      overflow: hidden;
+    }
+
+    /* Compact Institutional Sheet Header */
+    .sheet-header {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border-grid);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .sheet-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .cohort-pill {
+      border: 1.5px solid rgba(251, 113, 133, 0.55);
+      color: var(--text-primary);
+      font-size: 0.78rem;
+      font-weight: 800;
+      padding: 2px 12px;
+      border-radius: 999px;
+      letter-spacing: 0.02em;
+      background: rgba(251, 113, 133, 0.12);
+    }
+
+    .inst-name {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+    }
+
+    .legend-inline {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.68rem;
+      color: var(--text-muted);
+    }
+
+    .legend-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+
+    /* High-Density Crisp Timetable Grid */
+    .table-scroll {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    table.timetable {
+      width: 100%;
+      min-width: 0;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    table.timetable th,
+    table.timetable td {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      text-align: center;
+      vertical-align: middle;
+      position: relative;
+    }
+
+    table.timetable thead th {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-secondary);
+      font-size: 0.58rem;
+      font-weight: 700;
+      padding: 4px 1px;
+      border-bottom: 1.5px solid rgba(91, 140, 255, 0.35);
+      line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+      word-break: break-word;
+    }
+
+    table.timetable thead th.corner-cell {
+      width: 52px;
+      min-width: 48px;
+      background: rgba(91, 140, 255, 0.12);
+      font-size: 0.55rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      padding: 4px 2px;
+    }
+
+    table.timetable tbody th.day-cell {
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      padding: 4px 2px;
+      border-right: 1.5px solid rgba(91, 140, 255, 0.28);
+      width: 52px;
+      min-width: 48px;
+      line-height: 1.15;
+    }
+
+    table.timetable tbody tr {
+      height: 58px;
+    }
+
+    table.timetable td.empty-slot {
+      color: rgba(148, 163, 184, 0.55);
+      font-size: 0.6rem;
+      user-select: none;
+      background: transparent;
+    }
+
+    table.timetable td.empty-slot.break-slot {
+      background-color: rgba(15, 23, 42, 0.35);
+      color: rgba(148, 163, 184, 0.4);
+    }
+
+    td.schedule-cell {
+      padding: 1.5px;
+      vertical-align: stretch;
+      background: transparent;
+    }
+
+    .schedule-block {
+      height: 100%;
+      min-height: 52px;
+      border: 2px solid #35d07f;
+      background: linear-gradient(180deg, rgba(53, 208, 127, 0.28), rgba(53, 208, 127, 0.14));
+      border-radius: 6px;
+      padding: 3px 5px;
+      text-align: left;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      cursor: pointer;
+      transition: all 0.14s ease;
+      position: relative;
+      overflow: hidden;
+      box-shadow: inset 0 0 0 1px rgba(53, 208, 127, 0.2);
+    }
+
+    .schedule-block:hover {
+      background: rgba(53, 208, 127, 0.26);
+      box-shadow: 0 0 0 1px rgba(53, 208, 127, 0.45);
+    }
+
+    .schedule-block.selected-source {
+      border-color: #fbbf24;
+      background-color: rgba(251, 191, 36, 0.18);
+      box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.4);
+    }
+
+    .schedule-block.switch-target-hover:hover {
+      border-color: var(--accent-blue);
+      background-color: rgba(2, 132, 199, 0.16);
+    }
+
+    .schedule-block.conflict-venue {
+      border-color: var(--accent-amber) !important;
+      background: linear-gradient(180deg, rgba(251, 191, 36, 0.32), rgba(251, 191, 36, 0.16)) !important;
+      box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.35);
+    }
+
+    .schedule-block.is-switched {
+      border-color: var(--accent-purple) !important;
+      background: linear-gradient(180deg, rgba(139, 92, 246, 0.32), rgba(139, 92, 246, 0.16)) !important;
+      box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.35);
+    }
+
+    .schedule-block.is-switched .sb-code {
+      color: #c4b5fd;
+    }
+
+    .schedule-block.is-switched .sb-venue {
+      color: #a78bfa;
+    }
+
+    .swap-tag {
+      font-size: 0.48rem;
+      font-weight: 800;
+      color: #c4b5fd;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    tr.current-day-row th.day-cell,
+    tr.current-day-row td {
+      background: rgba(91, 140, 255, 0.12) !important;
+    }
+    tr.current-day-row th.day-cell {
+      box-shadow: inset 3px 0 0 #5b8cff;
+      color: #93c5fd !important;
+    }
+
+    .sb-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 2px;
+      margin-bottom: 0;
+    }
+
+    .sb-code {
+      font-size: 0.62rem;
+      font-weight: 800;
+      color: #6ee7b7;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.15;
+    }
+
+    .sb-title {
+      font-size: 0.6rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.2;
+      margin: 0;
+      /* allow 2 lines — Excel-like full module name */
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      word-break: break-word;
+    }
+
+    .sb-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      margin-top: 1px;
+      min-height: 0;
+    }
+
+    .sb-lecturer {
+      font-size: 0.55rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.2;
+    }
+
+    .sb-venue {
+      font-size: 0.55rem;
+      font-weight: 700;
+      color: #7dd3c0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.2;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      font-size: 0.48rem;
+      font-weight: 800;
+      padding: 0 3px;
+      border-radius: 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      flex-shrink: 0;
+      line-height: 1.3;
+    }
+
+    .status-kipo {
+      background: var(--accent-green);
+      color: #ffffff;
+    }
+
+    .status-hakipo {
+      background: var(--accent-red);
+      color: #ffffff;
+    }
+
+    .schedule-block.is-hakipo {
+      border-style: dashed;
+      border-color: var(--accent-red);
+      background-color: rgba(220, 38, 38, 0.07);
+    }
+
+    .schedule-block.is-hakipo .sb-title {
+      text-decoration: line-through;
+      opacity: 0.65;
+    }
+
+    .venue-conflict-tag {
+      font-size: 0.48rem;
+      font-weight: 800;
+      color: var(--accent-amber);
+      line-height: 1.2;
+    }
+
+    /* Compact Bottom Action Bar */
+    .bottom-action-bar {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    /* Sleek Compact Modal / Popover */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.72);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 12px;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .popover-card {
+      background: #171a2e;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      width: 100%;
+      max-width: 390px;
+      border: 1px solid var(--border-hairline);
+      overflow: hidden;
+      animation: popIn 0.14s ease;
+      color: var(--text-primary);
+    }
+
+    @keyframes popIn {
+      from { transform: scale(0.97); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+
+    .popover-header {
+      padding: 11px 14px;
+      background: rgba(91, 140, 255, 0.1);
+      border-bottom: 1px solid var(--border-hairline);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .popover-header h3 {
+      font-size: 0.85rem;
+      font-weight: 800;
+      color: var(--text-primary);
+    }
+
+    .popover-header p {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    .close-btn {
+      background: transparent;
+      border: none;
+      font-size: 1.1rem;
+      line-height: 1;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+
+    .close-btn:hover {
+      background: var(--border-hairline);
+      color: var(--text-primary);
+    }
+
+    .popover-body {
+      padding: 12px 14px;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 82px 1fr;
+      gap: 5px 8px;
+      font-size: 0.74rem;
+      margin-bottom: 12px;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 9px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-hairline);
+    }
+
+    .detail-label {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .detail-val {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .action-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .action-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+    }
+
+    .switch-compare {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      margin-bottom: 10px;
+    }
+
+    .switch-item {
+      border: 1px solid var(--border-grid);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 0.73rem;
+    }
+
+    .switch-item strong {
+      display: block;
+      color: var(--text-primary);
+      margin-bottom: 2px;
+    }
+
+    .switch-arrow {
+      font-size: 0.7rem;
+      color: var(--accent-blue);
+      font-weight: 700;
+      margin-top: 3px;
+    }
+
+    .conflict-box {
+      background: rgba(251, 113, 133, 0.12);
+      border: 1px solid rgba(251, 113, 133, 0.35);
+      color: #fecdd3;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 0.71rem;
+      margin-bottom: 10px;
+      display: none;
+    }
+
+    .conflict-box.visible {
+      display: block;
+    }
+
+    /* Compact Venue Drawer */
+    .drawer-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.65);
+      display: none;
+      justify-content: flex-end;
+      z-index: 110;
+    }
+
+    .drawer-backdrop.open {
+      display: flex;
+    }
+
+    .drawer-panel {
+      background: #171a2e;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      width: 100%;
+      max-width: 390px;
+      height: 100%;
+      box-shadow: -8px 0 32px rgba(0, 0, 0, 0.45), 0 0 24px rgba(91, 140, 255, 0.12);
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid var(--border-hairline);
+      color: var(--text-primary);
+    }
+
+    .drawer-body {
+      padding: 12px 14px;
+      overflow-y: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .form-group label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .form-control {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid var(--border-grid);
+      border-radius: var(--radius-sm);
+      font-size: 0.75rem;
+      background: rgba(15, 23, 42, 0.65);
+      color: var(--text-primary);
+      max-width: 100%;
+    }
+    .form-control:focus {
+      border-color: rgba(56, 189, 248, 0.5);
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.12);
+    }
+
+    .venue-overview-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .venue-row-card {
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-sm);
+      padding: 7px 9px;
+      background: rgba(255, 255, 255, 0.04);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.71rem;
+    }
+    .venue-row-card.has-conflict {
+      border-color: rgba(251, 113, 133, 0.5);
+      background: rgba(251, 113, 133, 0.1);
+    }
+
+
+    /* Open-venue finder */
+    .vf-title { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-secondary); }
+    .vf-bar { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 6px; }
+    .vf-bar .form-group label { font-size: 0.62rem; }
+    .vf-count { font-size: 0.68rem; color: #64748b; }
+    .vf-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .venue-chip {
+      border: 1px solid var(--border-grid);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-primary);
+      border-radius: var(--radius-sm);
+      padding: 6px 8px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: left;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+    }
+    .venue-chip small { display: block; font-size: 0.58rem; font-weight: 600; color: #5eead4; }
+    .venue-chip.selected { border-color: #5eead4; background: rgba(94, 234, 212, 0.14); }
+    .vf-empty { font-size: 0.7rem; color: #64748b; padding: 6px 0; }
+    .lesson-check {
+      display: flex; gap: 8px; align-items: flex-start;
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-sm);
+      padding: 6px 8px;
+      font-size: 0.7rem;
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .lesson-check input { margin-top: 2px; }
+    .lesson-check .lc-sub { color: #64748b; }
+
+    .vf-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 8px; }
+    .vf-seg-btn {
+      border: 1px solid var(--border-grid);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-secondary);
+      padding: 6px 8px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .vf-seg-btn:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+    .vf-seg-btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; border-left: none; }
+    .vf-seg-btn.active { background: rgba(94, 234, 212, 0.14); color: #5eead4; border-color: #5eead4; }
+    .vf-seg-btn:last-child.active { border-left: 1px solid #5eead4; }
+    #vfAddForm { display: none; flex-direction: column; gap: 8px; }
+    #vfAddForm.show { display: flex; }
+
+    .schedule-block.is-obtained:not(.conflict-venue) {
+      border-color: #facc15 !important;
+      background: linear-gradient(180deg, rgba(250, 204, 21, 0.34), rgba(250, 204, 21, 0.18)) !important;
+      box-shadow: inset 0 0 0 1px rgba(250, 204, 21, 0.45), 0 1px 3px rgba(0, 0, 0, 0.25);
+    }
+    .schedule-block.is-obtained .sb-venue { color: #fde047; font-weight: 800; }
+    .schedule-block.is-obtained .sb-code { color: #fef08a; }
+    .obtained-tag { font-size: 0.48rem; font-weight: 800; color: #fde047; line-height: 1.2; text-transform: uppercase; }
+    .vf-sub { font-size: 0.66rem; font-weight: 700; color: var(--text-secondary); margin: 4px 0 2px; }
+
+
+    /* Step-by-step venue flow */
+    .vf-step {
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-sm);
+      padding: 9px 10px;
+      background: rgba(255, 255, 255, 0.03);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .vf-step-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .vf-change {
+      border: 1px solid var(--border-grid);
+      background: transparent;
+      color: #93c5fd;
+      font-size: 0.65rem;
+      font-weight: 700;
+      border-radius: var(--radius-sm);
+      padding: 3px 8px;
+      cursor: pointer;
+    }
+    .vf-step-sum { font-size: 0.78rem; font-weight: 800; color: #5eead4; }
+    .vf-bar2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 6px; }
+    .subject-btn {
+      width: 100%;
+      text-align: left;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+    .subject-btn:hover { border-color: #5eead4; background: rgba(94, 234, 212, 0.08); }
+    .vf-weekly summary { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-secondary); cursor: pointer; }
+    .vf-weekly .venue-overview-list { margin-top: 6px; }
+
+    /* Centered popups (override the bottom-sheet look on phones) */
+    #venueConfirmModal, #tempEditModal { align-items: center !important; justify-content: center !important; padding: 12px !important; }
+    #venueConfirmModal .popover-card, #tempEditModal .popover-card {
+      margin: auto !important; width: 100%; max-width: 360px !important; border-radius: 14px !important;
+    }
+    .venue-row-card.pending { border-color: rgba(250, 204, 21, 0.55); background: rgba(250, 204, 21, 0.08); }
+    .taken-row:hover { border-color: #5eead4; }
+
+    /* Compact Toast */
+    .toast-container {
+      position: fixed;
+      bottom: 14px;
+      right: 14px;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: 320px;
+    }
+
+    .toast {
+      background: #171a2e;
+      color: #ffffff;
+      padding: 8px 12px;
+      border-radius: var(--radius-md);
+      font-size: 0.74rem;
+      box-shadow: var(--shadow-lg);
+      border: 1px solid var(--border-hairline);
+      border-left: 3px solid var(--accent-green);
+    }
+    .toast.warning { border-left-color: #fbbf24; }
+    .toast.error { border-left-color: var(--accent-red); }
+
+    /* Responsive density */
+    @media (min-width: 900px) {
+      table.timetable thead th { font-size: 0.6rem; padding: 4px 2px; }
+      table.timetable thead th.corner-cell,
+      table.timetable tbody th.day-cell { width: 56px; min-width: 52px; font-size: 0.65rem; }
+      table.timetable tbody tr { height: 78px; }
+      .schedule-block { padding: 3px 5px; }
+      .sb-code { font-size: 0.68rem; }
+      .sb-title { font-size: 0.64rem; }
+      .sb-lecturer, .sb-venue { font-size: 0.58rem; }
+    }
+    @media (min-width: 1200px) {
+      table.timetable thead th { font-size: 0.64rem; }
+      table.timetable thead th.corner-cell,
+      table.timetable tbody th.day-cell { width: 64px; min-width: 58px; font-size: 0.7rem; }
+      table.timetable tbody tr { height: 84px; }
+      .schedule-block { padding: 4px 6px; }
+      .sb-code { font-size: 0.72rem; }
+      .sb-title { font-size: 0.68rem; }
+      .sb-lecturer, .sb-venue { font-size: 0.6rem; }
+    }
+    @media (max-width: 899px) {
+      .topbar { padding: 6px 10px; gap: 6px; }
+      .controls-bar { width: 100%; justify-content: flex-start; gap: 4px; }
+      .control-pill { height: 26px; }
+      .btn { height: 26px; padding: 0 8px; font-size: 0.68rem; }
+      .workspace { padding: 6px 6px 36px; }
+      .sheet-header { padding: 6px 8px; }
+      table.timetable thead th { font-size: 0.48rem; padding: 2px 0; }
+      table.timetable thead th.corner-cell,
+      table.timetable tbody th.day-cell { width: 34px; min-width: 30px; font-size: 0.5rem; padding: 2px 1px; }
+      table.timetable tbody tr { height: 58px; }
+      .schedule-block { padding: 2px 3px; border-radius: 3px; border-width: 1.25px; }
+      .sb-code { font-size: 0.52rem; }
+      .sb-title { font-size: 0.5rem; -webkit-line-clamp: 2; }
+      .sb-lecturer, .sb-venue { font-size: 0.46rem; }
+      .popover-card { max-width: 96vw; }
+      .drawer-panel { max-width: 100%; }
+    }
+    @media (max-width: 400px) {
+      table.timetable thead th.corner-cell,
+      table.timetable tbody th.day-cell { width: 28px; min-width: 26px; font-size: 0.46rem; }
+      table.timetable tbody tr { height: 54px; }
+      .sb-title { -webkit-line-clamp: 1; }
+    }
+
+
+    /* Progressive next-step coach (flowchart-guided) */
+    .coach-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 12px;
+      background: rgba(91, 140, 255, 0.12);
+      border-bottom: 1px solid rgba(91, 140, 255, 0.35);
+      color: #cfe0ff;
+      font-size: 0.74rem;
+    }
+    .coach-bar.active { display: flex; flex-wrap: wrap; }
+    .coach-bar strong { color: #fff; }
+    .coach-step {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+      min-width: 0;
+    }
+    .coach-num {
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      background: #5b8cff;
+      color: #fff;
+      font-size: 0.65rem;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .coach-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .mobile-only { display: none; }
+    .desktop-only { display: inline-flex; }
+
+    /* Mobile-first usability */
+    @media (max-width: 768px) {
+      .mobile-only { display: inline-flex !important; }
+      .desktop-only { display: none !important; }
+      .hide-on-mobile { display: none !important; }
+      .topbar { padding: 8px 10px; }
+      .brand-title p { display: none; }
+      .controls-bar { width: 100%; }
+      .control-pill { flex: 1 1 auto; min-width: 0; }
+      .control-pill input, .control-pill select { max-width: 100% !important; width: 100%; }
+      /* Bigger touch targets */
+      .btn { height: 36px !important; padding: 0 12px !important; font-size: 0.78rem !important; }
+      .btn-venue { height: 40px !important; padding: 0 16px !important; font-size: 0.85rem !important; }
+      .schedule-block { min-height: 56px; padding: 4px !important; }
+      .sb-code { font-size: 0.58rem !important; }
+      .sb-title { font-size: 0.56rem !important; -webkit-line-clamp: 2 !important; }
+      .sb-lecturer, .sb-venue { font-size: 0.5rem !important; }
+      table.timetable tbody tr { height: 64px !important; }
+      .popover-card { max-width: 100%; border-radius: 16px 16px 0 0; margin-top: auto; }
+      .modal-backdrop { align-items: flex-end; padding: 0; }
+      .drawer-panel { max-width: 100%; }
+      .action-stack .btn { height: 42px !important; font-size: 0.82rem !important; }
+      .kpi-chip { font-size: 0.62rem; }
+      .sub-strip { padding: 8px 10px; }
+      .workspace { padding: 6px 4px 80px; }
+      .bottom-action-bar {
+        position: sticky;
+        bottom: 0;
+        background: #0f1220;
+        padding: 10px 12px;
+        border-top: 1px solid rgba(255,255,255,0.1);
+        z-index: 30;
+        margin: 0 -4px;
+      }
+      /* Lesson search on mobile */
+      .lesson-search-wrap {
+        display: flex !important;
+        width: 100%;
+        margin: 6px 0;
+        gap: 6px;
+      }
+    }
+    .lesson-search-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .lesson-search-wrap input {
+      flex: 1;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: #171a2e;
+      color: #e8eaf6;
+      padding: 0 12px;
+      font-size: 0.8rem;
+    }
+    .schedule-block.dimmed {
+      opacity: 0.28;
+      filter: grayscale(0.4);
+      pointer-events: none;
+    }
+    .schedule-block.highlight-match {
+      box-shadow: 0 0 0 2px #5b8cff;
+      border-color: #5b8cff;
+    }
+    /* Progressive modal steps */
+    .modal-step { display: none; }
+    .modal-step.active { display: block; }
+    .step-dots {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      margin-bottom: 10px;
+    }
+    .step-dots span {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.2);
+    }
+    .step-dots span.on { background: #5b8cff; }
+
+
+    /* Viewport-fit layout: keep the timetable and its controls inside the screen. */
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      min-height: 0;
+      height: 100vh;
+      height: 100dvh;
+    }
+
+    .topbar,
+    .switch-banner,
+    .coach-bar {
+      flex: 0 0 auto;
+    }
+
+    .workspace {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+      padding: 8px;
+    }
+
+    .sheet-card {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .sheet-header {
+      flex: 0 0 auto;
+    }
+
+    .table-scroll {
+      display: flex;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    table.timetable {
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+    }
+
+    table.timetable tbody tr {
+      height: auto !important;
+    }
+
+    td.schedule-cell {
+      min-width: 0;
+      padding: 1px;
+    }
+
+    .schedule-block {
+      width: 100%;
+      min-width: 0;
+      min-height: 0;
+      max-height: 100%;
+      padding: 3px;
+    }
+
+    .bottom-action-bar {
+      flex: 0 0 auto;
+      margin: 4px 0 0;
+    }
+
+    @media (max-width: 768px) {
+      .topbar {
+        padding: 5px 8px;
+        gap: 4px;
+      }
+
+      .brand-title p {
+        display: none;
+      }
+
+      .controls-bar {
+        display: grid;
+        flex: 1 1 100%;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        width: 100%;
+        gap: 3px;
+      }
+
+      .controls-bar > .control-pill:nth-of-type(1),
+      .controls-bar > .control-pill:nth-of-type(2) {
+        grid-column: span 2;
+        min-width: 0;
+        width: 100%;
+        padding: 2px 4px;
+        gap: 3px;
+      }
+
+      .controls-bar > .control-pill:nth-of-type(3) {
+        grid-column: span 3;
+        min-width: 0;
+        width: 100%;
+      }
+
+      #cohortSearch,
+      #classSelect,
+      #weekSelect {
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      #cohortSearch {
+        width: 100% !important;
+        font-size: 0.64rem;
+      }
+
+      #classSelect {
+        width: 100%;
+        flex: 1 1 auto;
+        font-size: 0.64rem;
+      }
+
+      #weekSelect {
+        flex: 1 1 auto;
+        width: 100%;
+        font-size: 0.64rem;
+      }
+
+      .controls-bar > #layoutToggleBtn,
+      .controls-bar > #undoBtn,
+      .controls-bar > #resetBtn {
+        min-width: 0;
+        padding: 0 3px;
+        font-size: 0.6rem;
+      }
+
+      .workspace {
+        padding: 4px;
+      }
+
+      .sheet-header {
+        padding: 4px 6px;
+      }
+
+      table.timetable thead th {
+        padding: 1px 0;
+        font-size: clamp(0.36rem, 1.8vw, 0.48rem);
+        line-height: 1;
+      }
+
+      table.timetable thead th.corner-cell,
+      table.timetable tbody th.day-cell {
+        width: 28px;
+        min-width: 24px;
+        padding: 1px;
+        font-size: clamp(0.38rem, 1.9vw, 0.5rem);
+      }
+
+      .schedule-block {
+        border-width: 1px;
+        border-radius: 3px;
+        padding: 2px !important;
+      }
+
+      .sb-code {
+        font-size: clamp(0.38rem, 1.8vw, 0.52rem) !important;
+      }
+
+      .sb-title {
+        font-size: clamp(0.36rem, 1.7vw, 0.5rem) !important;
+        -webkit-line-clamp: 1 !important;
+        line-height: 1.05;
+      }
+
+      .sb-lecturer,
+      .sb-venue {
+        font-size: clamp(0.34rem, 1.5vw, 0.46rem) !important;
+        line-height: 1;
+      }
+
+      .status-pill,
+      .swap-tag,
+      .venue-conflict-tag,
+      .obtained-tag {
+        font-size: 0.34rem;
+        line-height: 1;
+      }
+
+      .bottom-action-bar {
+        margin: 2px 0 0;
+        gap: 4px;
+      }
+
+      .bottom-action-bar .btn-venue {
+        height: 26px !important;
+      }
+    }
+
+    @media (max-height: 520px) {
+      .topbar {
+        padding-top: 3px;
+        padding-bottom: 3px;
+      }
+
+      .brand-badge {
+        padding: 2px 6px;
+        font-size: 0.62rem;
+      }
+
+      .brand-title h1 {
+        font-size: 0.72rem;
+      }
+
+      .controls-bar .btn,
+      .controls-bar .control-pill {
+        height: 24px !important;
+      }
+
+      .bottom-action-bar {
+        margin-top: 1px;
+        min-height: 24px;
+      }
+
+      .schedule-block {
+        padding: 1px 2px !important;
+      }
+
+      .sb-lecturer,
+      .swap-tag,
+      .obtained-tag,
+      .venue-conflict-tag {
+        display: none !important;
+      }
+
+      .sb-title {
+        -webkit-line-clamp: 1 !important;
+      }
+    }
+
+    @media (max-width: 360px) {
+      .brand-badge {
+        padding: 2px 5px;
+        font-size: 0.58rem;
+      }
+
+      .brand-title h1 {
+        font-size: 0.68rem;
+      }
+
+      .controls-bar {
+        gap: 2px;
+      }
+
+      .controls-bar > #layoutToggleBtn,
+      .controls-bar > #undoBtn,
+      .controls-bar > #resetBtn {
+        font-size: 0.55rem;
+      }
+
+      .cohort-pill {
+        padding: 1px 7px;
+        font-size: 0.66rem;
+      }
+    }
+  </style>
+</head>
+<body class="{% if can_manage_timetable %}timetable-manager{% else %}timetable-reader{% endif %}">
+
+  <!-- Compact Top Navigation -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-badge"><span class="brand-dot"></span> UNI-COT</div>
+      <div class="brand-title">
+        <h1>Academic Timetable</h1>
+        <p id="institutionSubtitle">NIT &bull; First Semester 2026/2027</p>
+      </div>
+    </div>
+
+    <div class="controls-bar">
+      <div class="control-pill">
+        <label for="cohortSearch">Find</label>
+        <input type="text" id="cohortSearch" placeholder="e.g. CICT, BAE..." style="width: 115px;" />
+      </div>
+
+      <div class="control-pill manager-class-label" style="display:none"><label>Schedule</label><span>All classes</span></div>
+
+      <div class="control-pill">
+        <label for="classSelect">Class</label>
+        <select id="classSelect"></select>
+      </div>
+
+      <div class="control-pill" style="padding: 2px 3px;">
+        <button class="btn btn-ghost" id="prevWeekBtn" style="height: 22px; padding: 0 6px; border: none;">&larr;</button>
+        <select id="weekSelect">
+          <option value="Week 1">Week 1</option>
+          <option value="Week 2">Week 2</option>
+          <option value="Week 3">Week 3</option>
+          <option value="Week 4">Week 4</option>
+        </select>
+        <button class="btn btn-ghost" id="nextWeekBtn" style="height: 22px; padding: 0 6px; border: none;">&rarr;</button>
+      </div>
+
+      <button class="btn btn-ghost" id="layoutToggleBtn" class="hide-on-mobile" title="Flip Grid Orientation">&#8645; Flip</button>
+      <button class="btn btn-ghost" id="undoBtn" title="Undo">&#8630; Undo</button>
+      <button class="btn btn-ghost" id="resetBtn" class="hide-on-mobile" title="Reset">Reset</button>
+    </div>
+  </header>
+  <style>
+    body.timetable-manager #cohortSearch,body.timetable-manager label[for="cohortSearch"],body.timetable-manager #classSelect,body.timetable-manager label[for="classSelect"],body.timetable-manager #prevWeekBtn,body.timetable-manager #nextWeekBtn,body.timetable-manager #weekSelect,body.timetable-manager #layoutToggleBtn{display:none!important}
+    body.timetable-reader #undoBtn,body.timetable-reader #resetBtn,body.timetable-reader #openVenuePanelBtn{display:none!important}
+    body.timetable-reader .action-stack,body.timetable-reader .step-dots{display:none!important}
+    body.timetable-reader #undoBtn,body.timetable-reader #resetBtn{display:none!important}
+    .readonly-note{margin:8px auto;padding:8px 12px;max-width:1100px;border-radius:10px;background:#e0f2fe;color:#075985;font-size:13px}
+    .manager-cohort-nav{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;max-width:100%}.manager-cohort-nav button{border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#334155;padding:4px 9px;font-size:11px;cursor:pointer}.manager-cohort-nav button.active{background:#0f766e;border-color:#0f766e;color:#fff}
+  </style>
+  {% if not can_manage_timetable %}<div class="readonly-note">Read-only timetable. For changes or access to your system, sign in through your program’s member or owner portal.</div>{% endif %}
+
+
+  <!-- Switch Mode Banner -->
+  <div class="switch-banner" id="switchBanner">
+    <div>
+      <strong>&#8644; Switch Mode:</strong>
+      <span id="switchBannerText">Click a second lesson card to swap time slots.</span>
+    </div>
+    <button class="btn btn-ghost" id="cancelSwitchModeBtn" style="height: 23px; font-size: 0.7rem;">Cancel</button>
+  </div>
+
+
+  <!-- Progressive next-step coach -->
+  <div class="coach-bar" id="coachBar">
+    <div class="coach-step">
+      <span class="coach-num" id="coachNum">1</span>
+      <span id="coachText">Open a lesson card to mark Kipo / Hakipo or change venue.</span>
+    </div>
+    <div class="coach-actions">
+      <button class="btn btn-ghost" id="coachDismissBtn" style="height:28px;font-size:0.68rem;">Got it</button>
+    </div>
+  </div>
+
+  <!-- Main Workspace -->
+  <main class="workspace">
+    <div class="sheet-card">
+      <div class="sheet-header">
+        <div class="sheet-header-left">
+          <div class="cohort-pill" id="cohortHeading">BAE (54)</div>
+          {% if can_manage_timetable %}<div class="manager-cohort-nav" id="managerCohortNav" aria-label="Manage timetable by cohort"></div>{% endif %}
+        </div>
+      </div>
+
+      <div class="table-scroll">
+        <table class="timetable" id="timetableGrid"></table>
+      </div>
+    </div>
+
+    <div class="bottom-action-bar">
+      <button class="btn btn-venue" id="openVenuePanelBtn">
+        <span>venue</span>
+        <span style="font-size: 0.95rem; line-height: 1;">+</span>
+      </button>
+
+      <div style="font-size: 0.7rem; color: var(--text-muted);" id="statusSummaryText"></div>
+    </div>
+  </main>
+
+  <!-- Schedule Action Popover -->
+  <div class="modal-backdrop" id="scheduleModal">
+    <div class="popover-card">
+      <div class="popover-header">
+        <div>
+          <h3 id="modalCourseTitle">AEU 08101</h3>
+          <p id="modalCourseSub">Monday &bull; 08:00 - 10:00</p>
+        </div>
+        <button class="close-btn" id="closeScheduleModal">&times;</button>
+      </div>
+      <div class="popover-body">
+        {% if not can_manage_timetable %}<div class="readonly-note">This timetable is read-only. Sign in through your program portal or contact its owner to request timetable changes and system access.</div>{% endif %}
+        <div class="detail-grid">
+          <div class="detail-label">Module</div>
+          <div class="detail-val" id="detailCode">AEU 08101</div>
+
+          <div class="detail-label">Lecturer</div>
+          <div class="detail-val" id="detailLecturer">Tabu Manala</div>
+
+          <div class="detail-label">Slot</div>
+          <div class="detail-val" id="detailTime">Monday, 08:00 - 10:00</div>
+
+          <div class="detail-label">Venue</div>
+          <div class="detail-val" id="detailVenue">LR 02 BL10 (104)</div>
+
+          <div class="detail-label">Status</div>
+          <div class="detail-val" id="detailStatus">Scheduled</div>
+        </div>
+
+        <div class="step-dots" id="modalStepDots"><span class="on"></span><span></span></div>
+        <div class="action-stack">
+          <div class="modal-step active" id="modalStep1">
+            <p style="font-size:0.72rem;color:var(--text-muted);margin-bottom:8px;">Step 1 — Is this period present?</p>
+            <div class="action-row">
+              <button class="btn btn-green" id="btnKipo">&#10003; KIPO</button>
+              <button class="btn btn-red" id="btnHakipo">&#10005; HAKIPO</button>
+            </div>
+            <button class="btn btn-ghost" id="btnClearStatus" style="margin-top:7px;width:100%;display:none;">
+              Clear KIPO / HAKIPO
+            </button>
+            <button class="btn btn-ghost" id="btnMoreActions" style="margin-top:8px;width:100%;">
+              Next: Switch / Venue →
+            </button>
+            <button class="btn btn-ghost" id="btnEditTemp" style="margin-top:7px;width:100%;display:none;border-color:rgba(250,204,21,0.55);color:#fde047;font-weight:700;">
+              &#9998; Edit yellow class (info / venue)
+            </button>
+          </div>
+          <div class="modal-step" id="modalStep2">
+            <p style="font-size:0.72rem;color:var(--text-muted);margin-bottom:8px;">Step 2 — Change schedule or room</p>
+            <button class="btn btn-ghost" id="btnStartSwitch" style="border-color: rgba(91,140,255,0.5); color: var(--accent-blue); font-weight: 700; width:100%;">
+              &#8644; SWITCH with another lesson
+            </button>
+            <button class="btn btn-ghost" id="btnQuickVenue" style="width:100%;margin-top:7px;">
+              &#128205; Change Venue
+            </button>
+            <button class="btn btn-ghost" id="btnBackStep1" style="width:100%;margin-top:7px;">
+              ← Back
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Switch Confirmation Modal -->
+  <div class="modal-backdrop" id="switchConfirmModal">
+    <div class="popover-card" style="max-width: 410px;">
+      <div class="popover-header">
+        <div>
+          <h3>Confirm Schedule Swap</h3>
+          <p>Review updated slots before applying</p>
+        </div>
+        <button class="close-btn" id="closeSwitchModal">&times;</button>
+      </div>
+      <div class="popover-body">
+        <div class="switch-compare" id="switchCompareBody"></div>
+        <div class="conflict-box" id="switchConflictBox"></div>
+
+        <div class="form-group" style="margin-bottom:10px;">
+          <label>Swap type</label>
+          <div class="action-row" style="margin-top:4px;">
+            <button class="btn btn-ghost" id="swapTypePermanent" style="border-color:rgba(139,92,246,0.5);">Permanent</button>
+            <button class="btn btn-ghost" id="swapTypeTemporary" style="border-color:rgba(251,191,36,0.5);">Temporary</button>
+          </div>
+          <p id="swapTypeHint" style="font-size:0.68rem;color:var(--text-muted);margin-top:6px;">Permanent: keep until next academic year. Temporary: set an end date; reviewed every Sunday.</p>
+        </div>
+        <div class="form-group" id="tempUntilGroup" style="display:none;margin-bottom:10px;">
+          <label for="swapUntilDate">Temporary until</label>
+          <input type="date" class="form-control" id="swapUntilDate" />
+        </div>
+
+        <div class="action-row">
+          <button class="btn btn-ghost" id="cancelSwitchConfirmBtn">Cancel</button>
+          <button class="btn btn-green" id="confirmSwitchBtn">Confirm Swap</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sunday review modal for temporary swaps -->
+  <div class="modal-backdrop" id="sundayReviewModal">
+    <div class="popover-card" style="max-width: 440px;">
+      <div class="popover-header">
+        <div>
+          <h3>Sunday review — temporary swaps</h3>
+          <p>Approve to keep, or let them expire</p>
+        </div>
+        <button class="close-btn" id="closeSundayReview">&times;</button>
+      </div>
+      <div class="popover-body">
+        <div id="sundayReviewList" style="display:flex;flex-direction:column;gap:8px;max-height:50vh;overflow-y:auto;"></div>
+        <div class="action-row" style="margin-top:12px;">
+          <button class="btn btn-ghost" id="sundayReviewSkip">Not now</button>
+          <button class="btn btn-green" id="sundayReviewApply">Apply choices</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Venue Management Drawer -->
+  <div class="drawer-backdrop" id="venueDrawer">
+    <div class="drawer-panel">
+      <div class="popover-header">
+        <div>
+          <h3>Venue Manager</h3>
+          <p>Assign rooms &amp; inspect weekly overlaps</p>
+        </div>
+        <button class="close-btn" id="closeVenueDrawer">&times;</button>
+      </div>
+      <div class="drawer-body">
+        <!-- Step 1: when -->
+        <div class="vf-step" id="vfStep1">
+          <div class="vf-step-head">
+            <span class="vf-title">1. When do you need a venue?</span>
+            <button type="button" class="vf-change" id="vfChange1" style="display:none;">Change</button>
+          </div>
+          <div class="vf-step-sum" id="vfSum1" style="display:none;"></div>
+          <div id="vfBody1" style="display:flex;flex-direction:column;gap:8px;">
+            <div class="vf-bar2">
+              <div class="form-group">
+                <label for="vfDay">Day</label>
+                <select class="form-control" id="vfDay"></select>
+              </div>
+              <div class="form-group">
+                <label for="vfFrom">Start</label>
+                <select class="form-control" id="vfFrom"></select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>How long?</label>
+              <div class="vf-seg" id="vfDur" style="margin-bottom:0;">
+                <button type="button" class="vf-seg-btn" data-dur="1">1 hour</button>
+                <button type="button" class="vf-seg-btn" data-dur="2">2 hours</button>
+              </div>
+            </div>
+            <div class="vf-empty" id="vfDateNote"></div>
+            <div class="vf-empty" id="vfStep1Note" style="color:#fb7185;"></div>
+            <button class="btn btn-green" id="vfFindBtn" disabled>Find open venues</button>
+          </div>
+        </div>
+
+        <!-- Step 2: venue -->
+        <div class="vf-step" id="vfStep2" style="display:none;">
+          <div class="vf-step-head">
+            <span class="vf-title">2. Choose an open venue</span>
+            <button type="button" class="vf-change" id="vfChange2" style="display:none;">Change</button>
+          </div>
+          <div class="vf-step-sum" id="vfSum2" style="display:none;"></div>
+          <div id="vfBody2" style="display:flex;flex-direction:column;gap:6px;">
+            <div class="vf-count" id="vfCount"></div>
+            <div class="vf-chips" id="vfChips"></div>
+          </div>
+        </div>
+
+        <!-- Step 3: subject -->
+        <div class="vf-step" id="vfStep3" style="display:none;">
+          <div class="vf-step-head">
+            <span class="vf-title">3. Which subject will study here?</span>
+          </div>
+          <div class="venue-overview-list" id="vfLessons"></div>
+          <div id="vfAddForm" style="display:none;flex-direction:column;gap:8px;">
+            <div class="vf-chips" id="vfTypeChips">
+              <button type="button" class="venue-chip selected" data-type="Kikao">Kikao</button>
+              <button type="button" class="venue-chip" data-type="Discussion">Discussion</button>
+              <button type="button" class="venue-chip" data-type="Meeting">Meeting</button>
+              <button type="button" class="venue-chip" data-type="Revision">Revision</button>
+              <button type="button" class="venue-chip" data-type="Other">Other</button>
+            </div>
+            <div class="form-group">
+              <label for="vfActSubject">Subject (optional)</label>
+              <select class="form-control" id="vfActSubject"></select>
+            </div>
+            <div class="form-group">
+              <label for="vfActName">Name / agenda (optional)</label>
+              <input class="form-control" id="vfActName" maxlength="60" placeholder="e.g. Group 3 project" />
+            </div>
+            <div class="form-group">
+              <label for="vfActLeader">Led by (optional)</label>
+              <input class="form-control" id="vfActLeader" maxlength="60" placeholder="e.g. Class rep" />
+            </div>
+            <button class="btn btn-green" id="vfAddOtherBtn">Add to timetable</button>
+          </div>
+        </div>
+
+        <div class="vf-step" id="vfTakenWrap">
+          <div class="vf-step-head">
+            <span class="vf-title">Venues we took &mdash; tap to edit</span>
+            <span class="vf-count" id="vfTakenCount"></span>
+          </div>
+          <div class="venue-overview-list" id="vfTakenList"></div>
+        </div>
+
+        <details class="vf-weekly">
+          <summary>Weekly venues (<span id="drawerCohortLabel">BAE (54)</span>)</summary>
+          <div class="venue-overview-list" id="venueOverviewList"></div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm venue popup -->
+  <div class="modal-backdrop" id="venueConfirmModal" style="z-index:130;">
+    <div class="popover-card" style="max-width: 360px;">
+      <div class="popover-header">
+        <div>
+          <h3>Take this venue?</h3>
+          <p>It has no kipindi at your chosen time</p>
+        </div>
+        <button class="close-btn" id="vcClose">&times;</button>
+      </div>
+      <div class="popover-body">
+        <div id="vcVenue" style="font-size:1rem;font-weight:800;color:#5eead4;margin-bottom:4px;"></div>
+        <div id="vcWhen" style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:12px;"></div>
+        <div class="action-row">
+          <button class="btn btn-ghost" id="vcCancel">Cancel</button>
+          <button class="btn btn-green" id="vcConfirm">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit yellow class popup -->
+  <div class="modal-backdrop" id="tempEditModal" style="z-index:130;">
+    <div class="popover-card">
+      <div class="popover-header">
+        <div>
+          <h3>Edit yellow class</h3>
+          <p id="teSub"></p>
+        </div>
+        <button class="close-btn" id="teClose">&times;</button>
+      </div>
+      <div class="popover-body" style="display:flex;flex-direction:column;gap:8px;">
+        <div class="form-group">
+          <label for="teSubject">Subject</label>
+          <select class="form-control" id="teSubject"></select>
+        </div>
+        <div class="form-group" id="teTitleWrap" style="display:none;">
+          <label for="teTitle">Title</label>
+          <input class="form-control" id="teTitle" maxlength="80" />
+        </div>
+        <div class="form-group">
+          <label for="teLeader">Lecturer / led by</label>
+          <input class="form-control" id="teLeader" maxlength="60" />
+        </div>
+        <div class="form-group">
+          <label for="teVenue">Venue</label>
+          <select class="form-control" id="teVenue"></select>
+          <div class="vf-empty" id="teVenueNote"></div>
+        </div>
+        <div class="action-row">
+          <button class="btn btn-ghost" id="teRemove" style="color:#fb7185;border-color:rgba(251,113,133,0.5);">Remove</button>
+          <button class="btn btn-green" id="teSave">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    const UniCotTimetable = (() => {
+      const CAN_MANAGE = {{ can_manage_timetable|yesno:"true,false" }};
+      const API_URL = "{% if tenant_base_path %}{{ tenant_base_path }}/api/timetable/state/{% else %}{% url 'api_timetable_state' %}{% endif %}";
+      let sourceVersion = 0;
+      let saveTimer = null;
+      const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+      const TIME_SLOTS = [
+        { index: 0, label: '07:00-\n08:00', short: '07:00-08:00' },
+        { index: 1, label: '08:00-\n09:00', short: '08:00-09:00' },
+        { index: 2, label: '09:00-\n10:00', short: '09:00-10:00' },
+        { index: 3, label: '10:00-\n11:00', short: '10:00-11:00' },
+        { index: 4, label: '11:00-\n12:00', short: '11:00-12:00' },
+        { index: 5, label: '12:00-\n13:00', short: '12:00-13:00' },
+        { index: 6, label: '13:00-\n14:00', short: '13:00-14:00' },
+        { index: 7, label: '14:00-\n15:00', short: '14:00-15:00' },
+        { index: 8, label: '15:00-\n16:00', short: '15:00-16:00' },
+        { index: 9, label: '16:00-\n17:00', short: '16:00-17:00' },
+        { index: 10, label: '17:00-\n18:00', short: '17:00-18:00' },
+        { index: 11, label: '18:00-\n19:00', short: '18:00-19:00' },
+        { index: 12, label: '19:00-\n20:00', short: '19:00-20:00' },
+        { index: 13, label: '20:00-\n21:00', short: '20:00-21:00' }
+      ];
+
+      const DEFAULT_VENUES = [
+        'CLASS IV (256)',
+        'CLASS V (154)',
+        'CLASS VI (155)',
+        'CLASS VII (154)',
+        'LR 01 BL 10 (99)',
+        'LR 02 BL10 (104)',
+        'LWGF (A) - BL15 (88 students)',
+        'RWGF A - B 15 (125)',
+        'CEATO 1 (120)',
+        'CEATO 2 (120)',
+        'ICT LAB 2'
+      ];
+
+      const INITIAL_SCHEDULES = [
+        { id: 'def-1', cohort: 'BAE (54)', code: 'AEU 08101', title: 'Automobile Design & Development', lecturer: 'Tabu Manala', day: 'Monday', startSlot: 1, duration: 2, venue: 'LR 02 BL10 (104)', status: null },
+        { id: 'def-2', cohort: 'BAE (54)', code: 'AEU 08103', title: 'Engineering Management', lecturer: 'Dr. Aziz Mdimi', day: 'Tuesday', startSlot: 2, duration: 2, venue: 'LWGF (A) - BL15 (88 students)', status: null },
+        { id: 'def-3', cohort: 'BAE (54)', code: 'AEU 08104', title: 'Environmental & Safety Engineering', lecturer: 'Dr. Nuru Kitara', day: 'Tuesday', startSlot: 8, duration: 2, venue: 'RWGF A - B 15 (125)', status: null },
+        { id: 'def-4', cohort: 'BAE (54)', code: 'AEU 08103', title: 'Engineering Management', lecturer: 'Dr. Aziz Mdimi', day: 'Wednesday', startSlot: 2, duration: 2, venue: 'LR 01 BL 10 (99)', status: null },
+        { id: 'def-5', cohort: 'BAE (54)', code: 'AEU 08102', title: 'Engine Management (Lab)', lecturer: 'Sospeter Babis, Edward J. Mwambage', day: 'Wednesday', startSlot: 8, duration: 2, venue: 'Engine and Drive train Engineering Lab', status: null },
+        { id: 'def-6', cohort: 'BAE (54)', code: 'AEU 08101', title: 'Automobile Design & Development', lecturer: 'Tabu Manala', day: 'Thursday', startSlot: 6, duration: 2, venue: 'CEATO 2 (120)', status: null },
+        { id: 'def-7', cohort: 'BAE (54)', code: 'GSU 08106T', title: 'Law for Engineers', lecturer: 'Lusajo Kanyamale', day: 'Thursday', startSlot: 12, duration: 2, venue: 'CEATO 1 (120)', status: null },
+        { id: 'def-8', cohort: 'BAE (54)', code: 'AEU 08105', title: 'Project Work / Project Conceptualization', lecturer: 'Edward J. Mwambage', day: 'Friday', startSlot: 8, duration: 2, venue: 'CLASS IV (256)', status: null },
+        { id: 'def-9', cohort: 'BAE (54)', code: 'AEU 08102', title: 'Engine Management', lecturer: 'Edward J. Mwambage', day: 'Friday', startSlot: 12, duration: 2, venue: 'CEATO 2 (120)', status: null }
+      ];
+
+      let state = {
+        institutionTitle: 'NATIONAL INSTITUTE OF TRANSPORT FIRST SEMESTER TIMETABLE FOR ACADEMIC YEAR 2026_2027',
+        sourceLabel: 'Sample Data',
+        cohort: 'BAE (54)',
+        cohortFilter: '',
+        week: 'Week 1',
+        orientation: 'horizontal',
+        schedules: [],
+        venues: [...DEFAULT_VENUES],
+        activeScheduleId: null,
+        switchSourceId: null,
+        switchTargetId: null,
+        pendingSwapType: 'temporary',
+        pendingSwapUntil: null,
+        historyStack: [],
+        lastSundayReview: null
+      };
+
+      function splitCodeAndTitle(rawModule) {
+        const cleaned = String(rawModule || '').replace(/\s+/g, ' ').trim();
+        const match = cleaned.match(/^([A-Z]{2,4}\s*\d{4,5}[A-Z]?(?:\/[A-Z]{2,4}\s*\d{4,5}[A-Z]?)*)\s+(.+)$/);
+        if (match) {
+          return { code: match[1].trim(), title: match[2].trim() };
+        }
+        return { code: cleaned.slice(0, 14), title: cleaned };
+      }
+
+      function parseNitExcelWorkbook(workbook) {
+        const sheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('student')) || workbook.SheetNames[0];
+        const ws = workbook.Sheets[sheetName];
+        if (!ws || !ws['!ref']) throw new Error('Selected Excel sheet is empty.');
+
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        const merges = ws['!merges'] || [];
+        const mergeSpanMap = new Map();
+        const coveredByHorizontalMerge = new Set();
+
+        merges.forEach(m => {
+          const colSpan = m.e.c - m.s.c + 1;
+          const rowSpan = m.e.r - m.s.r + 1;
+          mergeSpanMap.set(`${m.s.r},${m.s.c}`, { colSpan, rowSpan });
+          if (colSpan > 1) {
+            for (let r = m.s.r; r <= m.e.r; r++) {
+              for (let c = m.s.c + 1; c <= m.e.c; c++) {
+                coveredByHorizontalMerge.add(`${r},${c}`);
+              }
+            }
+          }
+        });
+
+        const getCellText = (r, c) => {
+          const addr = XLSX.utils.encode_cell({ r, c });
+          const cell = ws[addr];
+          return cell && cell.v !== undefined && cell.v !== null ? String(cell.v).trim() : '';
+        };
+
+        const parsedSchedules = [];
+        const venueSet = new Set(DEFAULT_VENUES);
+        let detectedInstitution = state.institutionTitle;
+        let currentCohort = null;
+        let idCounter = 1;
+
+        let r = range.s.r;
+        while (r <= range.e.r) {
+          const colA = getCellText(r, 0);
+          const colB = getCellText(r, 1);
+
+          if (colA.toUpperCase().includes('NATIONAL INSTITUTE OF TRANSPORT')) {
+            detectedInstitution = colA;
+            const nextColB = getCellText(r + 1, 1);
+            if (nextColB && !nextColB.startsWith('07:00')) {
+              currentCohort = nextColB;
+              r += 3;
+              continue;
+            }
+          }
+
+          if (DAYS.includes(colA) && currentCohort) {
+            const dayName = colA;
+            const dayMerge = mergeSpanMap.get(`${r},0`);
+            const dayHeight = dayMerge ? dayMerge.rowSpan : 3;
+
+            if (dayName === 'Sunday' && (colB.toLowerCase() === '-x-' || colB === '---')) {
+              r += dayHeight;
+              continue;
+            }
+
+            for (let c = 1; c <= 14; c++) {
+              if (coveredByHorizontalMerge.has(`${r},${c}`)) continue;
+
+              const cellMerge = mergeSpanMap.get(`${r},${c}`);
+              const duration = cellMerge ? Math.min(cellMerge.colSpan, 15 - c) : 1;
+
+              const lines = [];
+              for (let dr = 0; dr < dayHeight; dr++) {
+                const txt = getCellText(r + dr, c);
+                if (txt && txt !== '---' && txt.toLowerCase() !== '-x-') {
+                  lines.push(txt);
+                }
+              }
+
+              if (lines.length >= 2) {
+                let rawModule = '', lecturer = '', venue = '';
+                if (lines.length >= 4) {
+                  rawModule = `${lines[1]} (${lines[0]})`;
+                  lecturer = lines[2];
+                  venue = lines[3];
+                } else if (lines.length === 3) {
+                  rawModule = lines[0];
+                  lecturer = lines[1];
+                  venue = lines[2];
+                } else {
+                  rawModule = lines[0];
+                  lecturer = lines[1];
+                  venue = 'TBA';
+                }
+
+                const { code, title } = splitCodeAndTitle(rawModule);
+                if (venue && venue !== 'TBA') venueSet.add(venue);
+
+                parsedSchedules.push({
+                  id: `imp-${idCounter++}`,
+                  cohort: currentCohort,
+                  code,
+                  title,
+                  lecturer,
+                  day: dayName,
+                  startSlot: c - 1,
+                  duration,
+                  venue,
+                  status: null
+                });
+              }
+            }
+
+            r += dayHeight;
+            continue;
+          }
+          r += 1;
+        }
+
+        if (parsedSchedules.length === 0) {
+          throw new Error('No timetable entries could be extracted.');
+        }
+
+        return {
+          institutionTitle: detectedInstitution,
+          schedules: parsedSchedules,
+          venues: Array.from(venueSet).sort()
+        };
+      }
+
+      async function initData() {
+        const response = await fetch(API_URL, { credentials: 'same-origin', cache: 'no-store' });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.error || 'Unable to load timetable.');
+        sourceVersion = Number(payload.source_version || 0);
+        if (payload.data && Array.isArray(payload.data.schedules) && payload.data.schedules.length) {
+          Object.assign(state, payload.data);
+          if (payload.source?.url && sourceVersion > Number(payload.data.sourceVersion || payload.data.source_version || 0)) {
+            const saved = payload.data;
+            const workbookResponse = await fetch(payload.source.url, { cache: 'no-store' });
+            if (!workbookResponse.ok) throw new Error('The updated shared Excel timetable could not be downloaded.');
+            const parsed = parseNitExcelWorkbook(XLSX.read(new Uint8Array(await workbookResponse.arrayBuffer()), { type: 'array' }));
+            const key = item => [item.cohort, item.day, item.startSlot, item.code, item.title].join('|');
+            const overrides = new Map(saved.schedules.map(item => [key(item), item]));
+            state.schedules = parsed.schedules.map(item => {
+              const previous = overrides.get(key(item));
+              return previous ? { ...item, venue: previous.venue, status: previous.status, venueObtained: previous.venueObtained, needsVenue: previous.needsVenue, swapType: previous.swapType, swapUntil: previous.swapUntil } : item;
+            });
+            state.institutionTitle = parsed.institutionTitle;
+            state.sourceLabel = payload.source.filename || 'Founder timetable';
+            state.venues = Array.from(new Set([...(parsed.venues || []), ...(saved.venues || [])]));
+            state.cohort = state.schedules.some(item => item.cohort === saved.cohort) ? saved.cohort : (state.schedules[0]?.cohort || '');
+            state.sourceVersion = sourceVersion;
+            if (CAN_MANAGE) persistData();
+          }
+        } else if (payload.source?.url && window.XLSX) {
+          const workbookResponse = await fetch(payload.source.url, { cache: 'no-store' });
+          if (!workbookResponse.ok) throw new Error('The shared Excel timetable could not be downloaded.');
+          const workbook = XLSX.read(new Uint8Array(await workbookResponse.arrayBuffer()), { type: 'array' });
+          const imported = parseNitExcelWorkbook(workbook);
+          state.institutionTitle = imported.institutionTitle;
+          state.schedules = imported.schedules;
+          state.venues = imported.venues;
+          state.sourceLabel = payload.source.filename || 'Founder timetable';
+          state.cohort = getAllCohorts()[0] || 'BAE (54)';
+          state.sourceVersion = sourceVersion;
+          if (CAN_MANAGE) persistData();
+        } else {
+          state.schedules = JSON.parse(JSON.stringify(INITIAL_SCHEDULES));
+          state.cohort = 'BAE (54)';
+        }
+      }
+
+      function persistData() {
+        if (!CAN_MANAGE) return;
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(async () => {
+          const cookie = document.cookie.split('; ').find(item => item.startsWith('csrftoken='));
+          const csrf = cookie ? decodeURIComponent(cookie.split('=').slice(1).join('=')) : '';
+          try {
+            const response = await fetch(API_URL, { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf }, body: JSON.stringify({ state: {
+            institutionTitle: state.institutionTitle,
+            sourceLabel: state.sourceLabel,
+            cohort: state.cohort,
+            schedules: state.schedules,
+            venues: state.venues,
+            lastSundayReview: state.lastSundayReview
+            }, source_version: sourceVersion }) });
+            if (!response.ok) showToast('Could not save timetable changes. Check owner access and retry.', 'error');
+          } catch (error) { showToast('Could not save timetable changes.', 'error'); }
+        }, 300);
+      }
+
+      function pushHistory() {
+        state.historyStack.push(JSON.stringify(state.schedules));
+        if (state.historyStack.length > 15) state.historyStack.shift();
+        document.getElementById('undoBtn').disabled = state.historyStack.length === 0;
+      }
+
+      function undoLastAction() {
+        if (state.historyStack.length === 0) return;
+        state.schedules = JSON.parse(state.historyStack.pop());
+        persistData();
+        populateCohortDropdown();
+        document.getElementById('undoBtn').disabled = state.historyStack.length === 0;
+        render();
+        showToast('Reverted last change.');
+      }
+
+      function getAllCohorts() {
+        return Array.from(new Set(state.schedules.map(s => s.cohort)));
+      }
+
+      function populateCohortDropdown() {
+        const select = document.getElementById('classSelect');
+        const allCohorts = getAllCohorts();
+        const query = state.cohortFilter.trim().toLowerCase();
+        const filtered = query ? allCohorts.filter(c => c.toLowerCase().includes(query)) : allCohorts;
+        const listToUse = filtered.length > 0 ? filtered : allCohorts;
+
+        select.innerHTML = listToUse.map(c =>
+          `<option value="${c.replace(/"/g, '&quot;')}">${c}</option>`
+        ).join('');
+
+        if (listToUse.includes(state.cohort)) {
+          select.value = state.cohort;
+        } else if (listToUse.length > 0) {
+          state.cohort = listToUse[0];
+          select.value = state.cohort;
+        }
+      }
+
+      function formatTimeRange(startSlot, duration) {
+        const start = TIME_SLOTS[startSlot]?.short.split('-')[0] || '07:00';
+        const endSlot = TIME_SLOTS[Math.min(startSlot + duration - 1, TIME_SLOTS.length - 1)];
+        const end = endSlot ? endSlot.short.split('-')[1] : '09:00';
+        return `${start} - ${end}`;
+      }
+
+      function slotsOverlap(s1, s2) {
+        if (s1.day !== s2.day) return false;
+        return s1.startSlot < (s2.startSlot + s2.duration) && s2.startSlot < (s1.startSlot + s1.duration);
+      }
+
+      function getVenueConflicts(scheduleList = state.schedules) {
+        const conflicts = new Map();
+        for (let i = 0; i < scheduleList.length; i++) {
+          for (let j = i + 1; j < scheduleList.length; j++) {
+            const a = scheduleList[i];
+            const b = scheduleList[j];
+            if (!a.venue || a.venue === 'TBA') continue;
+            if (a.status === 'HAKIPO' || b.status === 'HAKIPO') continue;
+            if (a.venue === b.venue && slotsOverlap(a, b)) {
+              const isCombinedLecture = a.code === b.code && a.lecturer === b.lecturer && a.startSlot === b.startSlot;
+              if (!isCombinedLecture) {
+                conflicts.set(a.id, `${a.venue} overlaps ${b.code} (${b.cohort})`);
+                conflicts.set(b.id, `${b.venue} overlaps ${a.code} (${a.cohort})`);
+              }
+            }
+          }
+        }
+        return conflicts;
+      }
+
+      function getCohortSchedules() {
+        return state.schedules.filter(s => s.cohort === state.cohort);
+      }
+
+      function showToast(message, type = 'success') {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+        container.appendChild(toast);
+        setTimeout(() => {
+          toast.style.opacity = '0';
+          toast.style.transition = 'opacity 0.2s ease';
+          setTimeout(() => toast.remove(), 220);
+        }, 3000);
+      }
+
+      function createScheduleBlockHTML(sch, conflictMsg) {
+        const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+        const isSource = state.switchSourceId === sch.id;
+        const isSwitchMode = Boolean(state.switchSourceId && !isSource);
+        const isSwitched = Boolean(sch.swapType);
+
+        let statusBadge = '';
+        if (sch.status === 'KIPO') {
+          statusBadge = `<span class="status-pill status-kipo">&#10003; KIPO</span>`;
+        } else if (sch.status === 'HAKIPO') {
+          statusBadge = `<span class="status-pill status-hakipo">&#10005; HAKIPO</span>`;
+        }
+
+        const classes = [
+          'schedule-block',
+          sch.status === 'HAKIPO' ? 'is-hakipo' : '',
+          sch.venueObtained ? 'is-obtained' : '',
+          isSource ? 'selected-source' : '',
+          isSwitchMode ? 'switch-target-hover' : '',
+          conflictMsg ? 'conflict-venue' : '',
+          isSwitched ? 'is-switched' : ''
+        ].filter(Boolean).join(' ');
+
+        let swapLabel = '';
+        if (sch.swapType === 'permanent') {
+          swapLabel = `<div class="swap-tag">PERM SWAP</div>`;
+        } else if (sch.swapType === 'temporary') {
+          const until = sch.swapUntil ? ` until ${esc(sch.swapUntil)}` : '';
+          swapLabel = `<div class="swap-tag">TEMP SWAP${until}</div>`;
+        }
+
+        return `
+          <div class="${classes}" data-id="${esc(sch.id)}" title="${esc(sch.code)} - ${esc(sch.title)} | ${esc(sch.lecturer)} | ${esc(sch.venue)}">
+            <div>
+              <div class="sb-top">
+                <span class="sb-code">${esc(sch.code)}</span>
+                ${statusBadge}
+              </div>
+              <div class="sb-title">${esc(sch.title)}</div>
+            </div>
+            <div class="sb-meta">
+              <div class="sb-lecturer">${esc(sch.lecturer)}</div>
+              <div class="sb-venue">${sch.needsVenue ? 'Venue: add later' : esc(sch.venue)}</div>
+              ${swapLabel}
+              ${sch.temp ? `<div class="obtained-tag">&#9733; Temporary &bull; ${sch.dateLabel || ''}</div>` : (sch.venueObtained ? `<div class="obtained-tag">&#9733; Venue obtained</div>` : '')}
+              ${conflictMsg ? `<div class="venue-conflict-tag">&#9888; Venue overlap</div>` : ''}
+            </div>
+          </div>
+        `;
+      }
+
+      function renderGrid() {
+        const table = document.getElementById('timetableGrid');
+        const cohortSchedules = getCohortSchedules().filter(x => !tempHides(x));
+        const conflicts = getVenueConflicts(state.schedules);
+        const totalCohorts = getAllCohorts().length;
+
+        const kipoCount = cohortSchedules.filter(s => s.status === 'KIPO').length;
+        const hakipoCount = cohortSchedules.filter(s => s.status === 'HAKIPO').length;
+        const cohortConflictCount = cohortSchedules.filter(s => conflicts.has(s.id)).length;
+
+        // KPI strip removed
+
+        (document.getElementById('sheetInstitutionTitle')||{textContent:''}).textContent = state.institutionTitle;
+        document.getElementById('cohortHeading').textContent = `${state.cohort} • ${state.week}`;
+        document.getElementById('drawerCohortLabel').textContent = state.cohort;
+        const sumEl = document.getElementById('statusSummaryText');
+        if (sumEl) sumEl.textContent = '';
+
+                const isNarrow = window.innerWidth < 900;
+        const dayShort = { Monday:'Mon', Tuesday:'Tue', Wednesday:'Wed', Thursday:'Thu', Friday:'Fri', Saturday:'Sat', Sunday:'Sun' };
+
+        const todayName = DAYS[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1];
+
+        if (state.orientation === 'horizontal') {
+          let html = `<thead><tr><th class="corner-cell">${isNarrow ? 'Day' : 'Day / Time'}</th>`;
+          TIME_SLOTS.forEach(slot => {
+            html += `<th>${isNarrow ? slot.short.replace('-','–') : slot.label.replace('\n', '<br/>')}</th>`;
+          });
+          html += `</tr></thead><tbody>`;
+
+          DAYS.forEach(day => {
+            const isToday = day === todayName;
+            html += `<tr class="${isToday ? 'current-day-row' : ''}"><th class="day-cell">${isNarrow ? dayShort[day] : day}${isToday ? ' •' : ''}</th>`;
+            let slotIdx = 0;
+            while (slotIdx < TIME_SLOTS.length) {
+              const sch = cohortSchedules.find(s => s.day === day && s.startSlot === slotIdx);
+              if (sch) {
+                const span = Math.min(sch.duration, TIME_SLOTS.length - slotIdx);
+                html += `<td class="schedule-cell" colspan="${span}">${createScheduleBlockHTML(sch, conflicts.get(sch.id))}</td>`;
+                slotIdx += span;
+              } else {
+                const isSunday = day === 'Sunday';
+                html += `<td class="empty-slot ${isSunday ? 'break-slot' : ''}">${isSunday ? '-x-' : '---'}</td>`;
+                slotIdx += 1;
+              }
+            }
+            html += `</tr>`;
+          });
+          html += `</tbody>`;
+          table.innerHTML = html;
+        } else {
+          let html = `<thead><tr><th class="corner-cell">${isNarrow ? 'Time' : 'Time / Day'}</th>`;
+          DAYS.forEach(day => {
+            const isToday = day === todayName;
+            html += `<th class="${isToday ? 'current-day-col' : ''}" style="${isToday ? 'background:rgba(91,140,255,0.18);color:#93c5fd;' : ''}">${isNarrow ? dayShort[day] : day}${isToday ? ' •' : ''}</th>`;
+          });
+          html += `</tr></thead><tbody>`;
+
+          const occupied = {};
+          TIME_SLOTS.forEach((slot, rIdx) => {
+            html += `<tr style="height: ${isNarrow ? '40px' : '52px'};"><th class="day-cell" style="font-size:${isNarrow ? '0.55rem' : '0.68rem'};">${slot.short}</th>`;
+            DAYS.forEach(day => {
+              const cellKey = `${day}-${rIdx}`;
+              if (occupied[cellKey]) return;
+              const isToday = day === todayName;
+              const todayStyle = isToday ? ' background:rgba(91,140,255,0.08);' : '';
+
+              const sch = cohortSchedules.find(s => s.day === day && s.startSlot === rIdx);
+              if (sch) {
+                const span = Math.min(sch.duration, TIME_SLOTS.length - rIdx);
+                for (let k = 1; k < span; k++) occupied[`${day}-${rIdx + k}`] = true;
+                html += `<td class="schedule-cell" rowspan="${span}" style="${todayStyle}">${createScheduleBlockHTML(sch, conflicts.get(sch.id))}</td>`;
+              } else {
+                const isSunday = day === 'Sunday';
+                html += `<td class="empty-slot ${isSunday ? 'break-slot' : ''}" style="${todayStyle}">${isSunday ? '-x-' : '---'}</td>`;
+              }
+            });
+            html += `</tr>`;
+          });
+          html += `</tbody>`;
+          table.innerHTML = html;
+        }
+
+        table.querySelectorAll('.schedule-block').forEach(el => {
+          el.addEventListener('click', () => handleScheduleClick(el.dataset.id));
+        });
+
+        const switchBanner = document.getElementById('switchBanner');
+        if (state.switchSourceId) {
+          const src = state.schedules.find(s => s.id === state.switchSourceId);
+          switchBanner.classList.add('active');
+          document.getElementById('switchBannerText').textContent =
+            `Selected ${src.code} (${src.day}, ${formatTimeRange(src.startSlot, src.duration)}) — click target lesson card.`;
+        } else {
+          switchBanner.classList.remove('active');
+        }
+      }
+
+      function handleScheduleClick(scheduleId) {
+        const clicked = state.schedules.find(s => s.id === scheduleId);
+        if (!clicked) return;
+
+        if (state.switchSourceId) {
+          if (state.switchSourceId === scheduleId) {
+            showToast('Pick a different lesson card to swap with.', 'warning');
+            return;
+          }
+          state.switchTargetId = scheduleId;
+          openSwitchConfirmModal();
+          return;
+        }
+
+        state.activeScheduleId = scheduleId;
+        const timeStr = formatTimeRange(clicked.startSlot, clicked.duration);
+
+        document.getElementById('modalCourseTitle').textContent = `${clicked.code} — ${clicked.title}`;
+        document.getElementById('modalCourseSub').textContent = `${clicked.cohort} • ${clicked.day} (${timeStr})`;
+        document.getElementById('detailCode').textContent = `${clicked.code} (${clicked.title})`;
+        document.getElementById('detailLecturer').textContent = clicked.lecturer;
+        document.getElementById('detailTime').textContent = `${clicked.day}, ${timeStr}`;
+        document.getElementById('detailVenue').textContent = clicked.needsVenue ? 'Not added yet' : clicked.venue;
+        const editBtn = document.getElementById('btnEditTemp');
+        if (editBtn) editBtn.style.display = clicked.temp ? 'block' : 'none';
+        document.getElementById('detailStatus').textContent =
+          clicked.status === 'KIPO' ? 'KIPINDI KIPO' : clicked.status === 'HAKIPO' ? 'HAKIPO' : 'Scheduled';
+
+        const clearBtn = document.getElementById('btnClearStatus');
+        if (clearBtn) {
+          clearBtn.style.display = clicked.status ? 'block' : 'none';
+        }
+
+        showModalStep(1);
+        setCoach(1, 'Mark KIPO if the period is present, or HAKIPO if not. Clear status to remove a mark and set it again later.', true);
+        document.getElementById('scheduleModal').classList.add('open');
+      }
+
+      function setScheduleStatus(newStatus) {
+        if (!state.activeScheduleId) return;
+        pushHistory();
+        const sch = state.schedules.find(s => s.id === state.activeScheduleId);
+        if (sch) {
+          sch.status = newStatus;
+          persistData();
+          render();
+          closeModals();
+          showToast(`${sch.code} marked ${newStatus}.`, newStatus === 'KIPO' ? 'success' : 'warning');
+          setCoach(2, newStatus === 'KIPO'
+            ? 'Good. Next: switch another pair of lessons, or fix a venue if needed.'
+            : 'Marked HAKIPO. You can switch this slot with another lesson or change venue.', true);
+        }
+      }
+
+      function clearScheduleStatus() {
+        if (!state.activeScheduleId) return;
+        pushHistory();
+        const sch = state.schedules.find(s => s.id === state.activeScheduleId);
+        if (sch) {
+          sch.status = null;
+          persistData();
+          render();
+          closeModals();
+          showToast(`${sch.code} status cleared. You can mark KIPO or HAKIPO again anytime.`);
+          setCoach(1, 'Status cleared. Open the card again to set KIPO or HAKIPO.', true);
+        }
+      }
+
+      function enterSwitchMode() {
+        if (!state.activeScheduleId) return;
+        state.switchSourceId = state.activeScheduleId;
+        closeModals();
+        render();
+        setCoach(2, 'Switch mode: tap the SECOND lesson card to swap time slots. Cancel anytime.', true);
+      }
+
+      function cancelSwitchMode() {
+        state.switchSourceId = null;
+        state.switchTargetId = null;
+        document.getElementById('switchConfirmModal').classList.remove('open');
+        render();
+      }
+
+      function setSwapTypeUI(type) {
+        state.pendingSwapType = type;
+        const permBtn = document.getElementById('swapTypePermanent');
+        const tempBtn = document.getElementById('swapTypeTemporary');
+        const untilGroup = document.getElementById('tempUntilGroup');
+        const hint = document.getElementById('swapTypeHint');
+        if (type === 'permanent') {
+          permBtn.style.background = 'rgba(139,92,246,0.25)';
+          permBtn.style.borderColor = 'rgba(139,92,246,0.7)';
+          tempBtn.style.background = '';
+          tempBtn.style.borderColor = 'rgba(251,191,36,0.5)';
+          untilGroup.style.display = 'none';
+          hint.textContent = 'Permanent: keep until next academic year. Will not be reviewed on Sundays.';
+        } else {
+          tempBtn.style.background = 'rgba(251,191,36,0.2)';
+          tempBtn.style.borderColor = 'rgba(251,191,36,0.7)';
+          permBtn.style.background = '';
+          permBtn.style.borderColor = 'rgba(139,92,246,0.5)';
+          untilGroup.style.display = 'block';
+          hint.textContent = 'Temporary: set an end date. On Sunday you will review which ones to keep.';
+          const dateInput = document.getElementById('swapUntilDate');
+          if (dateInput && !dateInput.value) {
+            const d = new Date();
+            d.setDate(d.getDate() + 7);
+            dateInput.value = d.toISOString().slice(0, 10);
+          }
+        }
+      }
+
+      function openSwitchConfirmModal() {
+        const s1 = state.schedules.find(s => s.id === state.switchSourceId);
+        const s2 = state.schedules.find(s => s.id === state.switchTargetId);
+        if (!s1 || !s2) return;
+
+        const s1Current = `${s1.day}, ${formatTimeRange(s1.startSlot, s1.duration)}`;
+        const s2Current = `${s2.day}, ${formatTimeRange(s2.startSlot, s2.duration)}`;
+        const s1Next = `${s2.day}, ${formatTimeRange(s2.startSlot, s1.duration)}`;
+        const s2Next = `${s1.day}, ${formatTimeRange(s1.startSlot, s2.duration)}`;
+
+        document.getElementById('switchCompareBody').innerHTML = `
+          <div class="switch-item">
+            <strong>1. ${s1.code} — ${s1.title}</strong>
+            <div style="color:#64748b;">Current: ${s1Current} &bull; ${s1.venue}</div>
+            <div class="switch-arrow">&rarr; New: ${s1Next}</div>
+          </div>
+          <div class="switch-item">
+            <strong>2. ${s2.code} — ${s2.title}</strong>
+            <div style="color:#64748b;">Current: ${s2Current} &bull; ${s2.venue}</div>
+            <div class="switch-arrow">&rarr; New: ${s2Next}</div>
+          </div>
+        `;
+
+        const simulated = JSON.parse(JSON.stringify(state.schedules));
+        const sim1 = simulated.find(s => s.id === s1.id);
+        const sim2 = simulated.find(s => s.id === s2.id);
+        [sim1.day, sim2.day] = [sim2.day, sim1.day];
+        [sim1.startSlot, sim2.startSlot] = [sim2.startSlot, sim1.startSlot];
+
+        const simConflicts = getVenueConflicts(simulated);
+        const warnings = [];
+        if (simConflicts.has(sim1.id)) warnings.push(simConflicts.get(sim1.id));
+        if (simConflicts.has(sim2.id)) warnings.push(simConflicts.get(sim2.id));
+        if (s1.duration !== s2.duration) warnings.push(`Duration differs (${s1.duration}h vs ${s2.duration}h).`);
+
+        const conflictBox = document.getElementById('switchConflictBox');
+        if (warnings.length > 0) {
+          conflictBox.innerHTML = `<strong>&#9888; Warning:</strong> ${warnings.join(' | ')}`;
+          conflictBox.classList.add('visible');
+        } else {
+          conflictBox.classList.remove('visible');
+        }
+
+        setSwapTypeUI(state.pendingSwapType || 'temporary');
+        document.getElementById('switchConfirmModal').classList.add('open');
+      }
+
+      function executeScheduleSwitch() {
+        const s1 = state.schedules.find(s => s.id === state.switchSourceId);
+        const s2 = state.schedules.find(s => s.id === state.switchTargetId);
+        if (!s1 || !s2) return;
+
+        const swapType = state.pendingSwapType || 'temporary';
+        let swapUntil = null;
+        if (swapType === 'temporary') {
+          const dateInput = document.getElementById('swapUntilDate');
+          swapUntil = dateInput && dateInput.value ? dateInput.value : null;
+          if (!swapUntil) {
+            showToast('Please set an end date for a temporary swap.', 'warning');
+            return;
+          }
+        }
+
+        pushHistory();
+
+        const orig1 = { day: s1.day, startSlot: s1.startSlot };
+        const orig2 = { day: s2.day, startSlot: s2.startSlot };
+
+        [s1.day, s2.day] = [s2.day, s1.day];
+        [s1.startSlot, s2.startSlot] = [s2.startSlot, s1.startSlot];
+
+        const pairId = `swap-${Date.now()}`;
+        [s1, s2].forEach((sch, idx) => {
+          const orig = idx === 0 ? orig1 : orig2;
+          sch.swapType = swapType;
+          sch.swapUntil = swapUntil;
+          sch.swapPairId = pairId;
+          sch.originalDay = orig.day;
+          sch.originalStartSlot = orig.startSlot;
+        });
+
+        persistData();
+        state.switchSourceId = null;
+        state.switchTargetId = null;
+        closeModals();
+        render();
+        const typeLabel = swapType === 'permanent' ? 'permanent' : `temporary until ${swapUntil}`;
+        showToast(`Swapped ${s1.code} and ${s2.code} (${typeLabel}). Purple cards mark the swap.`);
+        setCoach(3, 'Swap saved in purple. Temporary ones are reviewed every Sunday.', true);
+      }
+
+      function getTemporarySwaps() {
+        const seen = new Set();
+        const pairs = [];
+        state.schedules.forEach(s => {
+          if (s.swapType === 'temporary' && s.swapPairId && !seen.has(s.swapPairId)) {
+            seen.add(s.swapPairId);
+            const mate = state.schedules.find(o => o.swapPairId === s.swapPairId && o.id !== s.id);
+            pairs.push({ a: s, b: mate || null });
+          }
+        });
+        return pairs;
+      }
+
+      function openSundayReview() {
+        const pairs = getTemporarySwaps();
+        const list = document.getElementById('sundayReviewList');
+        if (pairs.length === 0) {
+          list.innerHTML = '<p style="font-size:0.75rem;color:var(--text-muted);">No temporary swaps to review.</p>';
+        } else {
+          list.innerHTML = pairs.map(({ a, b }, i) => {
+            const until = a.swapUntil || '—';
+            const bLabel = b ? `${b.code} (${b.day})` : '—';
+            return `
+              <div class="switch-item" data-pair="${a.swapPairId}">
+                <strong>${a.code} ↔ ${b ? b.code : '?'}</strong>
+                <div style="color:#64748b;font-size:0.7rem;">Until ${until} • ${a.day} / ${b ? b.day : '—'}</div>
+                <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">
+                  <label style="font-size:0.7rem;display:flex;align-items:center;gap:4px;">
+                    <input type="radio" name="pair-${a.swapPairId}" value="keep-temp" checked /> Keep temporary
+                  </label>
+                  <label style="font-size:0.7rem;display:flex;align-items:center;gap:4px;">
+                    <input type="radio" name="pair-${a.swapPairId}" value="make-permanent" /> Make permanent
+                  </label>
+                  <label style="font-size:0.7rem;display:flex;align-items:center;gap:4px;">
+                    <input type="radio" name="pair-${a.swapPairId}" value="revert" /> Revert
+                  </label>
+                </div>
+                <div class="form-group" style="margin-top:6px;">
+                  <label style="font-size:0.65rem;">If keep temporary — new end date</label>
+                  <input type="date" class="form-control sunday-until" data-pair="${a.swapPairId}" value="${a.swapUntil || ''}" />
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+        document.getElementById('sundayReviewModal').classList.add('open');
+      }
+
+      function applySundayReview() {
+        const pairs = getTemporarySwaps();
+        pushHistory();
+        pairs.forEach(({ a, b }) => {
+          const choice = document.querySelector(`input[name="pair-${a.swapPairId}"]:checked`);
+          const val = choice ? choice.value : 'keep-temp';
+          const untilInput = document.querySelector(`.sunday-until[data-pair="${a.swapPairId}"]`);
+          const targets = [a, b].filter(Boolean);
+          if (val === 'make-permanent') {
+            targets.forEach(s => {
+              s.swapType = 'permanent';
+              s.swapUntil = null;
+            });
+          } else if (val === 'revert') {
+            targets.forEach(s => {
+              if (s.originalDay != null) {
+                s.day = s.originalDay;
+                s.startSlot = s.originalStartSlot;
+              }
+              delete s.swapType;
+              delete s.swapUntil;
+              delete s.swapPairId;
+              delete s.originalDay;
+              delete s.originalStartSlot;
+            });
+          } else {
+            const newUntil = untilInput && untilInput.value ? untilInput.value : a.swapUntil;
+            targets.forEach(s => {
+              s.swapType = 'temporary';
+              s.swapUntil = newUntil;
+            });
+          }
+        });
+        state.lastSundayReview = new Date().toISOString().slice(0, 10);
+        persistData();
+        document.getElementById('sundayReviewModal').classList.remove('open');
+        render();
+        showToast('Sunday review applied.');
+      }
+
+      function maybePromptSundayReview() {
+        const today = new Date();
+        if (today.getDay() !== 0) return;
+        const key = today.toISOString().slice(0, 10);
+        if (state.lastSundayReview === key) return;
+        const pairs = getTemporarySwaps();
+        if (pairs.length === 0) return;
+        openSundayReview();
+      }
+
+      // ---- Step-by-step open-venue flow: when -> venue (popup confirm) -> subject -> yellow temporary class ----
+      const $id = (i) => document.getElementById(i);
+      const VENUE_WINDOW_DAYS = 3; // a venue can only be added for a date within this many days
+      const venuePick = { day: 'Monday', from: 0, dur: null, to: 0, step: 1, venue: null, pending: null, choice: null, actType: 'Kikao', template: false };
+
+      function escText(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').trim(); }
+      function slotEndLabel(i) { return TIME_SLOTS[i].short.split('-')[1]; }
+
+      // ---- Venue registry: only real room names (never a person's name or a module code) ----
+      function normVenue(v) { return String(v || '').replace(/\s+/g, ' ').trim(); }
+      function venueKey(v) { return normVenue(v).toUpperCase(); }
+      const VENUE_WORDS = /\b(LR|LAB|LABORATORY|CLASS|CLASSROOM|CEATO|LWGF|RWGF|BL|BLOCK|HALL|ROOM|THEATRE|THEATER|AUDITORIUM|WORKSHOP|GARAGE|STUDIO|CENTRE|CENTER|ICT|LIBRARY|SEMINAR|HANGAR|YARD|FIELD)\b/i;
+      function isVenueName(v) {
+        const n = normVenue(v);
+        if (!n || n.toUpperCase() === 'TBA') return false;
+        if (DEFAULT_VENUES.some(d => venueKey(d) === venueKey(n))) return true;
+        if (/^(dr|prof|mr|mrs|ms|eng|sir|madam)\b\.?/i.test(n)) return false;
+        if (/^[A-Z]{2,4}\s?\d{4,}[A-Z]?$/.test(n)) return false;
+        return VENUE_WORDS.test(n) || /\d/.test(n);
+      }
+      function getVenueRegistry() {
+        const map = new Map();
+        [...DEFAULT_VENUES, ...state.venues, ...state.schedules.map(x => x.venue)].forEach(v => {
+          const n = normVenue(v);
+          if (!isVenueName(n)) return;
+          const k = venueKey(n);
+          if (!map.has(k)) map.set(k, n);
+        });
+        return Array.from(map.values()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+      }
+
+      function lessonInWindow(x) {
+        return x.day === venuePick.day && x.startSlot <= venuePick.to && venuePick.from < x.startSlot + x.duration;
+      }
+
+      // A venue is open when no lesson uses it in the window, or every lesson there is confirmed HAKIPO.
+      function getOpenVenuesFor(w, excludeId) {
+        const out = [];
+        getVenueRegistry().forEach(v => {
+          const k = venueKey(v);
+          const users = state.schedules.filter(x => x.id !== excludeId && venueKey(x.venue) === k &&
+            x.day === w.day && x.startSlot <= w.to && w.from < x.startSlot + x.duration);
+          if (users.some(x => x.status !== 'HAKIPO')) return;
+          out.push({ venue: v, hakipo: users.length > 0, from: Array.from(new Set(users.map(x => x.cohort))).join(', ') });
+        });
+        return out;
+      }
+      function getOpenVenues() { return getOpenVenuesFor({ day: venuePick.day, from: venuePick.from, to: venuePick.to }, null); }
+
+      // ---- Temporary (yellow) classes: they vanish when their time ends ----
+      function isTempExpired(x) { return Boolean(x.temp && x.expiresAt && x.expiresAt <= Date.now()); }
+
+      function pruneExpired() {
+        const before = state.schedules.length;
+        state.schedules = state.schedules.filter(x => !isTempExpired(x));
+        return state.schedules.length !== before;
+      }
+
+      function tickTemp() {
+        if (pruneExpired()) {
+          persistData();
+          render();
+          showToast('Temporary class ended and was removed.');
+        }
+      }
+
+      // A HAKIPO lesson is hidden while a temporary class of the same cohort sits on its time.
+      function tempHides(x) {
+        return x.status === 'HAKIPO' && !x.temp && state.schedules.some(t =>
+          t.temp && t.cohort === x.cohort && t.day === x.day && t.id !== x.id &&
+          t.startSlot < x.startSlot + x.duration && x.startSlot < t.startSlot + t.duration);
+      }
+
+      function daysUntil(ts) {
+        const a = new Date(ts);
+        const d0 = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+        const n = new Date();
+        const n0 = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+        return Math.round((d0 - n0) / 86400000);
+      }
+      function dateLabelOf(ts) { return new Date(ts).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }); }
+
+      // Next date this day/hours happens, and when it ends (the moment the yellow class disappears).
+      function tempWindowInfo() {
+        const now = new Date();
+        const cur = (now.getDay() + 6) % 7;
+        const add = (DAYS.indexOf(venuePick.day) - cur + 7) % 7;
+        const hm = slotEndLabel(venuePick.to).split(':').map(Number);
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + add, hm[0], hm[1] || 0, 0, 0);
+        if (d.getTime() <= now.getTime()) d.setDate(d.getDate() + 7);
+        return { expiresAt: d.getTime(), label: dateLabelOf(d.getTime()), daysAhead: daysUntil(d.getTime()) };
+      }
+
+      // Lessons of my cohort that stop a new class: anything in the window that is not HAKIPO.
+      function cohortBlockers() { return getCohortSchedules().filter(lessonInWindow).filter(x => x.status !== 'HAKIPO'); }
+      function cohortFreed() { return getCohortSchedules().filter(lessonInWindow).filter(x => x.status === 'HAKIPO' && !x.temp); }
+
+      function uniqueSubjects() {
+        const seen = new Set();
+        const out = [];
+        getCohortSchedules().filter(x => !x.isActivity && !x.temp).forEach(x => {
+          const key = x.code + '|' + x.title;
+          if (seen.has(key)) return;
+          seen.add(key);
+          out.push(x);
+        });
+        return out;
+      }
+
+      function whenText() {
+        const info = tempWindowInfo();
+        return info.label + ', ' + TIME_SLOTS[venuePick.from].short.split('-')[0] + '-' + slotEndLabel(venuePick.to) +
+          ' (' + venuePick.dur + ' hour' + (venuePick.dur > 1 ? 's' : '') + ')';
+      }
+
+      function rebuildFromOptions() {
+        const dur = venuePick.dur || 1;
+        const maxStart = TIME_SLOTS.length - dur;
+        if (venuePick.from > maxStart) venuePick.from = maxStart;
+        $id('vfFrom').innerHTML = TIME_SLOTS.slice(0, maxStart + 1)
+          .map(t => `<option value="${t.index}">${t.short.split('-')[0]}</option>`).join('');
+        $id('vfFrom').value = String(venuePick.from);
+        venuePick.to = venuePick.from + dur - 1;
+      }
+
+      // The Find button stays off until the user clicks 1 hour or 2 hours.
+      function updateStep1UI() {
+        const btn = $id('vfFindBtn');
+        const note = $id('vfDateNote');
+        $id('vfStep1Note').textContent = '';
+        if (!venuePick.dur) {
+          venuePick.template = false;
+          btn.disabled = true;
+          btn.textContent = 'Find open venues';
+          note.style.color = '#64748b';
+          note.textContent = 'Choose how long (1 or 2 hours) to continue.';
+          return;
+        }
+        venuePick.to = venuePick.from + venuePick.dur - 1;
+        const info = tempWindowInfo();
+        const far = info.daysAhead > VENUE_WINDOW_DAYS;
+        venuePick.template = far;
+        btn.disabled = false;
+        btn.textContent = far ? 'Add yellow template (venue later)' : 'Find open venues';
+        note.style.color = far ? '#fde047' : '#64748b';
+        note.textContent = far
+          ? info.label + ' is more than ' + VENUE_WINDOW_DAYS + ' days away. Venues open ' + VENUE_WINDOW_DAYS + ' days before. Add a yellow template now and add the venue later.'
+          : info.label;
+      }
+
+      function renderSteps() {
+        const st = venuePick.step;
+        $id('vfBody1').style.display = st === 1 ? 'flex' : 'none';
+        $id('vfSum1').style.display = st > 1 ? '' : 'none';
+        $id('vfSum1').textContent = whenText();
+        $id('vfChange1').style.display = st > 1 ? '' : 'none';
+        $id('vfStep2').style.display = (st >= 2 && !venuePick.template) ? 'flex' : 'none';
+        $id('vfBody2').style.display = st === 2 ? 'flex' : 'none';
+        $id('vfSum2').style.display = st === 3 ? '' : 'none';
+        $id('vfSum2').textContent = venuePick.venue || '';
+        $id('vfChange2').style.display = st === 3 ? '' : 'none';
+        $id('vfStep3').style.display = st === 3 ? 'flex' : 'none';
+      }
+
+      function renderChips() {
+        const open = getOpenVenues();
+        $id('vfCount').textContent = open.length + ' open venue' + (open.length === 1 ? '' : 's') + ' \u2022 ' + whenText();
+        $id('vfChips').innerHTML = open.length
+          ? open.map(o => `<button type="button" class="venue-chip" data-venue="${o.venue.replace(/"/g, '&quot;')}">${o.venue}${o.hakipo ? '<small>free - HAKIPO (' + o.from + ')</small>' : '<small>no kipindi</small>'}</button>`).join('')
+          : '<div class="vf-empty">No venue is open at this time. Tap Change and pick another time.</div>';
+      }
+
+      function renderSubjects() {
+        const freed = cohortFreed();
+        let html = '';
+        if (freed.length) html += `<div class="vf-empty">This covers your HAKIPO lesson ${freed.map(x => x.code).join(', ')} for this time only.</div>`;
+        html += uniqueSubjects().map(x =>
+          `<button type="button" class="lesson-check subject-btn" data-choice="add:${x.id}"><span><strong>${x.code}</strong><div class="lc-sub">${x.title}</div><div class="lc-sub">${x.lecturer || ''}</div></span></button>`).join('');
+        html += `<button type="button" class="lesson-check subject-btn" data-choice="add:other"><span><strong>Kikao / Discussion / other</strong><div class="lc-sub">Meeting, revision, group work...</div></span></button>`;
+        $id('vfLessons').innerHTML = html;
+        $id('vfAddForm').style.display = 'none';
+        $id('vfLessons').style.display = '';
+      }
+
+      function findOpenVenues() {
+        if (!venuePick.dur) { showToast('Choose 1 hour or 2 hours first.', 'warning'); return; }
+        venuePick.to = venuePick.from + venuePick.dur - 1;
+        const note = $id('vfStep1Note');
+        const blockers = cohortBlockers();
+        if (blockers.length) {
+          note.textContent = '\u26A0 ' + state.cohort + ' has ' + blockers[0].code + ' at this time. Pick a time with no kipindi (---) or a HAKIPO lesson.';
+          return;
+        }
+        note.textContent = '';
+        venuePick.venue = null;
+        venuePick.choice = null;
+        if (venuePick.template) {
+          venuePick.step = 3;
+          renderSteps();
+          renderSubjects();
+        } else {
+          venuePick.step = 2;
+          renderSteps();
+          renderChips();
+        }
+      }
+
+      function askConfirmVenue(venue) {
+        venuePick.pending = venue;
+        $id('vcVenue').textContent = venue;
+        $id('vcWhen').textContent = whenText();
+        $id('venueConfirmModal').classList.add('open');
+      }
+
+      function confirmVenue() {
+        $id('venueConfirmModal').classList.remove('open');
+        if (!venuePick.pending) return;
+        venuePick.venue = venuePick.pending;
+        venuePick.pending = null;
+        venuePick.step = 3;
+        renderSteps();
+        renderSubjects();
+      }
+
+      function openVenueDrawer(preselectScheduleId = null) {
+        $id('vfDay').innerHTML = DAYS.map(d => `<option value="${d}">${d}</option>`).join('');
+        const subjOpts = ['<option value="">No subject</option>'];
+        uniqueSubjects().forEach(x => subjOpts.push(`<option value="${x.id}">${x.code} \u2013 ${x.title}</option>`));
+        $id('vfActSubject').innerHTML = subjOpts.join('');
+        $id('vfActName').value = '';
+        $id('vfActLeader').value = '';
+        $id('vfStep1Note').textContent = '';
+
+        venuePick.step = 1;
+        venuePick.venue = null;
+        venuePick.pending = null;
+        venuePick.choice = null;
+        const sch = preselectScheduleId ? state.schedules.find(x => x.id === preselectScheduleId) : null;
+        if (sch) {
+          venuePick.day = sch.day;
+          venuePick.from = sch.startSlot;
+          venuePick.dur = null;
+        } else {
+          venuePick.day = DAYS[(new Date().getDay() + 6) % 7];
+          venuePick.from = 0;
+          venuePick.dur = null;
+        }
+        $id('vfDay').value = venuePick.day;
+        document.querySelectorAll('#vfDur .vf-seg-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.dur) === venuePick.dur));
+        rebuildFromOptions();
+        updateStep1UI();
+        renderSteps();
+        renderTakenList();
+        renderVenueOverviewList();
+        $id('venueDrawer').classList.add('open');
+      }
+
+      function addClassInVenue(c) {
+        const blockers = cohortBlockers();
+        if (blockers.length) { showToast(state.cohort + ' already has ' + blockers[0].code + ' at this time.', 'warning'); return false; }
+        const info = tempWindowInfo();
+        const base = { id: 'tmp-' + Date.now(), cohort: state.cohort, day: venuePick.day, startSlot: venuePick.from,
+          duration: venuePick.dur, venue: venuePick.venue || 'TBA', needsVenue: !venuePick.venue, status: null,
+          venueObtained: true, temp: true, expiresAt: info.expiresAt, dateLabel: info.label };
+        if (c === 'add:other') {
+          const type = venuePick.actType;
+          const subjSel = $id('vfActSubject').value;
+          const subj = subjSel ? state.schedules.find(x => x.id === subjSel) : null;
+          const name = escText($id('vfActName').value);
+          let title = type === 'Other' ? (name || 'Other activity') : type;
+          if (subj) title += ' \u2013 ' + subj.title;
+          if (type !== 'Other' && name) title += ' (' + name + ')';
+          Object.assign(base, { code: subj ? subj.code : type.toUpperCase(), title,
+            lecturer: escText($id('vfActLeader').value), isActivity: true });
+        } else {
+          const subj = state.schedules.find(x => x.id === c.slice(4));
+          if (!subj) return false;
+          Object.assign(base, { code: subj.code, title: subj.title, lecturer: subj.lecturer });
+        }
+        pushHistory();
+        state.schedules.push(base);
+        return true;
+      }
+
+      function finishAdd(c) {
+        const venue = venuePick.venue;
+        if (!venue && !venuePick.template) return;
+        if (!addClassInVenue(c)) return;
+        persistData();
+        render();
+        showToast(venue
+          ? `Added: class in ${venue} (yellow, temporary).`
+          : 'Yellow template added. When the day is near, tap the card \u2192 Edit to add the venue.');
+        venuePick.venue = null;
+        venuePick.choice = null;
+        $id('venueDrawer').classList.remove('open');
+      }
+
+      // ---- "Venues we took" list + edit popup ----
+      function decodeEntities(t) { const x = document.createElement('textarea'); x.innerHTML = t || ''; return x.value; }
+      let editTempId = null;
+
+      function renderTakenList() {
+        const listEl = $id('vfTakenList');
+        if (!listEl) return;
+        const items = getCohortSchedules().filter(x => x.temp).sort((a, b) => a.expiresAt - b.expiresAt);
+        $id('vfTakenCount').textContent = items.length ? String(items.length) : '';
+        listEl.innerHTML = items.length
+          ? items.map(x => `
+            <div class="venue-row-card taken-row ${x.needsVenue ? 'pending' : ''}" data-id="${x.id}" style="cursor:pointer;">
+              <div>
+                <strong>${x.code} &bull; ${x.dateLabel || ''}</strong>
+                <div style="color:#64748b;">${x.day} (${formatTimeRange(x.startSlot, x.duration)}) &bull; ${x.title}</div>
+              </div>
+              <div style="font-weight:800;color:${x.needsVenue ? '#fde047' : '#5eead4'};text-align:right;">
+                ${x.needsVenue ? 'Venue pending' : x.venue}
+                <div style="font-size:0.58rem;font-weight:700;color:#93c5fd;">Edit</div>
+              </div>
+            </div>`).join('')
+          : '<div class="vf-empty">No yellow classes yet.</div>';
+      }
+
+      function openTempEdit(id) {
+        const t = state.schedules.find(x => x.id === id && x.temp);
+        if (!t) return;
+        editTempId = id;
+        $id('teSub').textContent = `${t.day} (${formatTimeRange(t.startSlot, t.duration)}) \u2022 ${t.dateLabel || ''}`;
+
+        const subs = uniqueSubjects();
+        const cur = !t.isActivity ? subs.find(x => x.code === t.code && x.title === t.title) : null;
+        $id('teSubject').innerHTML = subs.map(x => `<option value="${x.id}">${x.code} \u2013 ${x.title}</option>`).join('') +
+          '<option value="custom">Kikao / Discussion / other</option>';
+        $id('teSubject').value = cur ? cur.id : 'custom';
+        $id('teTitleWrap').style.display = cur ? 'none' : '';
+        $id('teTitle').value = decodeEntities(t.title);
+        $id('teLeader').value = decodeEntities(t.lecturer);
+
+        const allowed = daysUntil(t.expiresAt) <= VENUE_WINDOW_DAYS;
+        const sel = $id('teVenue');
+        const opts = ['<option value="">No venue yet</option>'];
+        if (allowed) {
+          const open = getOpenVenuesFor({ day: t.day, from: t.startSlot, to: t.startSlot + t.duration - 1 }, t.id);
+          const hasCur = !t.needsVenue && t.venue && open.some(o => o.venue === t.venue);
+          if (!t.needsVenue && t.venue && !hasCur) opts.push(`<option value="${t.venue.replace(/"/g, '&quot;')}">${t.venue} (current)</option>`);
+          open.forEach(o => opts.push(`<option value="${o.venue.replace(/"/g, '&quot;')}">${o.venue}${o.hakipo ? ' \u2013 HAKIPO' : ''}</option>`));
+        }
+        sel.innerHTML = opts.join('');
+        sel.disabled = !allowed;
+        sel.value = t.needsVenue ? '' : t.venue;
+        const dateOpens = new Date(t.expiresAt);
+        dateOpens.setDate(dateOpens.getDate() - VENUE_WINDOW_DAYS);
+        $id('teVenueNote').textContent = allowed
+          ? 'Only venues with no kipindi at this time are listed.'
+          : 'Venue can be added from ' + dateLabelOf(dateOpens.getTime()) + ' (' + VENUE_WINDOW_DAYS + ' days before ' + (t.dateLabel || 'the day') + ').';
+        $id('tempEditModal').classList.add('open');
+      }
+
+      function saveTempEdit() {
+        const t = state.schedules.find(x => x.id === editTempId && x.temp);
+        if (!t) { $id('tempEditModal').classList.remove('open'); return; }
+        const subSel = $id('teSubject').value;
+        const venueVal = $id('teVenue').value;
+        if (venueVal && venueVal !== t.venue) {
+          const open = getOpenVenuesFor({ day: t.day, from: t.startSlot, to: t.startSlot + t.duration - 1 }, t.id);
+          if (!open.some(o => o.venue === venueVal)) { showToast('That venue is no longer open at this time.', 'warning'); return; }
+        }
+        pushHistory();
+        if (subSel === 'custom') {
+          t.title = escText($id('teTitle').value) || 'Activity';
+          if (!t.isActivity) t.code = 'KIKAO';
+          t.isActivity = true;
+        } else {
+          const subj = state.schedules.find(x => x.id === subSel);
+          if (subj) { t.code = subj.code; t.title = subj.title; t.isActivity = false; }
+        }
+        t.lecturer = escText($id('teLeader').value);
+        if (venueVal) { t.venue = venueVal; t.needsVenue = false; } else { t.venue = 'TBA'; t.needsVenue = true; }
+        persistData();
+        render();
+        $id('tempEditModal').classList.remove('open');
+        showToast('Yellow class updated.');
+      }
+
+      function removeTempEdit() {
+        if (!editTempId) return;
+        pushHistory();
+        state.schedules = state.schedules.filter(x => x.id !== editTempId);
+        editTempId = null;
+        persistData();
+        render();
+        $id('tempEditModal').classList.remove('open');
+        showToast('Yellow class removed.');
+      }
+
+      function renderVenueOverviewList() {
+        const listEl = document.getElementById('venueOverviewList');
+        const cohortSchedules = getCohortSchedules();
+        const conflicts = getVenueConflicts(state.schedules);
+
+        listEl.innerHTML = cohortSchedules.map(s => {
+          const conflict = conflicts.get(s.id);
+          return `
+            <div class="venue-row-card ${conflict ? 'has-conflict' : ''}">
+              <div>
+                <strong>${s.code} &bull; ${s.day} (${formatTimeRange(s.startSlot, s.duration)})</strong>
+                <div style="color:#64748b;">${s.title}</div>
+                ${conflict ? `<div style="color:#fb7185; font-weight:700;">&#9888; ${conflict}</div>` : ''}
+              </div>
+              <div style="font-weight:800; color:#5eead4; text-align:right;">${s.venue}</div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      function closeModals() {
+        document.getElementById('scheduleModal').classList.remove('open');
+        document.getElementById('switchConfirmModal').classList.remove('open');
+      }
+
+
+      function setCoach(num, message, show) {
+        const bar = document.getElementById('coachBar');
+        if (!bar) return;
+        document.getElementById('coachNum').textContent = String(num);
+        document.getElementById('coachText').textContent = message;
+        bar.classList.toggle('active', show !== false);
+      }
+
+      function showModalStep(step) {
+        document.getElementById('modalStep1').classList.toggle('active', step === 1);
+        document.getElementById('modalStep2').classList.toggle('active', step === 2);
+        const dots = document.querySelectorAll('#modalStepDots span');
+        dots.forEach((d, i) => d.classList.toggle('on', i === step - 1));
+      }
+
+      function applyLessonFilter(query) {
+        const q = (query || '').trim().toLowerCase();
+        document.querySelectorAll('.schedule-block').forEach(el => {
+          const id = el.dataset.id;
+          const sch = state.schedules.find(s => s.id === id);
+          if (!sch) return;
+          const hay = `${sch.code} ${sch.title} ${sch.lecturer} ${sch.venue} ${sch.day}`.toLowerCase();
+          const match = !q || hay.includes(q);
+          el.classList.toggle('dimmed', q && !match);
+          el.classList.toggle('highlight-match', q && match);
+        });
+      }
+
+      function render() {
+        pruneExpired();
+        renderManagerCohortNav();
+        renderGrid();
+        renderTakenList();
+        const ls = document.getElementById('lessonSearch');
+        if (ls && ls.value) applyLessonFilter(ls.value);
+      }
+
+      function renderManagerCohortNav() {
+        const nav = document.getElementById('managerCohortNav');
+        if (!nav) return;
+        nav.replaceChildren();
+        getAllCohorts().forEach(cohort => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = cohort;
+          button.classList.toggle('active', cohort === state.cohort);
+          button.addEventListener('click', () => {
+            state.cohort = cohort;
+            cancelSwitchMode();
+            persistData();
+            render();
+          });
+          nav.appendChild(button);
+        });
+      }
+
+      function bindEvents() {
+        document.getElementById('cohortSearch').addEventListener('input', (e) => {
+          state.cohortFilter = e.target.value;
+          populateCohortDropdown();
+          cancelSwitchMode();
+          render();
+        });
+
+        document.getElementById('classSelect').addEventListener('change', (e) => {
+          state.cohort = e.target.value;
+          cancelSwitchMode();
+          render();
+        });
+
+        const weekSelect = document.getElementById('weekSelect');
+        weekSelect.addEventListener('change', (e) => { state.week = e.target.value; render(); });
+        document.getElementById('prevWeekBtn').addEventListener('click', () => {
+          if (weekSelect.selectedIndex > 0) { weekSelect.selectedIndex -= 1; state.week = weekSelect.value; render(); }
+        });
+        document.getElementById('nextWeekBtn').addEventListener('click', () => {
+          if (weekSelect.selectedIndex < weekSelect.options.length - 1) { weekSelect.selectedIndex += 1; state.week = weekSelect.value; render(); }
+        });
+
+        document.getElementById('layoutToggleBtn').addEventListener('click', () => {
+          state.orientation = state.orientation === 'horizontal' ? 'vertical' : 'horizontal';
+          render();
+        });
+
+        document.getElementById('undoBtn').addEventListener('click', undoLastAction);
+        document.getElementById('resetBtn').addEventListener('click', () => {
+          pushHistory();
+          state.schedules = JSON.parse(JSON.stringify(INITIAL_SCHEDULES));
+          state.institutionTitle = 'NATIONAL INSTITUTE OF TRANSPORT FIRST SEMESTER TIMETABLE FOR ACADEMIC YEAR 2026_2027';
+          state.sourceLabel = 'Sample Data';
+          state.cohort = 'BAE (54)';
+          state.cohortFilter = '';
+          document.getElementById('cohortSearch').value = '';
+          state.switchSourceId = null;
+          state.switchTargetId = null;
+          populateCohortDropdown();
+          render();
+          showToast('Reset to default timetable.');
+        });
+
+        document.getElementById('closeScheduleModal').addEventListener('click', closeModals);
+        document.getElementById('btnKipo').addEventListener('click', () => setScheduleStatus('KIPO'));
+        document.getElementById('btnHakipo').addEventListener('click', () => setScheduleStatus('HAKIPO'));
+        const clearStatusBtn = document.getElementById('btnClearStatus');
+        if (clearStatusBtn) clearStatusBtn.addEventListener('click', clearScheduleStatus);
+        document.getElementById('btnStartSwitch').addEventListener('click', enterSwitchMode);
+        document.getElementById('btnQuickVenue').addEventListener('click', () => {
+          const id = state.activeScheduleId;
+          closeModals();
+          openVenueDrawer(id);
+          setCoach(2, 'Filter the time, tap an open venue, tick the lessons that will use it, then save.', true);
+        });
+        const moreBtn = document.getElementById('btnMoreActions');
+        if (moreBtn) moreBtn.addEventListener('click', () => showModalStep(2));
+        const backBtn = document.getElementById('btnBackStep1');
+        if (backBtn) backBtn.addEventListener('click', () => showModalStep(1));
+        const coachDismiss = document.getElementById('coachDismissBtn');
+        if (coachDismiss) coachDismiss.addEventListener('click', () => setCoach(1, '', false));
+        const lessonSearch = document.getElementById('lessonSearch');
+        if (lessonSearch) {
+          lessonSearch.addEventListener('input', (e) => applyLessonFilter(e.target.value));
+        }
+
+        document.getElementById('cancelSwitchModeBtn').addEventListener('click', cancelSwitchMode);
+        document.getElementById('closeSwitchModal').addEventListener('click', cancelSwitchMode);
+        document.getElementById('cancelSwitchConfirmBtn').addEventListener('click', cancelSwitchMode);
+        document.getElementById('confirmSwitchBtn').addEventListener('click', executeScheduleSwitch);
+        const swapPerm = document.getElementById('swapTypePermanent');
+        const swapTemp = document.getElementById('swapTypeTemporary');
+        if (swapPerm) swapPerm.addEventListener('click', () => setSwapTypeUI('permanent'));
+        if (swapTemp) swapTemp.addEventListener('click', () => setSwapTypeUI('temporary'));
+        const closeSunday = document.getElementById('closeSundayReview');
+        const skipSunday = document.getElementById('sundayReviewSkip');
+        const applySunday = document.getElementById('sundayReviewApply');
+        if (closeSunday) closeSunday.addEventListener('click', () => {
+          document.getElementById('sundayReviewModal').classList.remove('open');
+          state.lastSundayReview = new Date().toISOString().slice(0, 10);
+          persistData();
+        });
+        if (skipSunday) skipSunday.addEventListener('click', () => {
+          document.getElementById('sundayReviewModal').classList.remove('open');
+          state.lastSundayReview = new Date().toISOString().slice(0, 10);
+          persistData();
+        });
+        if (applySunday) applySunday.addEventListener('click', applySundayReview);
+
+        document.getElementById('openVenuePanelBtn').addEventListener('click', () => openVenueDrawer());
+        document.getElementById('closeVenueDrawer').addEventListener('click', () => {
+          document.getElementById('venueDrawer').classList.remove('open');
+        });
+        $id('vfDay').addEventListener('change', (e) => { venuePick.day = e.target.value; updateStep1UI(); });
+        $id('vfFrom').addEventListener('change', (e) => { venuePick.from = parseInt(e.target.value, 10); updateStep1UI(); });
+        $id('vfDur').addEventListener('click', (e) => {
+          const btn = e.target.closest('.vf-seg-btn');
+          if (!btn) return;
+          venuePick.dur = Number(btn.dataset.dur);
+          document.querySelectorAll('#vfDur .vf-seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+          rebuildFromOptions();
+          updateStep1UI();
+        });
+        $id('vfFindBtn').addEventListener('click', findOpenVenues);
+        $id('vfChange1').addEventListener('click', () => { venuePick.step = 1; venuePick.venue = null; venuePick.choice = null; updateStep1UI(); renderSteps(); });
+        $id('vfChange2').addEventListener('click', () => { venuePick.step = 2; venuePick.venue = null; venuePick.choice = null; renderSteps(); renderChips(); });
+        $id('vfChips').addEventListener('click', (e) => {
+          const chip = e.target.closest('.venue-chip');
+          if (chip) askConfirmVenue(chip.dataset.venue);
+        });
+        $id('vcConfirm').addEventListener('click', confirmVenue);
+        $id('vcCancel').addEventListener('click', () => { $id('venueConfirmModal').classList.remove('open'); venuePick.pending = null; });
+        $id('vcClose').addEventListener('click', () => { $id('venueConfirmModal').classList.remove('open'); venuePick.pending = null; });
+        $id('vfLessons').addEventListener('click', (e) => {
+          const b = e.target.closest('.subject-btn');
+          if (!b) return;
+          const c = b.dataset.choice;
+          if (c === 'add:other') {
+            venuePick.choice = c;
+            $id('vfLessons').style.display = 'none';
+            $id('vfAddForm').style.display = 'flex';
+          } else {
+            finishAdd(c);
+          }
+        });
+        $id('vfTypeChips').addEventListener('click', (e) => {
+          const ch = e.target.closest('.venue-chip');
+          if (!ch) return;
+          venuePick.actType = ch.dataset.type;
+          document.querySelectorAll('#vfTypeChips .venue-chip').forEach(x => x.classList.toggle('selected', x === ch));
+        });
+        $id('vfAddOtherBtn').addEventListener('click', () => finishAdd('add:other'));
+        $id('vfTakenList').addEventListener('click', (e) => {
+          const row = e.target.closest('.taken-row');
+          if (row) openTempEdit(row.dataset.id);
+        });
+        $id('teClose').addEventListener('click', () => $id('tempEditModal').classList.remove('open'));
+        $id('teSave').addEventListener('click', saveTempEdit);
+        $id('teRemove').addEventListener('click', removeTempEdit);
+        $id('teSubject').addEventListener('change', (e) => {
+          const v = e.target.value;
+          $id('teTitleWrap').style.display = v === 'custom' ? '' : 'none';
+          if (v !== 'custom') {
+            const subj = state.schedules.find(x => x.id === v);
+            if (subj) $id('teLeader').value = decodeEntities(subj.lecturer);
+          }
+        });
+        $id('btnEditTemp').addEventListener('click', () => {
+          const id = state.activeScheduleId;
+          closeModals();
+          openTempEdit(id);
+        });
+
+        document.querySelectorAll('.modal-backdrop, .drawer-backdrop').forEach(backdrop => {
+          backdrop.addEventListener('click', (e) => {
+            if (e.target === backdrop) {
+              backdrop.classList.remove('open');
+              if (backdrop.id === 'switchConfirmModal') state.switchTargetId = null;
+            }
+          });
+        });
+      }
+
+      async function init() {
+        bindEvents();
+        try { await initData(); }
+        catch (error) { state.schedules = JSON.parse(JSON.stringify(INITIAL_SCHEDULES)); showToast(error.message || 'Using sample timetable.', 'error'); }
+        if (pruneExpired()) persistData();
+        setInterval(tickTemp, 30000);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) tickTemp(); });
+        populateCohortDropdown();
+        render();
+        setCoach(1, 'Start: choose your class, then tap a green lesson card. Mark KIPO / HAKIPO first — more actions come next.', true);
+        setTimeout(maybePromptSundayReview, 600);
+      }
+
+      return { init };
+    })();
+
+    document.addEventListener('DOMContentLoaded', UniCotTimetable.init);
+  </script>
+</body>
+</html>

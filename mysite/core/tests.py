@@ -14,7 +14,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 
 from core import views
-from core.models import ExternalTable, ExternalTableRecord, Property, User, UserGroup, UserGroupMember
+from core.models import ExternalTable, ExternalTableRecord, FounderTimetableSource, Property, TenantTimetableState, User, UserGroup, UserGroupMember
 from customers.models import CRTenant, TenantDashboardMetric
 from service.models import OwnerUser
 from mysite.mysite.rate_limit import client_ip, is_rate_limited
@@ -579,6 +579,63 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
             response.content,
             {"success": False, "error": "Owner login required for this tenant system"},
         )
+
+    def test_timetable_state_is_owner_writable_and_query_bounded(self):
+        request = RequestFactory().get('/api/timetable/state/')
+        request.tenant = self.tenant
+        request.session = {'service_user': {'user_type': 'owner', 'owner_id': self.owner.id}}
+        with schema_context(self.tenant.schema_name):
+            with self.assertNumQueries(4):
+                response = views.api_timetable_state(request)
+        self.assertEqual(response.status_code, 200)
+
+        request = RequestFactory().put(
+            '/api/timetable/state/',
+            data=json.dumps({'state': {'schedules': [], 'venues': []}, 'source_version': 0}),
+            content_type='application/json',
+        )
+        request.tenant = self.tenant
+        request.session = {'service_user': {'user_type': 'owner', 'owner_id': self.owner.id}}
+        with schema_context(self.tenant.schema_name):
+            with self.assertNumQueries(14):
+                response = views.api_timetable_state(request)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(TenantTimetableState.objects.get(pk=1).state['schedules'], [])
+
+    def test_timetable_state_rejects_member_and_invalid_schedule(self):
+        request = RequestFactory().put(
+            '/api/timetable/state/', data=json.dumps({'state': {'schedules': []}}), content_type='application/json',
+        )
+        request.tenant = self.tenant
+        request.session = {'service_user': {'user_type': 'member', 'member_id': 1, 'owner_id': self.owner.id}}
+        request.META['HTTP_X_REQUESTED_WITH'] = 'XMLHttpRequest'
+        with schema_context(self.tenant.schema_name):
+            denied = views.api_timetable_state(request)
+        self.assertEqual(denied.status_code, 403)
+
+        request = RequestFactory().put(
+            '/api/timetable/state/',
+            data=json.dumps({'state': {'schedules': [{'day': 'Monday', 'startSlot': 13, 'duration': 2}]}}),
+            content_type='application/json',
+        )
+        request.tenant = self.tenant
+        request.session = {'service_user': {'user_type': 'owner', 'owner_id': self.owner.id}}
+        with schema_context(self.tenant.schema_name):
+            invalid = views.api_timetable_state(request)
+        self.assertEqual(invalid.status_code, 400)
+
+    def test_founder_timetable_source_endpoint_is_staff_only_and_query_bounded(self):
+        request = RequestFactory().get('/api/founder/timetable-source/')
+        request.user = get_user_model()(is_active=True, is_staff=False)
+        denied = views.api_founder_timetable_source(request)
+        self.assertEqual(denied.status_code, 403)
+
+        request.user = get_user_model()(is_active=True, is_staff=True)
+        with schema_context('public'):
+            FounderTimetableSource.objects.filter(pk=1).delete()
+            with self.assertNumQueries(4):
+                response = views.api_founder_timetable_source(request)
+        self.assertEqual(response.status_code, 200)
 
     def test_tenant_users_api_rejects_member_and_other_tenant_owner_sessions(self):
         path = f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/api/users/"

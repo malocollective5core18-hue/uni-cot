@@ -281,6 +281,32 @@ class SystemSetting(models.Model):
         return self.setting_key
 
 
+class FounderTimetableSource(models.Model):
+    """The current founder-published workbook shared with every tenant."""
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    file = models.FileField(upload_to='system/timetables/')
+    original_filename = models.CharField(max_length=255)
+    version = models.PositiveIntegerField(default=1)
+    uploaded_by_id = models.BigIntegerField(blank=True, null=True)
+    uploaded_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'core_foundertimetablesource'
+
+
+class TenantTimetableState(models.Model):
+    """Owner-managed timetable state isolated by the tenant schema."""
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    state = models.JSONField(default=dict, blank=True)
+    source_version = models.PositiveIntegerField(default=0)
+    revision = models.PositiveIntegerField(default=1)
+    updated_by_owner_id = models.BigIntegerField(blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'core_tenanttimetablestate'
+
+
 class RegistrationFormField(models.Model):
     """Model to store registration form field definitions"""
     FIELD_TYPE_CHOICES = [

@@ -5127,6 +5127,9 @@ footer img:hover {
   </nav>
 </header>
 
+<a href="{% if tenant_base_path %}{{ tenant_base_path }}/timetable/{% else %}{% url 'timetable' %}{% endif %}" class="timetable-shortcut" aria-label="Open timetable">📅 Timetable</a>
+<style>.timetable-shortcut{display:inline-flex;align-items:center;gap:6px;margin:8px 0 4px 12px;padding:6px 10px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#164e63;text-decoration:none;font-size:13px;font-weight:700;position:relative;z-index:2}</style>
+
 <!-- Image Slider Container -->
 <div class="image-slider-container" id="imageSlider">
   <div class="slider-content">
@@ -5306,6 +5309,11 @@ footer img:hover {
       </div>
       {% endif %}
       <div class="admin-dashboard-grid">
+        <div class="admin-dashboard-card menu-card" onclick="openScheduleManagement()">
+          <div class="menu-card-icon">📅</div>
+          <h3>Schedule and Venue Management</h3>
+          <p>Manage lessons, attendance status, room changes, and venue availability</p>
+        </div>
         <!-- Card 1: Cards Management -->
         <div class="admin-dashboard-card menu-card" onclick="openCardManagement()">
           <div class="menu-card-icon">📋</div>
@@ -5348,6 +5356,11 @@ footer img:hover {
           <p>Upload and manage files</p>
         </div>
       </div>
+    </div>
+
+    <div class="admin-management-section" id="scheduleManagementSection" style="display:none;">
+      <div class="back-to-menu"><button class="admin-modal-btn secondary" onclick="backFromScheduleManagement()">← Back</button></div>
+      <iframe title="Schedule and Venue Management" src="{% if tenant_base_path %}{{ tenant_base_path }}/timetable/?manage=1{% else %}{% url 'timetable' %}{% endif %}" style="display:block;width:100%;height:min(82vh,1100px);border:0;border-radius:12px;background:#f8fafc;"></iframe>
     </div>
 
     <!-- CARDS MANAGEMENT SECTION -->
@@ -13184,6 +13197,17 @@ async function openCardManagement() {
   document.getElementById('cardsManagementSection').style.display = 'block';
   if (window.TenantLive) window.TenantLive.refreshNow('countdown-cards');
   initializeDashboard();
+}
+
+async function openScheduleManagement() {
+  if (!(await ensureOwnerAdminSectionAccess('Schedule and Venue Management'))) return;
+  document.getElementById('dashboardMenu').style.display = 'none';
+  document.getElementById('scheduleManagementSection').style.display = 'block';
+}
+
+function backFromScheduleManagement() {
+  document.getElementById('scheduleManagementSection').style.display = 'none';
+  document.getElementById('dashboardMenu').style.display = 'block';
 }
 
 async function openSystemSettings() {
