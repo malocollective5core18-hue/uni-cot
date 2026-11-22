@@ -21,6 +21,7 @@ from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
 from mysite.mysite.rate_limit import is_rate_limited
@@ -664,16 +665,22 @@ def external_tables(request, *args, **kwargs):
 
 
 @ensure_csrf_cookie
+@xframe_options_sameorigin
 def timetable(request, *args, **kwargs):
     tenant = getattr(request, 'tenant', None)
+    is_public_system = not tenant or getattr(tenant, 'schema_name', None) in {None, '', 'public'}
+    demo_mode = is_public_system and request.GET.get('demo') == '1'
     can_manage = False
     if tenant and getattr(tenant, 'schema_name', None) not in {None, '', 'public'}:
         from service.views import _has_owner_admin_access
         can_manage = _has_owner_admin_access(request, tenant)
+    elif demo_mode:
+        can_manage = True
     return render(request, 'timetable.html', {
         'tenant': tenant,
         'tenant_base_path': _tenant_base_path(request),
         'can_manage_timetable': can_manage,
+        'demo_timetable': demo_mode,
     })
 
 

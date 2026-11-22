@@ -5127,8 +5127,21 @@ footer img:hover {
   </nav>
 </header>
 
+{% if owner_admin_authenticated %}
 <a href="{% if tenant_base_path %}{{ tenant_base_path }}/timetable/{% else %}{% url 'timetable' %}{% endif %}" class="timetable-shortcut" aria-label="Open timetable">📅 Timetable</a>
-<style>.timetable-shortcut{display:inline-flex;align-items:center;gap:6px;margin:8px 0 4px 12px;padding:6px 10px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#164e63;text-decoration:none;font-size:13px;font-weight:700;position:relative;z-index:2}</style>
+{% else %}
+<button type="button" class="timetable-shortcut" aria-label="Open timetable" onclick="openPublicTimetablePopup()">📅 Timetable</button>
+<div class="timetable-popup-overlay" id="publicTimetablePopup" role="dialog" aria-modal="true" aria-label="Timetable" hidden>
+  <div class="timetable-popup-card">
+    <button type="button" class="timetable-popup-close" aria-label="Close timetable" onclick="closePublicTimetablePopup()">×</button>
+    <iframe title="Read-only academic timetable" src="{% if tenant_base_path %}{{ tenant_base_path }}/timetable/{% else %}{% url 'timetable' %}{% endif %}"></iframe>
+  </div>
+</div>
+{% endif %}
+<style>
+.timetable-shortcut{display:inline-flex;align-items:center;justify-content:flex-start;gap:5px;width:max-content;min-width:0;max-width:calc(100vw - 24px);white-space:nowrap;margin:8px 0 4px 12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#164e63;text-decoration:none;font-size:10px;font-weight:650;line-height:1.2;position:relative;z-index:2;cursor:pointer}
+.timetable-popup-overlay[hidden]{display:none!important}.timetable-popup-overlay{position:fixed;inset:0;z-index:100000;display:grid;place-items:center;padding:12px;background:rgba(8,15,30,.66);backdrop-filter:blur(4px)}.timetable-popup-card{position:relative;width:min(1100px,100%);height:min(90dvh,900px);overflow:hidden;border-radius:16px;background:#fff;box-shadow:0 20px 70px rgba(0,0,0,.35)}.timetable-popup-card iframe{display:block;width:100%;height:100%;border:0;background:#f8fafc}.timetable-popup-close{position:absolute;top:8px;right:8px;z-index:2;width:30px;height:30px;border:1px solid #cbd5e1;border-radius:50%;background:#fff;color:#0f172a;font-size:21px;line-height:1;cursor:pointer}
+</style>
 
 <!-- Image Slider Container -->
 <div class="image-slider-container" id="imageSlider">
@@ -5360,7 +5373,7 @@ footer img:hover {
 
     <div class="admin-management-section" id="scheduleManagementSection" style="display:none;">
       <div class="back-to-menu"><button class="admin-modal-btn secondary" onclick="backFromScheduleManagement()">← Back</button></div>
-      <iframe title="Schedule and Venue Management" src="{% if tenant_base_path %}{{ tenant_base_path }}/timetable/?manage=1{% else %}{% url 'timetable' %}{% endif %}" style="display:block;width:100%;height:min(82vh,1100px);border:0;border-radius:12px;background:#f8fafc;"></iframe>
+      <iframe id="scheduleManagementFrame" title="Schedule and Venue Management" data-src="{% if tenant and tenant.schema_name != 'public' %}{{ tenant_base_path }}/timetable/?manage=1{% elif tenant_base_path %}{{ tenant_base_path }}/timetable/?demo=1{% else %}{% url 'timetable' %}?demo=1{% endif %}" style="display:block;width:100%;height:min(82vh,1100px);border:0;border-radius:12px;background:#f8fafc;"></iframe>
     </div>
 
     <!-- CARDS MANAGEMENT SECTION -->
@@ -13189,6 +13202,26 @@ document.addEventListener('keydown', function(e) {
 });
 
 // ================= DASHBOARD NAVIGATION FUNCTIONS =================
+function openPublicTimetablePopup() {
+  const popup = document.getElementById('publicTimetablePopup');
+  if (!popup) return;
+  popup.hidden = false;
+  document.body.style.overflow = 'hidden';
+  popup.querySelector('.timetable-popup-close')?.focus();
+}
+
+function closePublicTimetablePopup() {
+  const popup = document.getElementById('publicTimetablePopup');
+  if (!popup) return;
+  popup.hidden = true;
+  document.body.style.overflow = '';
+  document.querySelector('.timetable-shortcut')?.focus();
+}
+
+document.addEventListener('keydown', function(event) {
+  if (event.key === 'Escape') closePublicTimetablePopup();
+});
+
 async function openCardManagement() {
   if (!(await ensureOwnerAdminSectionAccess('Card Management'))) {
     return;
@@ -13199,10 +13232,28 @@ async function openCardManagement() {
   initializeDashboard();
 }
 
+window.addEventListener('message', function(event) {
+  const frame = document.getElementById('scheduleManagementFrame');
+  if (!frame || event.origin !== window.location.origin || event.source !== frame.contentWindow) return;
+  if (event.data?.type !== 'uni-cot-timetable-frame-height') return;
+  const requestedHeight = Number(event.data.height);
+  if (!Number.isFinite(requestedHeight) || requestedHeight <= 0) return;
+  const minimumHeight = Math.min(window.innerHeight * 0.82, 1100);
+  const nextHeight = Math.min(1800, Math.max(minimumHeight, Math.ceil(requestedHeight)));
+  if (Math.abs(frame.getBoundingClientRect().height - nextHeight) < 2) return;
+  frame.style.height = `${nextHeight}px`;
+});
+
 async function openScheduleManagement() {
   if (!(await ensureOwnerAdminSectionAccess('Schedule and Venue Management'))) return;
   document.getElementById('dashboardMenu').style.display = 'none';
   document.getElementById('scheduleManagementSection').style.display = 'block';
+  const frame = document.getElementById('scheduleManagementFrame');
+  if (frame?.dataset.src) {
+    const frameUrl = new URL(frame.dataset.src, window.location.origin);
+    frameUrl.searchParams.set('_schedule_open', String(Date.now()));
+    frame.src = frameUrl.toString();
+  }
 }
 
 function backFromScheduleManagement() {

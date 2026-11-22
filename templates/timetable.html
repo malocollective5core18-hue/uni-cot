@@ -629,16 +629,6 @@
       line-height: 1.2;
     }
 
-    /* Compact Bottom Action Bar */
-    .bottom-action-bar {
-      margin-top: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
     /* Sleek Compact Modal / Popover */
     .modal-backdrop {
       position: fixed;
@@ -1121,15 +1111,6 @@
       .kpi-chip { font-size: 0.62rem; }
       .sub-strip { padding: 8px 10px; }
       .workspace { padding: 6px 4px 80px; }
-      .bottom-action-bar {
-        position: sticky;
-        bottom: 0;
-        background: #0f1220;
-        padding: 10px 12px;
-        border-top: 1px solid rgba(255,255,255,0.1);
-        z-index: 30;
-        margin: 0 -4px;
-      }
       /* Lesson search on mobile */
       .lesson-search-wrap {
         display: flex !important;
@@ -1137,6 +1118,7 @@
         margin: 6px 0;
         gap: 6px;
       }
+
     }
     .lesson-search-wrap {
       display: flex;
@@ -1249,9 +1231,10 @@
       padding: 3px;
     }
 
-    .bottom-action-bar {
-      flex: 0 0 auto;
-      margin: 4px 0 0;
+    .schedule-block > div,
+    .schedule-block .sb-meta {
+      min-height: 0;
+      overflow: hidden;
     }
 
     @media (max-width: 768px) {
@@ -1371,12 +1354,7 @@
         line-height: 1;
       }
 
-      .bottom-action-bar {
-        margin: 2px 0 0;
-        gap: 4px;
-      }
-
-      .bottom-action-bar .btn-venue {
+      .controls-bar > #openVenuePanelBtn {
         height: 26px !important;
       }
     }
@@ -1399,11 +1377,6 @@
       .controls-bar .btn,
       .controls-bar .control-pill {
         height: 24px !important;
-      }
-
-      .bottom-action-bar {
-        margin-top: 1px;
-        min-height: 24px;
       }
 
       .schedule-block {
@@ -1447,11 +1420,24 @@
         font-size: 0.66rem;
       }
     }
+
+    @media (max-width: 768px) {
+      body.timetable-reader .workspace { padding: 2px 4px; }
+      body.timetable-reader .sheet-card { flex: 0 0 auto; }
+      body.timetable-reader .sheet-header { padding: 3px 4px; }
+      body.timetable-reader .table-scroll { flex: 0 0 auto; overflow: hidden; }
+      body.timetable-reader table.timetable { height: auto; }
+      body.timetable-reader table.timetable tbody tr { height: clamp(38px, 6vh, 46px) !important; }
+      body.timetable-reader .schedule-block { min-height: 0 !important; padding: 2px !important; }
+      #scheduleModal { align-items: center !important; justify-content: center !important; padding: 12px !important; }
+      #scheduleModal .popover-card { width: 100%; max-width: 460px; max-height: calc(100dvh - 24px); overflow-y: auto; margin: auto !important; border-radius: 16px !important; }
+    }
   </style>
 </head>
 <body class="{% if can_manage_timetable %}timetable-manager{% else %}timetable-reader{% endif %}">
 
-  <!-- Compact Top Navigation -->
+  {% if can_manage_timetable %}
+  <!-- Compact owner navigation -->
   <header class="topbar">
     <div class="brand">
       <div class="brand-badge"><span class="brand-dot"></span> UNI-COT</div>
@@ -1488,19 +1474,34 @@
       <button class="btn btn-ghost" id="layoutToggleBtn" class="hide-on-mobile" title="Flip Grid Orientation">&#8645; Flip</button>
       <button class="btn btn-ghost" id="undoBtn" title="Undo">&#8630; Undo</button>
       <button class="btn btn-ghost" id="resetBtn" class="hide-on-mobile" title="Reset">Reset</button>
+      <button class="btn btn-venue" id="openVenuePanelBtn">
+        <span>venue</span>
+        <span style="font-size: 0.95rem; line-height: 1;">+</span>
+      </button>
     </div>
   </header>
+  {% endif %}
   <style>
+    body.timetable-reader .topbar{display:none!important}
+    body.timetable-manager .controls-bar > .control-pill{display:none!important}
     body.timetable-manager #cohortSearch,body.timetable-manager label[for="cohortSearch"],body.timetable-manager #classSelect,body.timetable-manager label[for="classSelect"],body.timetable-manager #prevWeekBtn,body.timetable-manager #nextWeekBtn,body.timetable-manager #weekSelect,body.timetable-manager #layoutToggleBtn{display:none!important}
     body.timetable-reader #undoBtn,body.timetable-reader #resetBtn,body.timetable-reader #openVenuePanelBtn{display:none!important}
     body.timetable-reader .action-stack,body.timetable-reader .step-dots{display:none!important}
     body.timetable-reader #undoBtn,body.timetable-reader #resetBtn{display:none!important}
-    .readonly-note{margin:8px auto;padding:8px 12px;max-width:1100px;border-radius:10px;background:#e0f2fe;color:#075985;font-size:13px}
+    body.timetable-reader .switch-banner,body.timetable-reader .coach-bar{display:none!important}
     .manager-cohort-nav{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;max-width:100%}.manager-cohort-nav button{border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#334155;padding:4px 9px;font-size:11px;cursor:pointer}.manager-cohort-nav button.active{background:#0f766e;border-color:#0f766e;color:#fff}
+    html:has(body.timetable-manager),body.timetable-manager{height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto}
+    body.timetable-manager{height:auto;min-height:100dvh}
+    body.timetable-manager .workspace{flex:0 0 auto;min-height:auto;overflow:visible;padding-bottom:12px}
+    body.timetable-manager .sheet-card{flex:0 0 auto;min-height:auto;overflow:visible}
+    body.timetable-manager .table-scroll{display:block;flex:0 0 auto;min-height:auto;overflow:visible}
+    body.timetable-manager table.timetable{height:auto!important}
+    body.timetable-manager table.timetable tbody tr{height:auto!important}
+    body.timetable-manager .schedule-block{height:auto!important;min-height:52px!important;max-height:none!important;justify-content:flex-start;gap:2px;overflow:visible}
+    body.timetable-manager .schedule-block > div,body.timetable-manager .schedule-block .sb-meta{min-height:0;overflow:visible}
+    body.timetable-manager .sb-title{display:block;-webkit-line-clamp:unset;overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere}
+    body.timetable-manager .sb-lecturer,body.timetable-manager .sb-venue{overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere}
   </style>
-  {% if not can_manage_timetable %}<div class="readonly-note">Read-only timetable. For changes or access to your system, sign in through your program’s member or owner portal.</div>{% endif %}
-
-
   <!-- Switch Mode Banner -->
   <div class="switch-banner" id="switchBanner">
     <div>
@@ -1537,14 +1538,6 @@
       </div>
     </div>
 
-    <div class="bottom-action-bar">
-      <button class="btn btn-venue" id="openVenuePanelBtn">
-        <span>venue</span>
-        <span style="font-size: 0.95rem; line-height: 1;">+</span>
-      </button>
-
-      <div style="font-size: 0.7rem; color: var(--text-muted);" id="statusSummaryText"></div>
-    </div>
   </main>
 
   <!-- Schedule Action Popover -->
@@ -1558,7 +1551,6 @@
         <button class="close-btn" id="closeScheduleModal">&times;</button>
       </div>
       <div class="popover-body">
-        {% if not can_manage_timetable %}<div class="readonly-note">This timetable is read-only. Sign in through your program portal or contact its owner to request timetable changes and system access.</div>{% endif %}
         <div class="detail-grid">
           <div class="detail-label">Module</div>
           <div class="detail-val" id="detailCode">AEU 08101</div>
@@ -1830,6 +1822,8 @@
   <script>
     const UniCotTimetable = (() => {
       const CAN_MANAGE = {{ can_manage_timetable|yesno:"true,false" }};
+      const DEMO_MODE = {{ demo_timetable|yesno:"true,false" }};
+      const DEMO_STORAGE_KEY = 'ring0_public_timetable_demo_v1';
       const API_URL = "{% if tenant_base_path %}{{ tenant_base_path }}/api/timetable/state/{% else %}{% url 'api_timetable_state' %}{% endif %}";
       let sourceVersion = 0;
       let saveTimer = null;
@@ -2031,6 +2025,16 @@
       }
 
       async function initData() {
+        if (DEMO_MODE) {
+          try {
+            const demoState = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY) || 'null');
+            if (demoState && Array.isArray(demoState.schedules) && demoState.schedules.length) {
+              Object.assign(state, demoState);
+              sourceVersion = Number(demoState.sourceVersion || 0);
+              return;
+            }
+          } catch (error) { /* use the shared timetable source below */ }
+        }
         const response = await fetch(API_URL, { credentials: 'same-origin', cache: 'no-store' });
         const payload = await response.json();
         if (!response.ok || !payload.success) throw new Error(payload.error || 'Unable to load timetable.');
@@ -2074,6 +2078,20 @@
       }
 
       function persistData() {
+        if (DEMO_MODE) {
+          try {
+            localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify({
+              institutionTitle: state.institutionTitle,
+              sourceLabel: state.sourceLabel,
+              cohort: state.cohort,
+              schedules: state.schedules,
+              venues: state.venues,
+              lastSundayReview: state.lastSundayReview,
+              sourceVersion,
+            }));
+          } catch (error) { showToast('Demo changes could not be saved in this browser.', 'error'); }
+          return;
+        }
         if (!CAN_MANAGE) return;
         clearTimeout(saveTimer);
         saveTimer = setTimeout(async () => {
@@ -2115,6 +2133,7 @@
 
       function populateCohortDropdown() {
         const select = document.getElementById('classSelect');
+        if (!select) return;
         const allCohorts = getAllCohorts();
         const query = state.cohortFilter.trim().toLowerCase();
         const filtered = query ? allCohorts.filter(c => c.toLowerCase().includes(query)) : allCohorts;
@@ -2232,6 +2251,24 @@
         `;
       }
 
+      function reportTimetableFrameHeight() {
+        if (!CAN_MANAGE || window.parent === window) return;
+        requestAnimationFrame(() => {
+          const table = document.getElementById('timetableGrid');
+          if (!table) return;
+          // Measure intrinsic workspace content so the iframe viewport cannot feed back into its own height.
+          const workspace = document.querySelector('.workspace');
+          if (!workspace) return;
+          const chromeHeight = [
+            document.querySelector('.topbar'),
+            document.querySelector('.switch-banner'),
+            document.querySelector('.coach-bar')
+          ].reduce((height, element) => height + (element?.getBoundingClientRect().height || 0), 0);
+          const requiredHeight = Math.ceil(chromeHeight + workspace.scrollHeight + 12);
+          window.parent.postMessage({ type: 'uni-cot-timetable-frame-height', height: requiredHeight }, window.location.origin);
+        });
+      }
+
       function renderGrid() {
         const table = document.getElementById('timetableGrid');
         const cohortSchedules = getCohortSchedules().filter(x => !tempHides(x));
@@ -2247,9 +2284,6 @@
         (document.getElementById('sheetInstitutionTitle')||{textContent:''}).textContent = state.institutionTitle;
         document.getElementById('cohortHeading').textContent = `${state.cohort} • ${state.week}`;
         document.getElementById('drawerCohortLabel').textContent = state.cohort;
-        const sumEl = document.getElementById('statusSummaryText');
-        if (sumEl) sumEl.textContent = '';
-
                 const isNarrow = window.innerWidth < 900;
         const dayShort = { Monday:'Mon', Tuesday:'Tue', Wednesday:'Wed', Thursday:'Thu', Friday:'Fri', Saturday:'Sat', Sunday:'Sun' };
 
@@ -2328,6 +2362,7 @@
         } else {
           switchBanner.classList.remove('active');
         }
+        reportTimetableFrameHeight();
       }
 
       function handleScheduleClick(scheduleId) {
@@ -3108,36 +3143,47 @@
       }
 
       function bindEvents() {
-        document.getElementById('cohortSearch').addEventListener('input', (e) => {
+        window.addEventListener('resize', () => {
+          reportTimetableFrameHeight();
+        });
+        const cohortSearch = document.getElementById('cohortSearch');
+        if (cohortSearch) cohortSearch.addEventListener('input', (e) => {
           state.cohortFilter = e.target.value;
           populateCohortDropdown();
           cancelSwitchMode();
           render();
         });
 
-        document.getElementById('classSelect').addEventListener('change', (e) => {
+        const classSelect = document.getElementById('classSelect');
+        if (classSelect) classSelect.addEventListener('change', (e) => {
           state.cohort = e.target.value;
           cancelSwitchMode();
           render();
         });
 
         const weekSelect = document.getElementById('weekSelect');
-        weekSelect.addEventListener('change', (e) => { state.week = e.target.value; render(); });
-        document.getElementById('prevWeekBtn').addEventListener('click', () => {
-          if (weekSelect.selectedIndex > 0) { weekSelect.selectedIndex -= 1; state.week = weekSelect.value; render(); }
-        });
-        document.getElementById('nextWeekBtn').addEventListener('click', () => {
-          if (weekSelect.selectedIndex < weekSelect.options.length - 1) { weekSelect.selectedIndex += 1; state.week = weekSelect.value; render(); }
-        });
+        if (weekSelect) {
+          weekSelect.addEventListener('change', (e) => { state.week = e.target.value; render(); });
+          document.getElementById('prevWeekBtn').addEventListener('click', () => {
+            if (weekSelect.selectedIndex > 0) { weekSelect.selectedIndex -= 1; state.week = weekSelect.value; render(); }
+          });
+          document.getElementById('nextWeekBtn').addEventListener('click', () => {
+            if (weekSelect.selectedIndex < weekSelect.options.length - 1) { weekSelect.selectedIndex += 1; state.week = weekSelect.value; render(); }
+          });
+        }
 
-        document.getElementById('layoutToggleBtn').addEventListener('click', () => {
+        const layoutToggle = document.getElementById('layoutToggleBtn');
+        if (layoutToggle) layoutToggle.addEventListener('click', () => {
           state.orientation = state.orientation === 'horizontal' ? 'vertical' : 'horizontal';
           render();
         });
 
-        document.getElementById('undoBtn').addEventListener('click', undoLastAction);
-        document.getElementById('resetBtn').addEventListener('click', () => {
+        const undoBtn = document.getElementById('undoBtn');
+        if (undoBtn) undoBtn.addEventListener('click', undoLastAction);
+        const resetBtn = document.getElementById('resetBtn');
+        if (resetBtn) resetBtn.addEventListener('click', () => {
           pushHistory();
+          if (DEMO_MODE) localStorage.removeItem(DEMO_STORAGE_KEY);
           state.schedules = JSON.parse(JSON.stringify(INITIAL_SCHEDULES));
           state.institutionTitle = 'NATIONAL INSTITUTE OF TRANSPORT FIRST SEMESTER TIMETABLE FOR ACADEMIC YEAR 2026_2027';
           state.sourceLabel = 'Sample Data';
@@ -3148,6 +3194,7 @@
           state.switchTargetId = null;
           populateCohortDropdown();
           render();
+          persistData();
           showToast('Reset to default timetable.');
         });
 
@@ -3197,7 +3244,8 @@
         });
         if (applySunday) applySunday.addEventListener('click', applySundayReview);
 
-        document.getElementById('openVenuePanelBtn').addEventListener('click', () => openVenueDrawer());
+        const openVenuePanelBtn = document.getElementById('openVenuePanelBtn');
+        if (openVenuePanelBtn) openVenuePanelBtn.addEventListener('click', () => openVenueDrawer());
         document.getElementById('closeVenueDrawer').addEventListener('click', () => {
           document.getElementById('venueDrawer').classList.remove('open');
         });
@@ -3281,7 +3329,7 @@
         populateCohortDropdown();
         render();
         setCoach(1, 'Start: choose your class, then tap a green lesson card. Mark KIPO / HAKIPO first — more actions come next.', true);
-        setTimeout(maybePromptSundayReview, 600);
+        if (CAN_MANAGE) setTimeout(maybePromptSundayReview, 600);
       }
 
       return { init };

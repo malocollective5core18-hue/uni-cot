@@ -77,6 +77,64 @@ class CompanyShowcaseTemplateTests(TestCase):
 
 
 class TenantLivePollingTemplateTests(SimpleTestCase):
+    def test_schedule_management_iframe_waits_for_owner_gate(self):
+        source = (settings.BASE_DIR / 'templates' / 'system_index.html').read_text()
+        section = source[source.index('id="scheduleManagementSection"'):source.index('<!-- CARDS MANAGEMENT SECTION -->')]
+        self.assertIn('id="scheduleManagementFrame"', section)
+        self.assertIn('data-src=', section)
+        self.assertIn('?demo=1', section)
+        self.assertIn("tenant.schema_name != 'public'", section)
+        self.assertNotRegex(section, r'<iframe[^>]+\ssrc=')
+        self.assertIn("event.source !== frame.contentWindow", source)
+        self.assertIn("uni-cot-timetable-frame-height", source)
+        self.assertIn('Math.abs(frame.getBoundingClientRect().height - nextHeight) < 2', source)
+
+        opener = source[source.index('async function openScheduleManagement()'):source.index('async function openSystemSettings()')]
+        self.assertLess(opener.index("ensureOwnerAdminSectionAccess('Schedule and Venue Management')"), opener.index('frame.src = frameUrl.toString()'))
+
+    def test_timetable_page_allows_same_origin_popup_embedding(self):
+        request = RequestFactory().get('/timetable/')
+        response = views.timetable(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['X-Frame-Options'], 'SAMEORIGIN')
+        rendered = response.content.decode()
+        self.assertNotIn('class="topbar"', rendered)
+        self.assertNotIn('id="cohortSearch"', rendered)
+        self.assertNotIn('id="classSelect"', rendered)
+        self.assertNotIn('Read-only timetable.', rendered)
+        self.assertIn(
+            'body.timetable-reader table.timetable tbody tr { height: clamp(38px, 6vh, 46px) !important; }',
+            rendered,
+        )
+        self.assertIn('overflow-y: auto', rendered)
+        self.assertIn('function reportTimetableFrameHeight()', rendered)
+        self.assertIn('window.addEventListener(\'resize\', () => {', rendered)
+        self.assertIn(
+            '#scheduleModal { align-items: center !important; justify-content: center !important; padding: 12px !important; }',
+            rendered,
+        )
+
+    def test_public_demo_timetable_exposes_manager_controls_and_local_saves(self):
+        request = RequestFactory().get('/timetable/?demo=1')
+        response = views.timetable(request)
+        self.assertEqual(response.status_code, 200)
+        rendered = response.content.decode()
+        self.assertIn('class="timetable-manager"', rendered)
+        self.assertIn('body.timetable-manager .controls-bar > .control-pill{display:none!important}', rendered)
+        self.assertIn('function reportTimetableFrameHeight()', rendered)
+        self.assertIn('body.timetable-manager table.timetable tbody tr{height:auto!important}', rendered)
+        self.assertIn('body.timetable-manager .schedule-block{height:auto!important;', rendered)
+        self.assertIn('workspace.scrollHeight', rendered)
+        controls = rendered[rendered.index('<div class="controls-bar">'):rendered.index('</div>\n  </header>')]
+        self.assertIn('<button class="btn btn-venue" id="openVenuePanelBtn">', controls)
+        self.assertIn('<span>venue</span>', controls)
+        self.assertNotIn('<div class="bottom-action-bar">', rendered)
+        self.assertIn("window.parent.postMessage({ type: 'uni-cot-timetable-frame-height'", rendered)
+        self.assertIn('id="institutionSubtitle"', rendered)
+        self.assertIn('<div class="brand">', rendered)
+        self.assertIn('const DEMO_MODE = true;', rendered)
+        self.assertIn('localStorage.setItem(DEMO_STORAGE_KEY', rendered)
+
     def test_shared_live_client_is_small_and_all_tenant_pages_include_it(self):
         live_path = settings.BASE_DIR / "static" / "js" / "tenant-live.js"
         self.assertLess(live_path.stat().st_size, 3 * 1024)
@@ -565,6 +623,15 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         session["tenant_subdomain"] = self.tenant.subdomain
         session["tenant_key"] = self.tenant.tenant_key
         session.save()
+
+    def test_owner_session_renders_management_timetable(self):
+        request = RequestFactory().get('/timetable/?manage=1')
+        request.tenant = self.tenant
+        request.session = {'service_user': {'user_type': 'owner', 'owner_id': self.owner.id}}
+        response = views.timetable(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="timetable-manager"')
+        self.assertContains(response, 'id="managerCohortNav"')
 
     def test_tenant_users_api_requires_owner_session(self):
         self.client.post(f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/logout/", follow=True)

@@ -1,5 +1,157 @@
 # Remediation Log
 
+## Move the venue action into the timetable header (2026-11-23)
+
+- Finding: The venue action sat below the timetable in a separate bottom bar. Its margin and flex positioning added to the workspace height and could make the admin timetable look displaced or overflow its frame.
+- Change: Moved the venue button into the header controls row, removed the bottom action bar and its sticky/spacing rules, and guarded its event binding for reader pages where the manager header is absent.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added a template regression assertion that the button is in the header and the bottom bar is absent. Template compilation, `compileall`, `manage.py check`, and migration drift check pass; `check --deploy` exits 0 with five existing security warnings. `manage.py test` cannot create its PostgreSQL test database because local PostgreSQL access is unavailable (`/var/run/postgresql/.s.PGSQL.5432`: Operation not permitted). `git diff --check` passes.
+- Remaining risk: Header controls can wrap on narrow screens; the venue action remains available on the wrapped row.
+
+## Let admin timetable containers grow with lesson content (2026-11-23)
+
+- Finding: Manager mode fixed each timetable row and lesson card to a compact height, clipped lesson text, and reported iframe height using a fixed per-row estimate. Longer titles, lecturer names, venues, or management controls could overflow without growing the table or iframe.
+- Change: Manager mode now uses natural page, table, row, and card heights; lesson details wrap without line clamping; and the timetable reports its measured document/table height to the dashboard iframe. Reader mode retains its existing layout.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Updated template regression assertions to require natural manager row/card sizing and measured iframe height. `compileall`, `manage.py check`, and migration drift check pass; `check --deploy` exits 0 with five existing security warnings. `manage.py test` could not create its PostgreSQL test database because local PostgreSQL access is unavailable (`/var/run/postgresql/.s.PGSQL.5432`: Operation not permitted). `git diff --check` passes.
+- Remaining risk: Very long schedules can make the admin overlay taller than the viewport; the overlay already supports vertical scrolling. The iframe's existing 1,800px cap remains.
+
+## Grow the admin timetable container with its content (2026-11-22)
+
+- Finding: The Schedule and Venue Management iframe has a fixed viewport-based height, so added timetable rows or controls cannot increase the visible management container. The 768px iframe breakpoint also switched viewport row fitting on near an 800px outer dashboard width, causing abrupt changes and possible feedback.
+- Change: Manager rows now use a stable 51px target at every width. The timetable reports height from row count and its controls to its same-origin dashboard parent after rendering and resizing; the parent validates the source and message origin, skips negligible height changes, and grows the iframe up to a bounded height. The admin overlay can scroll as the section grows.
+- Files touched: `templates/timetable.html`, `templates/system_index.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added template assertions for the parent source/origin checks, fixed row sizing, and height-change guard. `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass. Full suite: 115 tests passed. `check --deploy` exits 0 with five existing HTTPS/HSTS/DEBUG warnings.
+- Remaining risk: Extremely large timetable layouts are capped at 1,800px; the dashboard overlay remains vertically scrollable.
+
+## Undo the compact scrolling admin timetable (2026-11-22)
+
+- Finding: The requested rollback restores the previous admin timetable header and viewport-fitted grid.
+- Change: Restored the timetable brand, removed the 51px row and internal scroll overrides, and re-enabled desktop row fitting.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Updated template assertions for the restored brand and row fitting. `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass. Full suite: 115 tests passed. `check --deploy` exits 0 with five existing HTTPS/HSTS/DEBUG warnings.
+- Remaining risk: The grid is fitted to its viewport; full schedule details may be abbreviated in short embedded areas.
+
+## Use a compact admin timetable with contained vertical scrolling (2026-11-22)
+
+- Finding: The admin iframe shares limited height with its controls; the timetable grid was cut off below Thursday, and its header branding and admin buttons consumed space.
+- Change: Removed the timetable brand block in manager mode, tightened the owner toolbar and table cells, set weekday rows to the supplied 51px size, and made `.table-scroll` an internally scrollable region with sticky time headers.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added template assertions for the removed brand, compact row sizing, and contained scrolling. `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass. Full suite: 115 tests passed. `check --deploy` exits 0 with five existing HTTPS/HSTS/DEBUG warnings.
+- Remaining risk: Short iframe heights require scrolling within the timetable region to reach lower days; the page controls remain visible.
+
+## Fit the admin timetable grid to the PC viewport (2026-11-22)
+
+- Finding: The screenshot shows the timetable table clipped below Thursday because its seven day rows keep content-driven heights inside a fixed-height dashboard iframe. Owner controls also leave empty outlined pills after their inputs are hidden.
+- Change: Size desktop timetable rows from the visible grid height and recalculate on browser resize. Constrain lesson-card content to each row and hide the now-empty control pills in manager mode.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added rendered-template assertions for row fitting, resize handling, and hidden empty manager controls. `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass. Full suite: 115 tests passed. `check --deploy` exits 0 with five existing HTTPS/HSTS/DEBUG warnings.
+- Remaining risk: Very short viewports may truncate lesson details inside a row; clicking its card still opens the full details.
+
+## Roll back the three recent timetable layout changes (2026-11-22)
+
+- Finding: The mobile day-card layout, desktop row fitting, and compact cohort navigation diverged from the previous timetable presentation.
+- Change: Reverted those three layout changes and restored the earlier timetable grid and viewport behavior.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Removed assertions for the reverted UI changes. `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass. Full suite: 115 tests passed. `check --deploy` exits 0 with five existing HTTPS/HSTS/DEBUG warnings.
+- Remaining risk: This restores the earlier grid behavior, including its existing clipping on constrained viewports.
+
+## Return to mobile day cards (2026-11-22)
+
+- Finding: The regular grid on phones was not the mobile layout requested after the grid restoration.
+- Change: Reinstated day-by-day cards on phone widths while keeping the standard timetable grid on desktop and preserving its all-days row sizing.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Updated rendered-template assertions for mobile day cards and lecturer details. `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass. Full suite: 115 tests passed. `check --deploy` exits 0 with five existing HTTPS/HSTS/DEBUG warnings.
+- Remaining risk: Mobile displays the week as vertical day cards; desktop remains the original grid.
+
+## Restore the standard timetable grid on mobile (2026-11-22)
+
+- Finding: The mobile day-card presentation differed from the regular timetable grid.
+- Change: Restored the regular grid at all screen sizes. On narrow screens, the full-width grid scrolls horizontally instead of being clipped or replaced with day cards. The desktop row-fit and compact cohort navigation fixes remain.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Updated template assertions to require the timetable grid and its horizontal mobile scroll behavior. `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass. Full suite: 115 tests passed. `check --deploy` exits 0 with five existing HTTPS/HSTS/DEBUG warnings.
+- Remaining risk: The narrow-screen grid needs horizontal scrolling to reach all time columns.
+
+## Keep all timetable days visible in the admin view (2026-11-22)
+
+- Finding: The admin timetable used fixed-height rows with hidden overflow. Its wrapping cohort buttons and lesson content could increase row/header height until the final weekday rows were clipped.
+- Change: The cohort buttons now stay on one compact horizontal strip. Desktop timetable rows are sized from the available table viewport and recalculated on resize; lesson card content is constrained within each row.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added template regression assertions for dynamic row sizing, resize handling, and the compact cohort navigation. `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass. Full suite: 115 tests passed. `check --deploy` exits 0 with five existing HTTPS/HSTS/DEBUG warnings.
+- Remaining risk: On unusually short embedded viewports, lesson text is abbreviated inside the grid; clicking a lesson still opens its full details and controls. The local preview database reports one unapplied core migration and missing timetable source table, so API-backed admin saves may fail until its schema is updated. I left that database untouched.
+
+## Show the complete timetable on mobile (2026-11-22)
+
+- Finding: The 14-column timetable was constrained to phone width and its scroll container hid overflow, so schedule columns and lesson details were clipped.
+- Change: Kept the full timetable grid for larger screens and added a mobile day-by-day view with each class's time, course, lecturer, and venue. Mobile pages now scroll vertically so the schedule is reachable without horizontal clipping.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added reader-template assertions for the mobile schedule, time labels, visible lecturer details, and vertical scrolling. `python3 -m compileall -q .`, `node --check` on the timetable script, and `git diff --check` pass. Django checks and tests could not start because Django is missing from `.venv` (`ModuleNotFoundError: No module named 'django'`).
+- Remaining risk: The full week requires vertical scrolling on a phone; its dense 14-slot grid cannot remain legible within a narrow phone viewport.
+
+## Public service route uses demo timetable mode (2026-11-22)
+
+- Finding: The public system uses the `/service` URL prefix, so the first demo iframe branch accidentally used the tenant-management query and opened reader mode.
+- Change: The iframe URL now distinguishes actual tenant schemas from the public schema: tenants use the owner-gated route, while the public `/service` route explicitly uses `?demo=1`.
+- Files touched: `templates/system_index.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added a routing regression assertion; both focused demo/owner checks pass. Full suite: 115 tests passed. Compile, Django check, and `git diff --check` passed.
+- Remaining risk: The public demo stores edits only in the visitor's browser by design.
+
+## Show timetable administration in the public demo (2026-11-22)
+
+- Finding: The public system’s Schedule and Venue Management iframe opened the ordinary public reader route, so the unauthenticated showcase displayed no admin controls.
+- Change: The public dashboard now opens an explicit demo-management mode without authentication. That mode shows the owner controls but saves edits only to browser local storage; the public API still rejects state writes. Tenant workspaces continue to require the authenticated owner session and persist to their own schema.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`, `templates/system_index.html`, `templates/timetable.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added tests for demo-mode controls, browser-local persistence path, deferred iframe loading, and owner-mode rendering. Full suite: 115 tests passed. `compileall`, `check`, migration drift check, and `git diff --check` passed. `check --deploy` retains five existing warnings.
+- Remaining risk: Demo edits are intentionally browser-local and do not persist across browsers; visual browser verification remains outstanding.
+
+## Load owner schedule tools after authentication (2026-11-22)
+
+- Finding: The hidden Schedule and Venue Management iframe loaded during the initial public page request, before owner login, and stayed in read-only mode when later revealed.
+- Change: Removed its eager `src`; `openScheduleManagement()` now loads/refreshes the frame only after the owner access check passes. Server-side timetable authorization remains session-based.
+- Files touched: `templates/system_index.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added tests for deferred iframe loading after the owner gate and owner-session rendering of the management timetable. Full suite: 114 tests passed. `compileall`, `check`, migration drift check, and `git diff --check` passed. `check --deploy` retains five existing warnings.
+- Remaining risk: A live owner login/browser session was not available for an end-to-end iframe interaction check.
+
+## Center the course detail popup on mobile (2026-11-22)
+
+- Finding: The shared mobile modal rule aligns `.popover-card` to the bottom as a bottom sheet, so the course detail popup did not appear centered.
+- Change: Centered `#scheduleModal` on mobile and constrained the card to the viewport with internal scrolling when needed.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added a rendered-template assertion for the centered mobile modal rule. Full suite: 112 tests passed. `compileall`, `check`, `makemigrations --check --dry-run`, and `git diff --check` passed. `check --deploy` retains five existing warnings.
+- Remaining risk: Visual confirmation on a physical mobile browser remains outstanding.
+
+## Reduce timetable grid height on mobile (2026-11-22)
+
+- Finding: The mobile reader grid stretched its rows to fill the available viewport, making the schedule look vertically distorted.
+- Change: On reader views at mobile widths, the grid now uses its natural height and rows are capped between 38 and 46px based on viewport height; lesson cards and sheet padding were tightened to match.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added reader-render regression assertion for the mobile row sizing. Full suite: 112 tests passed. `compileall`, `check`, `makemigrations --check --dry-run`, and `git diff --check` passed. `check --deploy` retains five existing warnings.
+- Remaining risk: Mobile browser visual confirmation remains outstanding.
+
+## Simplify public timetable view (2026-11-22)
+
+- Finding: The public timetable popup spent vertical space on Find/Class controls and repeated read-only instructions that public visitors do not need.
+- Change: Removed those controls and both read-only notice messages from reader views; owner controls and the timetable itself remain available. Guarded optional control lookups so the shared timetable script initializes without reader controls.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Reader rendering regression verifies no topbar, Find/Class elements, or read-only notice. Full suite: 112 tests passed. `compileall`, `check`, `makemigrations --check --dry-run`, and `git diff --check` passed. `check --deploy` retains five existing security warnings.
+- Remaining risk: Visual browser verification remains outstanding.
+
+## Allow same-origin timetable popup embedding (2026-11-22)
+
+- Finding: Django sent `X-Frame-Options: DENY` on the timetable route, so Firefox refused to render it inside the dashboard popup.
+- Change: Set `X-Frame-Options: SAMEORIGIN` on the timetable view only. Other application pages keep the existing deny policy.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Confirmed the prior response header was `DENY`; added a regression test for `SAMEORIGIN`. Full suite: 112 tests passed. `compileall`, `check`, and migration drift checks passed. `check --deploy` reports the five existing HTTPS/HSTS/DEBUG warnings.
+- Remaining risk: Browser verification on Firefox remains outstanding.
+
+## Public timetable popup presentation (2026-11-22)
+
+- Finding: The public/member timetable duplicated the branded top navigation inside the timetable view, and the system shortcut occupied more horizontal space than its label.
+- Change: Public/member timetable rendering now omits the branded `.topbar` while keeping Find/Class controls in a compact reader toolbar. The system shortcut is a small, left-aligned, text-width button that opens a dismissible timetable popup with an X close button. Owner timetable navigation remains direct.
+- Files touched: `templates/timetable.html`, `templates/system_index.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Reader template rendered without `.topbar` and retained both Find/Class controls. `compileall`, `check`, template render, `git diff --check`, and the full 111-test suite passed. `check --deploy` completes with five existing deployment warnings; migration drift check reports no changes.
+- Remaining risk: Browser visual verification remains outstanding.
+
 ## Shared timetable and venue management (2026-11-22)
 
 - Finding: The standalone timetable component had no project routes or persistence, and its local browser storage could not share founder updates across owner tenants. Public timetable users also had no enforced read-only path.
