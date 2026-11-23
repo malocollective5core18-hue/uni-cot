@@ -836,3 +836,19 @@
 - Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Template regression assertions verify the visible label and accessible name. Browser print/download behavior still needs a live browser check.
 - Remaining risk: The browser opens its print dialog; it does not silently download a PDF file.
+
+## Compact the cohort period status badges (2026-11-23)
+
+- Finding: The cohort badge repeated period time and status beside the cohort name and became too wide.
+- Change: Show only the venue name for scheduled/present/alternate periods, and `NOT HELD` for cancelled periods. Keep full time, status, and venue in the accessible label and hover title. Reduce badge font, padding, and maximum width with ellipsis for unusually long venue names.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template regression assertions cover the concise visible text, badge width cap, and full accessible description.
+- Remaining risk: Long venue names are visually truncated but remain available through the title and screen-reader label.
+
+## Remove repeated cohort label and shrink PDF control (2026-11-23)
+
+- Finding: The current cohort appeared in both the selected-week pill and its cohort-navigation button; the PDF control was larger than the compact admin actions.
+- Change: Restored the cohort and week in the selected pill and hide the selected cohort's repeated label in its active navigation button, leaving its venue/status badge visible. Other cohort buttons retain their labels for switching. Buttons retain accessible cohort labels. Reduced the PDF action's height, padding, font size, and gap.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template regression assertions verify the week-only heading and compact PDF button dimensions.
+- Remaining risk: The PDF control invokes the browser print dialog; users must select Save as PDF.

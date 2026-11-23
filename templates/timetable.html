@@ -1500,7 +1500,7 @@
     body.timetable-manager .controls-bar > .btn{height:24px!important;min-height:24px;padding:0 7px!important;font-size:.62rem!important;gap:3px;border-radius:6px}
     body.timetable-manager #openVenuePanelBtn span:last-child{font-size:.78rem!important}
     body.timetable-manager.real-tenant #resetBtn{display:none!important}
-    .manager-cohort-nav{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;max-width:100%}.manager-cohort-nav button{display:flex;align-items:center;gap:7px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#334155;padding:4px 9px;font-size:11px;cursor:pointer}.manager-cohort-nav button.active{background:#0f766e;border-color:#0f766e;color:#fff}.cohort-period-badge{display:inline-flex;align-items:center;max-width:min(66vw,390px);padding:3px 7px;border-radius:999px;font-size:10px;font-weight:800;line-height:1.2;white-space:normal;text-align:left}.cohort-period-badge.is-present{background:#15803d;color:#fff}.cohort-period-badge.is-alternate{background:#ca8a04;color:#1f2937}.cohort-period-badge.is-cancelled{background:#b91c1c;color:#fff}
+    .manager-cohort-nav{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;max-width:100%}.manager-cohort-nav button{display:flex;align-items:center;gap:5px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#334155;padding:3px 7px;font-size:10px;cursor:pointer}.manager-cohort-nav button.active{background:#0f766e;border-color:#0f766e;color:#fff}.manager-cohort-nav button.active .cohort-nav-label{display:none}.cohort-period-badge{display:inline-block;min-width:0;max-width:min(30vw,180px);padding:2px 6px;border-radius:999px;font-size:9px;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}.cohort-period-badge.is-present{background:#15803d;color:#fff}.cohort-period-badge.is-alternate{background:#ca8a04;color:#1f2937}.cohort-period-badge.is-cancelled{background:#b91c1c;color:#fff}
     html:has(body.timetable-manager),body.timetable-manager{height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto}
     body.timetable-manager{height:auto;min-height:100dvh}
     body.timetable-manager .workspace{flex:0 0 auto;min-height:auto;overflow:visible;padding-bottom:12px}
@@ -1516,7 +1516,7 @@
     .timetable-status-notice[hidden]{display:none!important}
     .timetable-status-notice strong{display:block;margin-bottom:5px;font-size:1rem}
     .timetable-status-notice a{display:inline-flex;margin-top:10px;color:#93c5fd;font-weight:700}
-    #printTimetableBtn{margin-left:auto;white-space:nowrap}
+    #printTimetableBtn{margin-left:auto;white-space:nowrap;height:24px;min-height:24px;padding:0 7px;font-size:.62rem;gap:3px;border-radius:6px}
     #publishTimetableBtn{display:none}
     body.timetable-manager.real-tenant #publishTimetableBtn{display:inline-flex}
     .print-heading{display:none}
@@ -1572,7 +1572,7 @@
     <div class="sheet-card">
       <div class="sheet-header">
         <div class="sheet-header-left">
-          <div class="cohort-pill" id="cohortHeading">BAE (54)</div>
+          <div class="cohort-pill" id="cohortHeading">BAE (54) • Week 1</div>
           <div class="manager-cohort-nav" id="managerCohortNav" aria-label="Timetable cohorts and next period status"></div>
         </div>
         <div class="print-heading" id="printInstitutionTitle">Academic Timetable</div>
@@ -3417,8 +3417,14 @@
         getAllCohorts().forEach(cohort => {
           const button = document.createElement('button');
           button.type = 'button';
-          button.textContent = cohort;
-          button.classList.toggle('active', cohort === state.cohort);
+          button.setAttribute('aria-label', `Select ${cohort}`);
+          button.title = `Select ${cohort}`;
+          const isSelectedCohort = cohort === state.cohort;
+          button.classList.toggle('active', isSelectedCohort);
+          const cohortLabel = document.createElement('span');
+          cohortLabel.className = 'cohort-nav-label';
+          cohortLabel.textContent = cohort;
+          button.appendChild(cohortLabel);
           const period = getNextPeriodForCohort(cohort);
           if (period) {
             const badge = document.createElement('span');
@@ -3426,13 +3432,11 @@
             const alternate = !cancelled && Boolean(period.venueObtained || period.temp);
             badge.className = `cohort-period-badge ${cancelled ? 'is-cancelled' : alternate ? 'is-alternate' : 'is-present'}`;
             const time = formatTimeRange(period.startSlot, period.duration);
-            if (cancelled) {
-              badge.textContent = `${time} · NOT HELD`;
-            } else {
-              const stateLabel = period.status === 'KIPO' ? 'PRESENT' : alternate ? 'VENUE CHANGED' : 'SCHEDULED';
-              badge.textContent = `${time} · ${stateLabel} · ${period.venue || 'Venue to be confirmed'}`;
-            }
-            badge.setAttribute('aria-label', badge.textContent);
+            const stateLabel = cancelled ? 'NOT HELD' : period.status === 'KIPO' ? 'PRESENT' : alternate ? 'VENUE CHANGED' : 'SCHEDULED';
+            const venueLabel = period.venue || 'Venue to be confirmed';
+            badge.textContent = cancelled ? 'NOT HELD' : period.venue || 'Venue TBC';
+            badge.title = `${time} · ${stateLabel}${cancelled ? '' : ` · ${venueLabel}`}`;
+            badge.setAttribute('aria-label', badge.title);
             button.appendChild(badge);
           }
           button.addEventListener('click', () => {
