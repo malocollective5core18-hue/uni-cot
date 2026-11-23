@@ -16,7 +16,7 @@ from django.contrib.auth import login as auth_login
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password, make_password
 from django.db.models import Avg, Count
-from django.db import transaction
+from django.db import DatabaseError, OperationalError, ProgrammingError, transaction
 from django.http import JsonResponse
 from django.core.cache import cache
 from django.shortcuts import redirect, render
@@ -28,7 +28,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_http_methods
 
 from .models import OwnerUser, Member, Comment
-from core.models import SystemSetting, User as CoreUser, UserGroup, UserGroupMember
+from core.models import FounderTimetableSource, SystemSetting, TenantTimetableState, User as CoreUser, UserGroup, UserGroupMember
 from customers.models import CRTenant, TenantSubscription, create_owner_tenant, get_base_domain
 
 
@@ -1063,6 +1063,33 @@ def owner_dashboard(request, *args, **kwargs):
         )
 
     owner_phone_number = (getattr(owner, 'phone_number', '') or '').strip()
+    founder_timetable_version = None
+    tenant_timetable_state = None
+    timetable_status_checked = True
+    if tenant and getattr(tenant, 'schema_name', None) not in {None, '', 'public'}:
+        try:
+            with schema_context(getattr(settings, 'PUBLIC_SCHEMA_NAME', 'public')):
+                founder_source = FounderTimetableSource.objects.filter(pk=1).values_list('version', 'file').first()
+                if founder_source and founder_source[1]:
+                    founder_timetable_version = founder_source[0]
+            with schema_context(tenant.schema_name):
+                tenant_timetable_state = TenantTimetableState.objects.filter(pk=1).values_list('state', 'source_version').first()
+        except (DatabaseError, OperationalError, ProgrammingError):
+            timetable_status_checked = False
+            logger.exception('Could not load the owner dashboard timetable status')
+    timetable_published = bool(
+        founder_timetable_version
+        and tenant_timetable_state
+        and tenant_timetable_state[1] == founder_timetable_version
+        and isinstance(tenant_timetable_state[0], dict)
+        and tenant_timetable_state[0].get('published', True)
+        and isinstance(tenant_timetable_state[0].get('schedules'), list)
+        and tenant_timetable_state[0]['schedules']
+    )
+    timetable_management_url = (
+        f"{_tenant_base_path(request=request, tenant=tenant)}/timetable/?manage=1&setup=1"
+        if tenant else ''
+    )
     
     return render(request, 'owner_dashboard.html', {
         'owner': owner,
@@ -1079,6 +1106,10 @@ def owner_dashboard(request, *args, **kwargs):
         'days_remaining': days_remaining,
         'subscription_active': subscription_active,
         'needs_contact_number': not bool(owner_phone_number),
+        'founder_timetable_available': bool(founder_timetable_version),
+        'timetable_status_checked': timetable_status_checked,
+        'owner_timetable_published': timetable_published,
+        'timetable_management_url': timetable_management_url,
     })
 
 

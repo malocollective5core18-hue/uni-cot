@@ -1,12 +1,14 @@
 import json
 import re
+import tempfile
 from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError, connection
 from django_tenants.utils import schema_context
 from django.contrib.auth.hashers import check_password, make_password
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
@@ -77,12 +79,24 @@ class CompanyShowcaseTemplateTests(TestCase):
 
 
 class TenantLivePollingTemplateTests(SimpleTestCase):
+    def test_venue_picker_can_search_filter_and_prioritize_current_cohort(self):
+        source = (settings.BASE_DIR / 'templates' / 'timetable.html').read_text()
+        self.assertIn('id="vfVenueSearchToggle"', source)
+        self.assertIn('id="vfVenueSearch"', source)
+        self.assertIn('id="vfVenueStatusFilter"', source)
+        self.assertIn('<option value="no-period">No kipindi</option>', source)
+        self.assertIn('<option value="hakipo">Free - HAKIPO</option>', source)
+        self.assertIn('recommendedForCurrentClass: ownClassHakipo', source)
+        self.assertIn('priority: ownClassHakipo ? 0 : hakipo ? 1 : 2', source)
+        self.assertIn('a.priority - b.priority', source)
+
     def test_schedule_management_iframe_waits_for_owner_gate(self):
         source = (settings.BASE_DIR / 'templates' / 'system_index.html').read_text()
         section = source[source.index('id="scheduleManagementSection"'):source.index('<!-- CARDS MANAGEMENT SECTION -->')]
         self.assertIn('id="scheduleManagementFrame"', section)
         self.assertIn('data-src=', section)
         self.assertIn('?demo=1', section)
+        self.assertNotIn('setup=1', section)
         self.assertIn("tenant.schema_name != 'public'", section)
         self.assertNotRegex(section, r'<iframe[^>]+\ssrc=')
         self.assertIn("event.source !== frame.contentWindow", source)
@@ -94,7 +108,13 @@ class TenantLivePollingTemplateTests(SimpleTestCase):
 
     def test_timetable_page_allows_same_origin_popup_embedding(self):
         request = RequestFactory().get('/timetable/')
-        response = views.timetable(request)
+        queries = []
+        def record_query(execute, sql, params, many, context):
+            queries.append(sql)
+            return execute(sql, params, many, context)
+        with connection.execute_wrapper(record_query):
+            response = views.timetable(request)
+        self.assertEqual(queries, [])
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['X-Frame-Options'], 'SAMEORIGIN')
         rendered = response.content.decode()
@@ -108,6 +128,18 @@ class TenantLivePollingTemplateTests(SimpleTestCase):
         )
         self.assertIn('overflow-y: auto', rendered)
         self.assertIn('function reportTimetableFrameHeight()', rendered)
+        self.assertIn('id="printTimetableBtn"', rendered)
+        self.assertIn('aria-label="Download timetable as PDF"', rendered)
+        self.assertIn('⬇ Download PDF</button>', rendered)
+        self.assertIn("resource: 'timetable-state'", rendered)
+        self.assertIn('minMs: 5000', rendered)
+        self.assertIn('id="managerCohortNav"', rendered)
+        self.assertIn('getNextPeriodForCohort', rendered)
+        self.assertIn('!tempHides(item)', rendered)
+        self.assertIn('if (!REAL_TENANT || CAN_MANAGE || !window.TenantLive) return;', rendered)
+        self.assertIn('NOT HELD', rendered)
+        self.assertIn('@page{size:A4 landscape;margin:10mm}', rendered)
+        self.assertIn('.schedule-block.is-obtained,.schedule-block.is-temporary,.schedule-block.is-hakipo,.schedule-block.conflict-venue{display:none!important}', rendered)
         self.assertIn('window.addEventListener(\'resize\', () => {', rendered)
         self.assertIn(
             '#scheduleModal { align-items: center !important; justify-content: center !important; padding: 12px !important; }',
@@ -631,13 +663,15 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         session.save()
 
     def test_owner_session_renders_management_timetable(self):
-        request = RequestFactory().get('/timetable/?manage=1')
+        request = RequestFactory().get('/timetable/?manage=1&setup=1')
         request.tenant = self.tenant
         request.session = {'service_user': {'user_type': 'owner', 'owner_id': self.owner.id}}
         response = views.timetable(request)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'class="timetable-manager"')
         self.assertContains(response, 'id="managerCohortNav"')
+        self.assertContains(response, 'id="publishTimetableBtn"')
+        self.assertContains(response, 'const OWNER_SETUP_MODE = true;')
 
     def test_tenant_users_api_requires_owner_session(self):
         self.client.post(f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/logout/", follow=True)
@@ -654,6 +688,15 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         )
 
     def test_timetable_state_is_owner_writable_and_query_bounded(self):
+        with schema_context('public'):
+            FounderTimetableSource.objects.update_or_create(
+                pk=1,
+                defaults={
+                    'file': 'system/timetables/test.xlsx',
+                    'original_filename': 'test.xlsx',
+                    'version': 1,
+                },
+            )
         request = RequestFactory().get('/api/timetable/state/')
         request.tenant = self.tenant
         request.session = {'service_user': {'user_type': 'owner', 'owner_id': self.owner.id}}
@@ -661,21 +704,89 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
             with self.assertNumQueries(4):
                 response = views.api_timetable_state(request)
         self.assertEqual(response.status_code, 200)
+        self.assertTrue(response['ETag'].startswith('"timetable-1-0-'))
+        request.META['HTTP_IF_NONE_MATCH'] = response['ETag']
+        with schema_context(self.tenant.schema_name):
+            with self.assertNumQueries(4):
+                unchanged = views.api_timetable_state(request)
+        self.assertEqual(unchanged.status_code, 304)
 
         request = RequestFactory().put(
             '/api/timetable/state/',
-            data=json.dumps({'state': {'schedules': [], 'venues': []}, 'source_version': 0}),
+            data=json.dumps({'state': {'schedules': [{
+                'day': 'Monday', 'startSlot': 0, 'duration': 1,
+                'isActivity': True, 'swapType': 'temporary', 'swapPairId': 'pair-1',
+                'originalDay': 'Tuesday', 'originalStartSlot': 3,
+            }], 'venues': [], 'published': True}, 'source_version': 1}),
             content_type='application/json',
         )
         request.tenant = self.tenant
         request.session = {'service_user': {'user_type': 'owner', 'owner_id': self.owner.id}}
         with schema_context(self.tenant.schema_name):
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(17):
                 response = views.api_timetable_state(request)
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(TenantTimetableState.objects.get(pk=1).state['schedules'], [])
+            saved_schedule = TenantTimetableState.objects.get(pk=1).state['schedules'][0]
+            self.assertTrue(saved_schedule['isActivity'])
+            self.assertEqual(saved_schedule['swapPairId'], 'pair-1')
+            self.assertEqual(saved_schedule['originalDay'], 'Tuesday')
+            self.assertEqual(saved_schedule['originalStartSlot'], 3)
+
+    def test_tenant_timetable_is_hidden_until_source_and_owner_publish(self):
+        request = RequestFactory().get('/api/timetable/state/')
+        request.tenant = self.tenant
+        request.session = {'service_user': {'user_type': 'member', 'member_id': 1, 'owner_id': self.owner.id}}
+        with schema_context('public'):
+            FounderTimetableSource.objects.filter(pk=1).delete()
+        with schema_context(self.tenant.schema_name):
+            with self.assertNumQueries(4):
+                missing = views.api_timetable_state(request)
+        self.assertEqual(missing.json()['timetable_status'], 'not_provided')
+        self.assertIsNone(missing.json()['data'])
+
+        with schema_context('public'):
+            FounderTimetableSource.objects.create(
+                pk=1,
+                file='system/timetables/test.xlsx',
+                original_filename='test.xlsx',
+                version=3,
+            )
+        draft_state = {'schedules': [{'day': 'Monday', 'startSlot': 0, 'duration': 1}], 'published': False}
+        with schema_context(self.tenant.schema_name):
+            TenantTimetableState.objects.update_or_create(
+                pk=1,
+                defaults={'state': draft_state, 'source_version': 3},
+            )
+            with self.assertNumQueries(4):
+                hidden = views.api_timetable_state(request)
+        self.assertEqual(hidden.json()['timetable_status'], 'owner_setup')
+        self.assertIsNone(hidden.json()['data'])
+
+        request.session = {'service_user': {'user_type': 'owner', 'owner_id': self.owner.id}}
+        with schema_context(self.tenant.schema_name):
+            with self.assertNumQueries(4):
+                owner_view = views.api_timetable_state(request)
+        self.assertEqual(owner_view.json()['timetable_status'], 'owner_setup')
+        self.assertEqual(owner_view.json()['data'], draft_state)
+        self.assertIn('url', owner_view.json()['source'])
+
+        published_state = {**draft_state, 'published': True}
+        with schema_context(self.tenant.schema_name):
+            TenantTimetableState.objects.filter(pk=1).update(state=published_state)
+        request.session = {'service_user': {'user_type': 'member', 'member_id': 1, 'owner_id': self.owner.id}}
+        with schema_context(self.tenant.schema_name):
+            with self.assertNumQueries(4):
+                visible = views.api_timetable_state(request)
+        self.assertEqual(visible.json()['timetable_status'], 'published')
+        self.assertEqual(visible.json()['data'], published_state)
+        self.assertNotIn('url', visible.json()['source'])
 
     def test_timetable_state_rejects_member_and_invalid_schedule(self):
+        with schema_context('public'):
+            FounderTimetableSource.objects.update_or_create(
+                pk=1,
+                defaults={'file': 'system/timetables/test.xlsx', 'original_filename': 'test.xlsx', 'version': 1},
+            )
         request = RequestFactory().put(
             '/api/timetable/state/', data=json.dumps({'state': {'schedules': []}}), content_type='application/json',
         )
@@ -697,6 +808,21 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
             invalid = views.api_timetable_state(request)
         self.assertEqual(invalid.status_code, 400)
 
+    def test_timetable_owner_cannot_save_before_founder_upload(self):
+        with schema_context('public'):
+            FounderTimetableSource.objects.filter(pk=1).delete()
+        request = RequestFactory().put(
+            '/api/timetable/state/',
+            data=json.dumps({'state': {'schedules': [], 'venues': [], 'published': False}, 'source_version': 0}),
+            content_type='application/json',
+        )
+        request.tenant = self.tenant
+        request.session = {'service_user': {'user_type': 'owner', 'owner_id': self.owner.id}}
+        with schema_context(self.tenant.schema_name):
+            response = views.api_timetable_state(request)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn('provider has not supplied', response.json()['error'])
+
     def test_founder_timetable_source_endpoint_is_staff_only_and_query_bounded(self):
         request = RequestFactory().get('/api/founder/timetable-source/')
         request.user = get_user_model()(is_active=True, is_staff=False)
@@ -709,6 +835,37 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
             with self.assertNumQueries(4):
                 response = views.api_founder_timetable_source(request)
         self.assertEqual(response.status_code, 200)
+
+    def test_founder_timetable_delete_keeps_version_monotonic_for_reupload(self):
+        with schema_context('public'):
+            FounderTimetableSource.objects.create(
+                pk=1,
+                file='system/timetables/original.xlsx',
+                original_filename='original.xlsx',
+                version=7,
+            )
+        user = get_user_model()(is_active=True, is_staff=True, id=9001)
+        request = RequestFactory().delete('/api/founder/timetable-source/')
+        request.user = user
+        with schema_context('public'):
+            with self.assertNumQueries(4):
+                response = views.api_founder_timetable_source(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['data'])
+        with schema_context('public'):
+            source = FounderTimetableSource.objects.get(pk=1)
+            self.assertEqual(source.version, 8)
+            self.assertFalse(source.file)
+
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            upload = SimpleUploadedFile('replacement.xlsx', b'workbook')
+            request = RequestFactory().post('/api/founder/timetable-source/', {'file': upload})
+            request.user = user
+            with schema_context('public'):
+                with self.assertNumQueries(5):
+                    response = views.api_founder_timetable_source(request)
+            self.assertEqual(response.status_code, 200)
+        self.assertGreater(response.json()['data']['version'], 8)
 
     def test_tenant_users_api_rejects_member_and_other_tenant_owner_sessions(self):
         path = f"/t/{self.tenant.subdomain}/{self.tenant.id}/{self.tenant.tenant_key}/api/users/"

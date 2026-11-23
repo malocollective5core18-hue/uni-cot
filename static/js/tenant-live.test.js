@@ -13,7 +13,7 @@ function harness() {
   const context = {
     console,
     Math: math,
-    setTimeout: (fn) => (timers.push(fn), timers.length - 1),
+    setTimeout: (fn, delay) => (timers.push({ fn, delay }), timers.length - 1),
     clearTimeout: (id) => { timers[id] = null; },
     document: {
       get hidden() { return hidden; },
@@ -47,4 +47,10 @@ test('hidden pages pause and visibility resumes a stale resource', () => {
   h.setHidden(false);
   h.listeners.visibilitychange();
   assert.equal(h.requests(), 1);
+});
+
+test('time-sensitive resources can opt into a five-second poll interval', () => {
+  const h = harness();
+  h.context.window.TenantLive.register({ resource: 'timetable', url: '/timetable', minMs: 5000, onData() {} });
+  assert.equal(h.timers[0].delay, 5000);
 });

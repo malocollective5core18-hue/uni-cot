@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>uni-cot | Academic Timetable Console</title>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="{% static 'js/tenant-live.js' %}" defer></script>
   <style>
     :root {
       /* system_index.html RING-0 root palette */
@@ -880,6 +882,7 @@
     .vf-bar { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 6px; }
     .vf-bar .form-group label { font-size: 0.62rem; }
     .vf-count { font-size: 0.68rem; color: #64748b; }
+    .vf-venue-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.vf-search-toggle{width:30px;height:30px;min-height:30px;padding:0!important;display:inline-flex;align-items:center;justify-content:center;font-size:.9rem!important}.vf-search-wrap{flex:1 1 150px;min-width:120px}.vf-search-wrap[hidden]{display:none!important}.vf-search-wrap input{width:100%;min-height:30px;padding:4px 8px;font-size:.7rem}.vf-status-filter{flex:1 1 170px;min-width:145px;min-height:30px;padding:4px 7px;font-size:.68rem}
     .vf-chips { display: flex; flex-wrap: wrap; gap: 6px; }
     .venue-chip {
       border: 1px solid var(--border-grid);
@@ -895,6 +898,7 @@
     }
     .venue-chip small { display: block; font-size: 0.58rem; font-weight: 600; color: #5eead4; }
     .venue-chip.selected { border-color: #5eead4; background: rgba(94, 234, 212, 0.14); }
+    .venue-chip.recommended{border-color:rgba(53,208,127,.7);background:rgba(53,208,127,.08)}
     .vf-empty { font-size: 0.7rem; color: #64748b; padding: 6px 0; }
     .lesson-check {
       display: flex; gap: 8px; align-items: flex-start;
@@ -1436,7 +1440,7 @@
     }
   </style>
 </head>
-<body class="{% if can_manage_timetable %}timetable-manager{% else %}timetable-reader{% endif %}">
+<body class="{% if can_manage_timetable %}timetable-manager{% else %}timetable-reader{% endif %}{% if is_real_timetable_tenant %} real-tenant{% endif %}">
 
   {% if can_manage_timetable %}
   <!-- Compact owner navigation -->
@@ -1480,6 +1484,7 @@
         <span>venue</span>
         <span style="font-size: 0.95rem; line-height: 1;">+</span>
       </button>
+      {% if is_real_timetable_tenant and owner_timetable_setup_mode %}<button type="button" class="btn btn-primary-dark" id="publishTimetableBtn" disabled>Save &amp; share timetable</button>{% endif %}
     </div>
   </header>
   {% endif %}
@@ -1494,7 +1499,8 @@
     body.timetable-manager .controls-bar{display:flex;justify-content:flex-end}
     body.timetable-manager .controls-bar > .btn{height:24px!important;min-height:24px;padding:0 7px!important;font-size:.62rem!important;gap:3px;border-radius:6px}
     body.timetable-manager #openVenuePanelBtn span:last-child{font-size:.78rem!important}
-    .manager-cohort-nav{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;max-width:100%}.manager-cohort-nav button{border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#334155;padding:4px 9px;font-size:11px;cursor:pointer}.manager-cohort-nav button.active{background:#0f766e;border-color:#0f766e;color:#fff}
+    body.timetable-manager.real-tenant #resetBtn{display:none!important}
+    .manager-cohort-nav{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;max-width:100%}.manager-cohort-nav button{display:flex;align-items:center;gap:7px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#334155;padding:4px 9px;font-size:11px;cursor:pointer}.manager-cohort-nav button.active{background:#0f766e;border-color:#0f766e;color:#fff}.cohort-period-badge{display:inline-flex;align-items:center;max-width:min(66vw,390px);padding:3px 7px;border-radius:999px;font-size:10px;font-weight:800;line-height:1.2;white-space:normal;text-align:left}.cohort-period-badge.is-present{background:#15803d;color:#fff}.cohort-period-badge.is-alternate{background:#ca8a04;color:#1f2937}.cohort-period-badge.is-cancelled{background:#b91c1c;color:#fff}
     html:has(body.timetable-manager),body.timetable-manager{height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto}
     body.timetable-manager{height:auto;min-height:100dvh}
     body.timetable-manager .workspace{flex:0 0 auto;min-height:auto;overflow:visible;padding-bottom:12px}
@@ -1506,6 +1512,39 @@
     body.timetable-manager .schedule-block > div,body.timetable-manager .schedule-block .sb-meta{min-height:0;overflow:visible}
     body.timetable-manager .sb-title{display:block;-webkit-line-clamp:unset;overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere}
     body.timetable-manager .sb-lecturer,body.timetable-manager .sb-venue{overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere}
+    .timetable-status-notice{margin:12px;padding:18px;border:1px solid rgba(91,140,255,.28);border-radius:12px;background:rgba(91,140,255,.08);color:var(--text-primary);line-height:1.5}
+    .timetable-status-notice[hidden]{display:none!important}
+    .timetable-status-notice strong{display:block;margin-bottom:5px;font-size:1rem}
+    .timetable-status-notice a{display:inline-flex;margin-top:10px;color:#93c5fd;font-weight:700}
+    #printTimetableBtn{margin-left:auto;white-space:nowrap}
+    #publishTimetableBtn{display:none}
+    body.timetable-manager.real-tenant #publishTimetableBtn{display:inline-flex}
+    .print-heading{display:none}
+    @media print {
+      @page{size:A4 landscape;margin:10mm}
+      html,body{height:auto!important;min-height:0!important;overflow:visible!important;background:#fff!important;color:#111!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .topbar,.switch-banner,.coach-bar,.timetable-print-button,.timetable-status-notice,.drawer-overlay,.modal-backdrop,.toast-container{display:none!important}
+      .workspace{display:block!important;width:100%!important;max-width:none!important;margin:0!important;padding:0!important;overflow:visible!important}
+      .sheet-card{overflow:visible!important;border:0!important;box-shadow:none!important;background:#fff!important}
+      .sheet-header{padding:0 0 8px!important;background:#fff!important;border-bottom:2px solid #164e63!important}
+      .print-heading{display:block!important;width:100%;font-size:18pt;font-weight:700;color:#123047}
+      .sheet-header-left{display:block!important}
+      .cohort-pill{display:inline-block!important;margin-top:5px;background:#eaf3f8!important;color:#123047!important;border-color:#9ab8c8!important}
+      .table-scroll{display:block!important;overflow:visible!important}
+      table.timetable{width:100%!important;min-width:0!important;border-collapse:collapse!important;table-layout:fixed!important}
+      table.timetable{height:auto!important}
+      table.timetable tbody tr{height:auto!important}
+      table.timetable th,table.timetable td{border:1px solid #9aa7b1!important;color:#15212b!important}
+      table.timetable thead th{display:table-cell!important;margin:0!important;background:#e8eef2!important;color:#15212b!important;font-size:7pt!important;line-height:1.1!important}
+      table.timetable tbody th.day-cell{background:#f0f4f6!important;color:#15212b!important}
+      .schedule-block.is-obtained,.schedule-block.is-temporary,.schedule-block.is-hakipo,.schedule-block.conflict-venue{display:none!important}
+      .schedule-block{min-height:44px!important;height:auto!important;padding:3px!important;border-radius:3px!important;box-shadow:none!important;break-inside:avoid;color:#10232e!important}
+      .schedule-block:not(.is-switched){border:1px solid #16875a!important;background:#def4e9!important}
+      .schedule-block.is-switched{border:1px solid #7041c2!important;background:#eee7fc!important}
+      .sb-code,.sb-title,.sb-lecturer,.sb-venue{color:#14242c!important;font-size:7pt!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
+      .status-pill,.swap-tag,.obtained-tag,.venue-conflict-tag{display:none!important}
+      .manager-cohort-nav{display:none!important}
+    }
   </style>
   <!-- Switch Mode Banner -->
   <div class="switch-banner" id="switchBanner">
@@ -1534,8 +1573,16 @@
       <div class="sheet-header">
         <div class="sheet-header-left">
           <div class="cohort-pill" id="cohortHeading">BAE (54)</div>
-          {% if can_manage_timetable %}<div class="manager-cohort-nav" id="managerCohortNav" aria-label="Manage timetable by cohort"></div>{% endif %}
+          <div class="manager-cohort-nav" id="managerCohortNav" aria-label="Timetable cohorts and next period status"></div>
         </div>
+        <div class="print-heading" id="printInstitutionTitle">Academic Timetable</div>
+        <button type="button" class="btn btn-ghost timetable-print-button" id="printTimetableBtn" title="Open the print dialog to save this timetable as a PDF" aria-label="Download timetable as PDF">⬇ Download PDF</button>
+      </div>
+
+      <div class="timetable-status-notice" id="timetableStatusNotice" role="status" aria-live="polite" hidden>
+        <strong id="timetableStatusTitle"></strong>
+        <span id="timetableStatusMessage"></span>
+        <a id="timetableOwnerLink" href="{% if tenant_base_path %}{{ tenant_base_path }}/service/welcome/{% else %}{% url 'service:welcome' %}{% endif %}" hidden>Open the owner portal</a>
       </div>
 
       <div class="table-scroll">
@@ -1714,6 +1761,17 @@
           <div class="vf-step-sum" id="vfSum2" style="display:none;"></div>
           <div id="vfBody2" style="display:flex;flex-direction:column;gap:6px;">
             <div class="vf-count" id="vfCount"></div>
+            <div class="vf-venue-tools">
+              <button type="button" class="btn btn-ghost vf-search-toggle" id="vfVenueSearchToggle" aria-label="Search venues" aria-expanded="false" title="Search venue names">🔍</button>
+              <div class="vf-search-wrap" id="vfVenueSearchWrap" hidden>
+                <input class="form-control" id="vfVenueSearch" type="search" placeholder="Search venue names" autocomplete="off" aria-label="Search venue names">
+              </div>
+              <select class="form-control vf-status-filter" id="vfVenueStatusFilter" aria-label="Filter by venue availability">
+                <option value="all">All venue statuses</option>
+                <option value="hakipo">Free - HAKIPO</option>
+                <option value="no-period">No kipindi</option>
+              </select>
+            </div>
             <div class="vf-chips" id="vfChips"></div>
           </div>
         </div>
@@ -1828,10 +1886,13 @@
     const UniCotTimetable = (() => {
       const CAN_MANAGE = {{ can_manage_timetable|yesno:"true,false" }};
       const DEMO_MODE = {{ demo_timetable|yesno:"true,false" }};
+      const REAL_TENANT = {{ is_real_timetable_tenant|yesno:"true,false" }};
+      const OWNER_SETUP_MODE = {{ owner_timetable_setup_mode|yesno:"true,false" }};
       const DEMO_STORAGE_KEY = 'ring0_public_timetable_demo_v1';
       const API_URL = "{% if tenant_base_path %}{{ tenant_base_path }}/api/timetable/state/{% else %}{% url 'api_timetable_state' %}{% endif %}";
       let sourceVersion = 0;
       let saveTimer = null;
+      let tenantSaveQueue = Promise.resolve();
       const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
       const TIME_SLOTS = [
@@ -1892,7 +1953,9 @@
         pendingSwapType: 'temporary',
         pendingSwapUntil: null,
         historyStack: [],
-        lastSundayReview: null
+        lastSundayReview: null,
+        published: false,
+        timetableStatus: 'available'
       };
 
       function splitCodeAndTitle(rawModule) {
@@ -2055,27 +2118,69 @@
         const payload = await response.json();
         if (!response.ok || !payload.success) throw new Error(payload.error || 'Unable to load timetable.');
         sourceVersion = Number(payload.source_version || 0);
+        state.timetableStatus = payload.timetable_status || 'available';
+        if (REAL_TENANT && state.timetableStatus === 'not_provided') {
+          state.schedules = [];
+          state.published = false;
+          return;
+        }
+        if (REAL_TENANT && state.timetableStatus === 'owner_setup' && !(CAN_MANAGE && OWNER_SETUP_MODE)) {
+          state.schedules = [];
+          state.published = false;
+          return;
+        }
         if (payload.data && Array.isArray(payload.data.schedules) && payload.data.schedules.length) {
           Object.assign(state, payload.data);
+          state.published = Boolean(payload.published);
           if (payload.source?.url && sourceVersion > Number(payload.data.sourceVersion || payload.data.source_version || 0)) {
             const saved = payload.data;
             const workbookResponse = await fetch(payload.source.url, { cache: 'no-store' });
             if (!workbookResponse.ok) throw new Error('The updated shared Excel timetable could not be downloaded.');
             const parsed = parseNitExcelWorkbook(XLSX.read(new Uint8Array(await workbookResponse.arrayBuffer()), { type: 'array' }));
-            const key = item => [item.cohort, item.day, item.startSlot, item.code, item.title].join('|');
-            const overrides = new Map(saved.schedules.map(item => [key(item), item]));
+            const key = item => [
+              item.cohort,
+              item.originalDay || item.day,
+              item.originalStartSlot ?? item.startSlot,
+              item.code,
+              item.title,
+            ].join('|');
+            const overrides = new Map(saved.schedules.filter(item => !item.temp).map(item => [key(item), item]));
             state.schedules = parsed.schedules.map(item => {
               const previous = overrides.get(key(item));
-              return previous ? { ...item, venue: previous.venue, status: previous.status, venueObtained: previous.venueObtained, needsVenue: previous.needsVenue, swapType: previous.swapType, swapUntil: previous.swapUntil } : item;
+              if (!previous) return item;
+              const merged = {
+                ...item,
+                venue: previous.venue,
+                status: previous.status,
+                venueObtained: previous.venueObtained,
+                needsVenue: previous.needsVenue,
+                swapType: previous.swapType,
+                swapUntil: previous.swapUntil,
+                swapPairId: previous.swapPairId,
+                originalDay: previous.originalDay,
+                originalStartSlot: previous.originalStartSlot,
+              };
+              if (previous.swapType) {
+                merged.day = previous.day;
+                merged.startSlot = previous.startSlot;
+              }
+              return merged;
             });
+            state.schedules.push(...saved.schedules.filter(item => item.temp && (!item.expiresAt || Number(item.expiresAt) > Date.now())));
             state.institutionTitle = parsed.institutionTitle;
             state.sourceLabel = payload.source.filename || 'Founder timetable';
             state.venues = Array.from(new Set([...(parsed.venues || []), ...(saved.venues || [])]));
             state.cohort = state.schedules.some(item => item.cohort === saved.cohort) ? saved.cohort : (state.schedules[0]?.cohort || '');
             state.sourceVersion = sourceVersion;
-            if (CAN_MANAGE) persistData();
+            state.published = false;
+            state.timetableStatus = 'owner_setup';
           }
         } else if (payload.source?.url && window.XLSX) {
+          if (REAL_TENANT && !(CAN_MANAGE && OWNER_SETUP_MODE)) {
+            state.timetableStatus = 'owner_setup';
+            state.schedules = [];
+            return;
+          }
           const workbookResponse = await fetch(payload.source.url, { cache: 'no-store' });
           if (!workbookResponse.ok) throw new Error('The shared Excel timetable could not be downloaded.');
           const workbook = XLSX.read(new Uint8Array(await workbookResponse.arrayBuffer()), { type: 'array' });
@@ -2086,42 +2191,58 @@
           state.sourceLabel = payload.source.filename || 'Founder timetable';
           state.cohort = getAllCohorts()[0] || 'BAE (54)';
           state.sourceVersion = sourceVersion;
-          if (CAN_MANAGE) persistData();
+          state.published = !REAL_TENANT;
+          if (DEMO_MODE && CAN_MANAGE) persistData();
         } else {
+          if (REAL_TENANT) {
+            state.timetableStatus = 'owner_setup';
+            state.schedules = [];
+            return;
+          }
           state.schedules = JSON.parse(JSON.stringify(INITIAL_SCHEDULES));
           state.cohort = 'BAE (54)';
+          state.published = true;
         }
+      }
+
+      function timetableStatePayload() {
+        return {
+          institutionTitle: state.institutionTitle,
+          sourceLabel: state.sourceLabel,
+          cohort: state.cohort,
+          schedules: state.schedules,
+          venues: state.venues,
+          lastSundayReview: state.lastSundayReview,
+          published: state.published,
+        };
+      }
+
+      async function saveTenantStateNow() {
+        const cookie = document.cookie.split('; ').find(item => item.startsWith('csrftoken='));
+        const csrf = cookie ? decodeURIComponent(cookie.split('=').slice(1).join('=')) : '';
+        const body = JSON.stringify({ state: timetableStatePayload(), source_version: sourceVersion });
+        const save = tenantSaveQueue.catch(() => {}).then(() => fetch(API_URL, {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+          body,
+        }));
+        tenantSaveQueue = save.then(() => undefined, () => undefined);
+        return save;
       }
 
       function persistData() {
         if (DEMO_MODE) {
           try {
-            localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify({
-              institutionTitle: state.institutionTitle,
-              sourceLabel: state.sourceLabel,
-              cohort: state.cohort,
-              schedules: state.schedules,
-              venues: state.venues,
-              lastSundayReview: state.lastSundayReview,
-              sourceVersion,
-            }));
+            localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify({ ...timetableStatePayload(), sourceVersion }));
           } catch (error) { showToast('Demo changes could not be saved in this browser.', 'error'); }
           return;
         }
         if (!CAN_MANAGE) return;
         clearTimeout(saveTimer);
         saveTimer = setTimeout(async () => {
-          const cookie = document.cookie.split('; ').find(item => item.startsWith('csrftoken='));
-          const csrf = cookie ? decodeURIComponent(cookie.split('=').slice(1).join('=')) : '';
           try {
-            const response = await fetch(API_URL, { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf }, body: JSON.stringify({ state: {
-            institutionTitle: state.institutionTitle,
-            sourceLabel: state.sourceLabel,
-            cohort: state.cohort,
-            schedules: state.schedules,
-            venues: state.venues,
-            lastSundayReview: state.lastSundayReview
-            }, source_version: sourceVersion }) });
+            const response = await saveTenantStateNow();
             if (!response.ok) showToast('Could not save timetable changes. Check owner access and retry.', 'error');
           } catch (error) { showToast('Could not save timetable changes.', 'error'); }
         }, 300);
@@ -2233,6 +2354,7 @@
           'schedule-block',
           sch.status === 'HAKIPO' ? 'is-hakipo' : '',
           sch.venueObtained ? 'is-obtained' : '',
+          sch.temp ? 'is-temporary' : '',
           isSource ? 'selected-source' : '',
           isSwitchMode ? 'switch-target-hover' : '',
           conflictMsg ? 'conflict-venue' : '',
@@ -2300,6 +2422,8 @@
         (document.getElementById('sheetInstitutionTitle')||{textContent:''}).textContent = state.institutionTitle;
         const institutionSubtitle = document.getElementById('institutionSubtitle');
         if (institutionSubtitle) institutionSubtitle.textContent = formatInstitutionSubtitle(state.institutionTitle);
+        const printTitle = document.getElementById('printInstitutionTitle');
+        if (printTitle) printTitle.textContent = `${formatInstitutionSubtitle(state.institutionTitle)} — Academic Timetable`;
         document.getElementById('cohortHeading').textContent = `${state.cohort} • ${state.week}`;
         document.getElementById('drawerCohortLabel').textContent = state.cohort;
                 const isNarrow = window.innerWidth < 900;
@@ -2687,7 +2811,7 @@
       // ---- Step-by-step open-venue flow: when -> venue (popup confirm) -> subject -> yellow temporary class ----
       const $id = (i) => document.getElementById(i);
       const VENUE_WINDOW_DAYS = 3; // a venue can only be added for a date within this many days
-      const venuePick = { day: 'Monday', from: 0, dur: null, to: 0, step: 1, venue: null, pending: null, choice: null, actType: 'Kikao', template: false };
+      const venuePick = { day: 'Monday', from: 0, dur: null, to: 0, step: 1, venue: null, pending: null, choice: null, actType: 'Kikao', template: false, searchOpen: false, searchQuery: '', statusFilter: 'all' };
 
       function escText(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').trim(); }
       function slotEndLabel(i) { return TIME_SLOTS[i].short.split('-')[1]; }
@@ -2727,9 +2851,19 @@
           const users = state.schedules.filter(x => x.id !== excludeId && venueKey(x.venue) === k &&
             x.day === w.day && x.startSlot <= w.to && w.from < x.startSlot + x.duration);
           if (users.some(x => x.status !== 'HAKIPO')) return;
-          out.push({ venue: v, hakipo: users.length > 0, from: Array.from(new Set(users.map(x => x.cohort))).join(', ') });
+          const hakipo = users.length > 0;
+          const fromCohorts = Array.from(new Set(users.map(x => x.cohort)));
+          const ownClassHakipo = users.some(x => x.cohort === state.cohort);
+          out.push({
+            venue: v,
+            hakipo,
+            from: fromCohorts.join(', '),
+            priority: ownClassHakipo ? 0 : hakipo ? 1 : 2,
+            statusKey: hakipo ? 'hakipo' : 'no-period',
+            recommendedForCurrentClass: ownClassHakipo,
+          });
         });
-        return out;
+        return out.sort((a, b) => a.priority - b.priority || a.venue.localeCompare(b.venue, undefined, { numeric: true }));
       }
       function getOpenVenues() { return getOpenVenuesFor({ day: venuePick.day, from: venuePick.from, to: venuePick.to }, null); }
 
@@ -2850,10 +2984,22 @@
 
       function renderChips() {
         const open = getOpenVenues();
-        $id('vfCount').textContent = open.length + ' open venue' + (open.length === 1 ? '' : 's') + ' \u2022 ' + whenText();
-        $id('vfChips').innerHTML = open.length
-          ? open.map(o => `<button type="button" class="venue-chip" data-venue="${o.venue.replace(/"/g, '&quot;')}">${o.venue}${o.hakipo ? '<small>free - HAKIPO (' + o.from + ')</small>' : '<small>no kipindi</small>'}</button>`).join('')
-          : '<div class="vf-empty">No venue is open at this time. Tap Change and pick another time.</div>';
+        const query = venuePick.searchQuery.trim().toLocaleLowerCase();
+        const visible = open.filter(item =>
+          (!query || item.venue.toLocaleLowerCase().includes(query)) &&
+          (venuePick.statusFilter === 'all' || item.statusKey === venuePick.statusFilter)
+        );
+        $id('vfCount').textContent = open.length + ' open venue' + (open.length === 1 ? '' : 's') + ' \u2022 ' + whenText() +
+          (visible.length !== open.length ? ` · Showing ${visible.length}` : '');
+        $id('vfChips').innerHTML = visible.length
+          ? visible.map(o => {
+            const status = o.hakipo ? `free - HAKIPO (${escText(o.from)})` : 'no kipindi';
+            const recommended = o.recommendedForCurrentClass ? ` · Recommended for ${escText(state.cohort)}` : '';
+            return `<button type="button" class="venue-chip${o.recommendedForCurrentClass ? ' recommended' : ''}" data-venue="${escText(o.venue)}" data-status="${o.statusKey}">${escText(o.venue)}<small>${status}${recommended}</small></button>`;
+          }).join('')
+          : open.length
+            ? '<div class="vf-empty">No venues match the search and status filters.</div>'
+            : '<div class="vf-empty">No venue is open at this time. Tap Change and pick another time.</div>';
       }
 
       function renderSubjects() {
@@ -2880,6 +3026,13 @@
         note.textContent = '';
         venuePick.venue = null;
         venuePick.choice = null;
+        venuePick.searchQuery = '';
+        venuePick.statusFilter = 'all';
+        venuePick.searchOpen = false;
+        $id('vfVenueSearch').value = '';
+        $id('vfVenueStatusFilter').value = 'all';
+        $id('vfVenueSearchWrap').hidden = true;
+        $id('vfVenueSearchToggle').setAttribute('aria-expanded', 'false');
         if (venuePick.template) {
           venuePick.step = 3;
           renderSteps();
@@ -2921,6 +3074,13 @@
         venuePick.venue = null;
         venuePick.pending = null;
         venuePick.choice = null;
+        venuePick.searchQuery = '';
+        venuePick.statusFilter = 'all';
+        venuePick.searchOpen = false;
+        $id('vfVenueSearch').value = '';
+        $id('vfVenueStatusFilter').value = 'all';
+        $id('vfVenueSearchWrap').hidden = true;
+        $id('vfVenueSearchToggle').setAttribute('aria-expanded', 'false');
         const sch = preselectScheduleId ? state.schedules.find(x => x.id === preselectScheduleId) : null;
         if (sch) {
           venuePick.day = sch.day;
@@ -3141,6 +3301,115 @@
         if (ls && ls.value) applyLessonFilter(ls.value);
       }
 
+      function updateTimetableAvailability() {
+        const notice = document.getElementById('timetableStatusNotice');
+        const tableScroll = document.querySelector('.table-scroll');
+        const title = document.getElementById('timetableStatusTitle');
+        const message = document.getElementById('timetableStatusMessage');
+        const ownerLink = document.getElementById('timetableOwnerLink');
+        const saveButton = document.getElementById('publishTimetableBtn');
+        const venueButton = document.getElementById('openVenuePanelBtn');
+        if (!notice || !tableScroll) return;
+        let showNotice = false;
+        if (REAL_TENANT && state.timetableStatus === 'not_provided') {
+          showNotice = true;
+          title.textContent = 'Timetable not yet provided';
+          message.textContent = 'Your provider has not supplied a timetable yet. Please check again after your provider uploads the timetable workbook.';
+          if (ownerLink) ownerLink.hidden = !CAN_MANAGE;
+          tableScroll.hidden = true;
+        } else if (REAL_TENANT && state.timetableStatus === 'owner_setup' && !(CAN_MANAGE && OWNER_SETUP_MODE)) {
+          showNotice = true;
+          if (CAN_MANAGE) {
+            title.textContent = 'Timetable ready for owner review';
+            message.textContent = 'Your provider has supplied the timetable workbook. Open your owner dashboard to select your course, review it, and share it with your members.';
+            if (ownerLink) ownerLink.hidden = false;
+          } else {
+            title.textContent = 'Timetable is being prepared';
+            message.textContent = 'Your provider has supplied a timetable. Your owner is reviewing it before sharing it with members.';
+            if (ownerLink) ownerLink.hidden = true;
+          }
+          tableScroll.hidden = true;
+        } else if (REAL_TENANT && state.timetableStatus === 'unavailable') {
+          showNotice = true;
+          title.textContent = 'Timetable temporarily unavailable';
+          message.textContent = 'We could not check the shared timetable right now. Please reload this page shortly.';
+          if (ownerLink) ownerLink.hidden = true;
+          tableScroll.hidden = true;
+        } else {
+          tableScroll.hidden = false;
+          if (REAL_TENANT && CAN_MANAGE && OWNER_SETUP_MODE && !state.published) {
+            showNotice = true;
+            title.textContent = 'Review and share your timetable';
+            message.textContent = 'Select a cohort, check the imported schedule, make any corrections, then save and share it with your members.';
+          }
+          if (ownerLink) ownerLink.hidden = true;
+        }
+        notice.hidden = !showNotice;
+        if (saveButton) saveButton.disabled = !(REAL_TENANT && CAN_MANAGE && OWNER_SETUP_MODE && state.timetableStatus !== 'not_provided' && state.schedules.length);
+        if (venueButton) venueButton.disabled = REAL_TENANT && state.timetableStatus === 'not_provided';
+        const printButton = document.getElementById('printTimetableBtn');
+        if (printButton) printButton.disabled = !state.schedules.length;
+        reportTimetableFrameHeight();
+      }
+
+      function applyLiveTimetableState(payload) {
+        if (!REAL_TENANT || !payload || !payload.success) return;
+        sourceVersion = Number(payload.source_version || 0);
+        state.timetableStatus = payload.timetable_status || 'unavailable';
+        state.published = Boolean(payload.published);
+        if (state.timetableStatus === 'published' && payload.data && Array.isArray(payload.data.schedules)) {
+          const selectedCohort = state.cohort;
+          Object.assign(state, payload.data);
+          state.published = true;
+          state.sourceVersion = sourceVersion;
+          const cohorts = getAllCohorts();
+          state.cohort = cohorts.includes(selectedCohort) ? selectedCohort : (cohorts.includes(payload.data.cohort) ? payload.data.cohort : (cohorts[0] || ''));
+        } else {
+          state.schedules = [];
+          state.published = false;
+        }
+        render();
+        updateTimetableAvailability();
+      }
+
+      function startTimetableLiveUpdates() {
+        if (!REAL_TENANT || CAN_MANAGE || !window.TenantLive) return;
+        window.TenantLive.register({
+          resource: 'timetable-state',
+          url: API_URL,
+          minMs: 5000,
+          onData: applyLiveTimetableState,
+          onError: () => {
+            state.timetableStatus = 'unavailable';
+            state.schedules = [];
+            state.published = false;
+            render();
+            updateTimetableAvailability();
+          }
+        });
+      }
+
+      async function publishTenantTimetable() {
+        const button = document.getElementById('publishTimetableBtn');
+        if (!button || !REAL_TENANT || !CAN_MANAGE || !OWNER_SETUP_MODE || !state.schedules.length) return;
+        clearTimeout(saveTimer);
+        button.disabled = true;
+        const previousPublished = state.published;
+        state.published = true;
+        try {
+          const response = await saveTenantStateNow();
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not share the timetable.');
+          state.timetableStatus = 'published';
+          showToast('Timetable saved and shared with your members.');
+          updateTimetableAvailability();
+        } catch (error) {
+          state.published = previousPublished;
+          button.disabled = false;
+          showToast(error.message || 'Could not save timetable changes.', 'error');
+        }
+      }
+
       function renderManagerCohortNav() {
         const nav = document.getElementById('managerCohortNav');
         if (!nav) return;
@@ -3150,6 +3419,22 @@
           button.type = 'button';
           button.textContent = cohort;
           button.classList.toggle('active', cohort === state.cohort);
+          const period = getNextPeriodForCohort(cohort);
+          if (period) {
+            const badge = document.createElement('span');
+            const cancelled = period.status === 'HAKIPO';
+            const alternate = !cancelled && Boolean(period.venueObtained || period.temp);
+            badge.className = `cohort-period-badge ${cancelled ? 'is-cancelled' : alternate ? 'is-alternate' : 'is-present'}`;
+            const time = formatTimeRange(period.startSlot, period.duration);
+            if (cancelled) {
+              badge.textContent = `${time} · NOT HELD`;
+            } else {
+              const stateLabel = period.status === 'KIPO' ? 'PRESENT' : alternate ? 'VENUE CHANGED' : 'SCHEDULED';
+              badge.textContent = `${time} · ${stateLabel} · ${period.venue || 'Venue to be confirmed'}`;
+            }
+            badge.setAttribute('aria-label', badge.textContent);
+            button.appendChild(badge);
+          }
           button.addEventListener('click', () => {
             state.cohort = cohort;
             cancelSwitchMode();
@@ -3158,6 +3443,15 @@
           });
           nav.appendChild(button);
         });
+      }
+
+      function getNextPeriodForCohort(cohort) {
+        const now = new Date();
+        const today = DAYS[(now.getDay() + 6) % 7];
+        const currentSlot = Math.floor((now.getHours() * 60 + now.getMinutes() - 420) / 60);
+        return state.schedules
+          .filter(item => item.cohort === cohort && item.day === today && !tempHides(item) && item.startSlot + item.duration > Math.max(-1, currentSlot))
+          .sort((a, b) => a.startSlot - b.startSlot)[0] || null;
       }
 
       function bindEvents() {
@@ -3215,6 +3509,10 @@
           persistData();
           showToast('Reset to default timetable.');
         });
+        const printTimetableBtn = document.getElementById('printTimetableBtn');
+        if (printTimetableBtn) printTimetableBtn.addEventListener('click', () => window.print());
+        const publishTimetableBtn = document.getElementById('publishTimetableBtn');
+        if (publishTimetableBtn) publishTimetableBtn.addEventListener('click', publishTenantTimetable);
 
         document.getElementById('closeScheduleModal').addEventListener('click', closeModals);
         document.getElementById('btnKipo').addEventListener('click', () => setScheduleStatus('KIPO'));
@@ -3278,6 +3576,25 @@
           updateStep1UI();
         });
         $id('vfFindBtn').addEventListener('click', findOpenVenues);
+        $id('vfVenueSearchToggle').addEventListener('click', () => {
+          venuePick.searchOpen = !venuePick.searchOpen;
+          $id('vfVenueSearchWrap').hidden = !venuePick.searchOpen;
+          $id('vfVenueSearchToggle').setAttribute('aria-expanded', String(venuePick.searchOpen));
+          if (venuePick.searchOpen) $id('vfVenueSearch').focus();
+          else {
+            venuePick.searchQuery = '';
+            $id('vfVenueSearch').value = '';
+            renderChips();
+          }
+        });
+        $id('vfVenueSearch').addEventListener('input', event => {
+          venuePick.searchQuery = event.target.value;
+          renderChips();
+        });
+        $id('vfVenueStatusFilter').addEventListener('change', event => {
+          venuePick.statusFilter = event.target.value;
+          renderChips();
+        });
         $id('vfChange1').addEventListener('click', () => { venuePick.step = 1; venuePick.venue = null; venuePick.choice = null; updateStep1UI(); renderSteps(); });
         $id('vfChange2').addEventListener('click', () => { venuePick.step = 2; venuePick.venue = null; venuePick.choice = null; renderSteps(); renderChips(); });
         $id('vfChips').addEventListener('click', (e) => {
@@ -3340,12 +3657,19 @@
       async function init() {
         bindEvents();
         try { await initData(); }
-        catch (error) { state.schedules = JSON.parse(JSON.stringify(INITIAL_SCHEDULES)); showToast(error.message || 'Using sample timetable.', 'error'); }
+        catch (error) {
+          state.schedules = REAL_TENANT ? [] : JSON.parse(JSON.stringify(INITIAL_SCHEDULES));
+          if (REAL_TENANT) state.timetableStatus = 'unavailable';
+          showToast(error.message || 'Using sample timetable.', 'error');
+        }
         if (pruneExpired()) persistData();
         setInterval(tickTemp, 30000);
         document.addEventListener('visibilitychange', () => { if (!document.hidden) tickTemp(); });
         populateCohortDropdown();
         render();
+        if (document.getElementById('managerCohortNav')) setInterval(renderManagerCohortNav, 60000);
+        updateTimetableAvailability();
+        startTimetableLiveUpdates();
         setCoach(1, 'Start: choose your class, then tap a green lesson card. Mark KIPO / HAKIPO first — more actions come next.', true);
         if (CAN_MANAGE) setTimeout(maybePromptSundayReview, 600);
       }

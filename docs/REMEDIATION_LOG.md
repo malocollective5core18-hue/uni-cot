@@ -796,3 +796,43 @@
 - Files touched: `templates/admin_only/founder_SAAS_system_control.html`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Pending verification for this follow-up.
 - Remaining risk: Responsive appearance has not been checked in a live browser.
+
+## Tenant timetable source, owner publishing, and PDF output (2026-11-23)
+
+- Finding: Real tenant timetable views fell back to demo schedules when the founder workbook was missing, and there was no tenant owner review/publish gate. Tenant schedule previews also opened directly in setup mode, so the owner dashboard was bypassed. Timetables had no print-ready output.
+- Change: Real tenants now show provider-not-yet-available or owner-review notices instead of demo data. The founder workbook is loaded into the owner-only setup view, tenant edits are version-checked and saved per schema, and members receive the timetable only after the owner publishes it. The tenant schedule preview sends owners to their owner dashboard; its review link opens the authenticated owner workflow. Members do not receive the source workbook URL. Added browser print/PDF output with an office-style landscape layout that excludes temporary/yellow, HAKIPO, and conflicting schedules while retaining green and purple schedules. The public demo path remains unchanged.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`, `mysite/service/views.py`, `mysite/service/tests.py`, `templates/timetable.html`, `templates/owner_dashboard.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added endpoint tests with query-count assertions for timetable reads/saves and owner-dashboard status, plus visibility/publishing and workbook-URL privacy assertions. `compileall`, `manage.py check`, `manage.py check --deploy`, `makemigrations --check --dry-run`, and `git diff --check` completed; deploy check reported five existing DEBUG/SSL security warnings, and migration drift reported no changes with a database-history connectivity warning. `manage.py test` discovered 118 tests but could not create its test database because PostgreSQL at `/var/run/postgresql/.s.PGSQL.5432` is not accessible in this environment.
+- Remaining risk: Database-backed tests and live browser/print verification remain unrun. PDF output uses the browser print dialog’s “Save as PDF” option; no separate PDF-generation dependency was added. Existing deployment security warnings from local DEBUG/SSL settings remain.
+
+## Live tenant timetable status and next-period badges (2026-11-23)
+
+- Finding: Owner timetable changes were stored for the tenant, but open member pages had no refresh path, so they could continue showing an earlier KIPO/HAKIPO or venue state. Cohort navigation also did not show the next period’s status or room.
+- Change: Added revision/source-version ETags to timetable reads and a five-second visible-page live poll for read-only tenant timetable views. Owner saves are serialized to prevent overlapping writes from restoring an older state. Cohort buttons now show today’s active/next period: green for scheduled/present with venue, yellow for changed/temporary venue with venue, red for HAKIPO without venue, and no badge when that cohort has no remaining period today. Badges recalculate each minute and update immediately after a live state refresh.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`, `templates/timetable.html`, `static/js/tenant-live.js`, `static/js/tenant-live.test.js`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Node tests pass (3), including the short interval option; the focused timetable template suite passes (5). JavaScript syntax, Python compile, Django `check`, migration drift, and `git diff --check` pass. Deploy check reports the same five DEBUG/SSL warnings. The full Django suite discovers 118 tests but cannot start its PostgreSQL test database because the local PostgreSQL socket is inaccessible. The timetable endpoint tests assert query counts and conditional 304 behavior but remain unexecuted for that reason.
+- Remaining risk: Live updates are near-real-time, with a five-second base interval and at most about half a second of polling jitter; verification on multiple real tenant devices is still pending. The poll is ETag-conditional but still checks database revision/source state on each request. Browser timezone determines which period is considered today.
+
+## Venue picker search and availability ordering (2026-11-23)
+
+- Finding: The venue selection step showed every open room in one list, making the owner scan long lists without searching or narrowing by availability.
+- Change: Added a compact search icon that opens a venue-name field and a status dropdown for `Free - HAKIPO` and `No kipindi`. Results filter by both controls. Open venues are ordered with HAKIPO venues from the selected cohort first, free HAKIPO venues from other cohorts next, and unused `no kipindi` venues after them. Current-cohort options receive a recommended label; existing open/occupied checks remain in force.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Focused timetable template tests pass (6); Python compile, Django checks, migration drift, and diff checks are reported for this task. Full Django tests require PostgreSQL, which is inaccessible in this environment.
+- Remaining risk: The ordering is inferred from existing venue states: a venue marked HAKIPO for the selected cohort is treated as its highest-priority free option. Live browser interaction has not been visually checked.
+
+## Timetable change review fixes (2026-11-23)
+
+- Finding: The review found that tenant state sanitization discarded swap restoration fields and `isActivity`, so saved swaps could not be reliably reverted and temporary activities could reappear as subjects. Founder deletion removed the version row, allowing a later replacement upload to reuse a source version. A retained empty source row also needed to remain unavailable in the owner dashboard. Live refresh could replace an administrator's in-progress edit, and the next-period badge could choose a HAKIPO lesson hidden by an active temporary class.
+- Change: Preserve and validate swap/activity fields, retain a versioned empty founder-source row when deleting a workbook, and assign replacement uploads a monotonically newer version (using the current date as a lower bound when there is no retained row). Owner dashboard availability now requires an actual file; published state also requires at least one schedule. Source-version merging retains matched swaps and unexpired temporary additions. Live refresh now runs only in read-only views, and badges ignore HAKIPO entries hidden by temporary classes. Added regression tests for swap fields and source delete/reupload versioning.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`, `mysite/service/views.py`, `templates/timetable.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Focused timetable tests pass (6), Node poller tests pass (3), rendered timetable inline JavaScript passes `node --check`, Python compile, Django `check`, migration drift, and diff checks pass. `check --deploy` reports five existing DEBUG/SSL warnings. Full test discovery finds 120 tests, but test database creation is blocked by the inaccessible local PostgreSQL socket; database-backed regression tests and their query-count assertions have not executed.
+- Remaining risk: Multi-device browser checks and database-backed tests need an available PostgreSQL test database. The new upload version lower bound invalidates older tenant snapshots after a delete/reupload even if the earlier deletion removed the version row; no old upload history is reconstructed.
+
+## Make the timetable PDF action clear (2026-11-23)
+
+- Finding: A print action existed beside the cohort heading, but its `Print / PDF` label did not clearly tell members they could save a PDF.
+- Change: Labeled the header action `Download PDF`, added an accessible name and title, and retained the print stylesheet and browser print flow so users can choose Save as PDF.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Template regression assertions verify the visible label and accessible name. Browser print/download behavior still needs a live browser check.
+- Remaining risk: The browser opens its print dialog; it does not silently download a PDF file.

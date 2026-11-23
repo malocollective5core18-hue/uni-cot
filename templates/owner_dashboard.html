@@ -793,6 +793,12 @@ body {
               </div>
             </form>
           </div>
+          <div style="border-top:1px solid var(--rim0);padding-top:14px;margin-top:14px;">
+            <div class="sec-label" style="margin-bottom:5px">Academic timetable</div>
+            <div class="sec-title" style="font-size:1rem">{% if not timetable_status_checked %}Timetable status temporarily unavailable{% elif owner_timetable_published %}Timetable shared with members{% elif founder_timetable_available %}Timetable ready for your review{% else %}Provider timetable not yet available{% endif %}</div>
+            <div class="sec-sub" style="margin-top:5px">{% if not timetable_status_checked %}We could not check the timetable right now. Please try again shortly.{% elif owner_timetable_published %}Review or correct your saved schedule at any time. Updates are shared with your members when saved.{% elif founder_timetable_available %}Your provider uploaded the workbook. Select your course, review the schedule, then save and share it with your members.{% else %}Your provider has not uploaded the timetable workbook yet. This section will be ready when they do.{% endif %}</div>
+            {% if timetable_management_url %}<a class="btn btn-g" href="{{ timetable_management_url }}" style="display:inline-flex;margin-top:10px;text-decoration:none">{% if owner_timetable_published %}Manage timetable{% elif founder_timetable_available %}Review timetable{% else %}Check timetable status{% endif %}</a>{% endif %}
+          </div>
         </div>
 
         <!-- Snapshot -->

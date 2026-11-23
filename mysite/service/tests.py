@@ -2,14 +2,15 @@ from unittest.mock import patch
 from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase, override_settings
+from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.contrib.auth.hashers import check_password, make_password
 
 from customers.models import CRTenant, TenantProvisioningJob, get_public_tenant_domain
-from core.models import User as CoreUser, UserGroup, UserGroupMember
+from core.models import TenantTimetableState, User as CoreUser, UserGroup, UserGroupMember
 from service.models import OwnerUser, Member, Comment
 from service.views import _find_member_login_record
+from service import views as service_views
 from mysite.tests.helpers import CacheIsolationMixin
 
 
@@ -89,6 +90,49 @@ class TenantDomainConfigTests(TestCase):
     SESSION_ENGINE="django.contrib.sessions.backends.db",
 )
 class CrossDeviceLoginTests(CacheIsolationMixin, TestCase):
+    def test_owner_dashboard_timetable_status_stays_query_bounded(self):
+        tenant = SimpleNamespace(
+            id=501,
+            schema_name="timetable_status_tenant",
+            subdomain="timetable-status",
+            tenant_key="T" * 20,
+            owner_id=9501,
+            provisioning_state=CRTenant.PROVISIONING_READY,
+            is_active=True,
+            is_subscription_active=True,
+            days_remaining=30,
+            primary_domain_url=None,
+        )
+        owner = SimpleNamespace(
+            id=tenant.owner_id,
+            tenant=tenant,
+            is_active=True,
+            phone_number="",
+            email="timetable-owner@example.com",
+            program_name="Timetable Owner",
+        )
+        request = RequestFactory().get("/owner-dashboard/")
+        request.session = {"service_user": {"user_type": "owner", "owner_id": owner.id}}
+        empty_members = Member.objects.none()
+        empty_comments = Comment.objects.none()
+        empty_timetable_state = TenantTimetableState.objects.none()
+        with (
+            patch("service.views._get_owner_by_id", return_value=owner),
+            patch("service.views.cache.get", return_value={
+                "member_count": 0, "comment_count": 0, "pending_count": 0,
+                "approved_count": 0, "rejected_count": 0,
+            }),
+            patch("service.views.Member.objects.filter", return_value=empty_members),
+            patch("service.views.Comment.objects.filter", return_value=empty_comments),
+            patch("service.views.TenantTimetableState.objects.filter", return_value=empty_timetable_state),
+            self.assertNumQueries(5),
+        ):
+            response = service_views.owner_dashboard(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Provider timetable not yet available")
+        self.assertContains(response, "/t/timetable-status/501/")
+
     def test_public_member_login_lookup_does_not_query_tenants(self):
         with self.assertNumQueries(0):
             record = _find_member_login_record("BCIT-001", "member123")
