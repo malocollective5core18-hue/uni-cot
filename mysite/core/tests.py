@@ -146,7 +146,8 @@ class TenantLivePollingTemplateTests(SimpleTestCase):
         self.assertIn('id="managerCohortNav"', rendered)
         self.assertIn("document.getElementById('cohortHeading').textContent = `${state.cohort} • ${state.week}`;", rendered)
         self.assertIn("button.setAttribute('aria-label', `Select ${cohort}`);", rendered)
-        self.assertIn('button.active .cohort-nav-label{display:none}', rendered)
+        self.assertIn('button.active.has-period-badge .cohort-nav-label{display:none}', rendered)
+        self.assertNotIn('button.active .cohort-nav-label{display:none}', rendered)
         self.assertIn("cohortLabel.className = 'cohort-nav-label';", rendered)
         self.assertIn('#printTimetableBtn{margin-left:auto;white-space:nowrap;height:24px;min-height:24px;padding:0 7px;font-size:.62rem;gap:3px;border-radius:6px}', rendered)
         self.assertIn('getNextPeriodForCohort', rendered)
@@ -163,6 +164,28 @@ class TenantLivePollingTemplateTests(SimpleTestCase):
             '#scheduleModal { align-items: center !important; justify-content: center !important; padding: 12px !important; }',
             rendered,
         )
+
+    def test_manager_cohort_label_is_hidden_only_when_its_period_badge_is_rendered(self):
+        response = views.timetable(RequestFactory().get('/timetable/?demo=1'))
+        rendered = response.content.decode()
+        nav_renderer = rendered[
+            rendered.index('function renderManagerCohortNav()'):rendered.index('function getNextPeriodForCohort(')
+        ]
+        period_block = nav_renderer[
+            nav_renderer.index('if (period) {'):nav_renderer.index("button.addEventListener('click'")
+        ]
+
+        self.assertIn('button.classList.toggle(\'active\', isSelectedCohort);', nav_renderer)
+        self.assertIn('if (period) {', nav_renderer)
+        self.assertLess(
+            period_block.index('button.appendChild(badge);'),
+            period_block.index("button.classList.add('has-period-badge');"),
+        )
+        self.assertIn("const cancelled = period.status === 'HAKIPO';", period_block)
+        self.assertIn("cancelled ? 'NOT HELD'", period_block)
+        self.assertIn('nav.replaceChildren();', nav_renderer)
+        self.assertIn('state.cohort = cohort;', nav_renderer)
+        self.assertIn('render();', nav_renderer)
 
     def test_public_demo_timetable_exposes_manager_controls_and_local_saves(self):
         request = RequestFactory().get('/timetable/?demo=1')

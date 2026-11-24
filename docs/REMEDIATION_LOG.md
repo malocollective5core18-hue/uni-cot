@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Keep selected cohort visible without a next-period badge (2026-11-24)
+
+- Finding: The manager timetable CSS hid the selected cohort label unconditionally. When `getNextPeriodForCohort()` returned no period, the selected navigation button had neither a visible cohort name nor a status badge.
+- Change: Hide the label only when the active button actually contains a rendered period badge. Badge generation, including cancelled `NOT HELD` periods, remains unchanged. Cohort switching still rebuilds the navigation from current state.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Before/after evidence: Before, `.active .cohort-nav-label` hid the name for all active buttons. After, the CSS requires `.active.has-period-badge`, and JavaScript adds that class only after appending the badge. All 7 `TenantLivePollingTemplateTests` pass, including the regression case; rendered manager JavaScript passes `node --check`; `python3 -m compileall -q .`, `manage.py check`, and `git diff --check` pass.
+- Remaining risk: No browser automation was available, so desktop/mobile visual behavior was not manually verified. Database-backed suite was not needed for this template-only fix and was not run.
+
 ## Add founder-managed Test 1, Test 2, and UE examination PDFs (2026-11-24)
 
 - Finding: Founder staff had no independent source workbook slots for the three examination cycles, and tenant timetable users had no cohort-filtered PDF downloads.

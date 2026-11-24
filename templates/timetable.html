@@ -1507,7 +1507,7 @@
     body.timetable-manager .controls-bar > .btn{height:24px!important;min-height:24px;padding:0 7px!important;font-size:.62rem!important;gap:3px;border-radius:6px}
     body.timetable-manager #openVenuePanelBtn span:last-child{font-size:.78rem!important}
     body.timetable-manager.real-tenant #resetBtn{display:none!important}
-    .manager-cohort-nav{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;max-width:100%}.manager-cohort-nav button{display:flex;align-items:center;gap:5px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#334155;padding:3px 7px;font-size:10px;cursor:pointer}.manager-cohort-nav button.active{background:#0f766e;border-color:#0f766e;color:#fff}.manager-cohort-nav button.active .cohort-nav-label{display:none}.cohort-period-badge{display:inline-block;min-width:0;max-width:min(30vw,180px);padding:2px 6px;border-radius:999px;font-size:9px;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}.cohort-period-badge.is-present{background:#15803d;color:#fff}.cohort-period-badge.is-alternate{background:#ca8a04;color:#1f2937}.cohort-period-badge.is-cancelled{background:#b91c1c;color:#fff}
+    .manager-cohort-nav{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;max-width:100%}.manager-cohort-nav button{display:flex;align-items:center;gap:5px;border:1px solid #cbd5e1;border-radius:999px;background:#fff;color:#334155;padding:3px 7px;font-size:10px;cursor:pointer}.manager-cohort-nav button.active{background:#0f766e;border-color:#0f766e;color:#fff}.manager-cohort-nav button.active.has-period-badge .cohort-nav-label{display:none}.cohort-period-badge{display:inline-block;min-width:0;max-width:min(30vw,180px);padding:2px 6px;border-radius:999px;font-size:9px;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}.cohort-period-badge.is-present{background:#15803d;color:#fff}.cohort-period-badge.is-alternate{background:#ca8a04;color:#1f2937}.cohort-period-badge.is-cancelled{background:#b91c1c;color:#fff}
     html:has(body.timetable-manager),body.timetable-manager{height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto}
     body.timetable-manager{height:auto;min-height:100dvh}
     body.timetable-manager .workspace{flex:0 0 auto;min-height:auto;overflow:visible;padding-bottom:12px}
@@ -3547,6 +3547,7 @@
             badge.title = `${time} · ${stateLabel}${cancelled ? '' : ` · ${venueLabel}`}`;
             badge.setAttribute('aria-label', badge.title);
             button.appendChild(badge);
+            button.classList.add('has-period-badge');
           }
           button.addEventListener('click', () => {
             state.cohort = cohort;
