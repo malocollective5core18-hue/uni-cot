@@ -677,14 +677,46 @@ def timetable(request, *args, **kwargs):
         can_manage = _has_owner_admin_access(request, tenant)
     elif demo_mode:
         can_manage = True
+    owner_setup_mode = bool(can_manage and is_real_tenant and _tenant_timetable_requires_setup(tenant))
     return render(request, 'timetable.html', {
         'tenant': tenant,
         'tenant_base_path': _tenant_base_path(request),
         'is_real_timetable_tenant': is_real_tenant,
-        'owner_timetable_setup_mode': bool(can_manage and request.GET.get('setup') == '1'),
+        'owner_timetable_setup_mode': owner_setup_mode,
         'can_manage_timetable': can_manage,
         'demo_timetable': demo_mode,
     })
+
+
+def _tenant_timetable_requires_setup(tenant):
+    """Show first-time/reconciliation controls only when persisted state is not current."""
+    schema_name = getattr(tenant, 'schema_name', None)
+    if not schema_name or schema_name == 'public':
+        return False
+
+    try:
+        with schema_context(getattr(settings, 'PUBLIC_SCHEMA_NAME', 'public')):
+            source = FounderTimetableSource.objects.filter(pk=1).values('file', 'version').first()
+            if not source or not source['file']:
+                return False
+            source_version = source['version']
+
+        with schema_context(schema_name):
+            tenant_state = TenantTimetableState.objects.filter(pk=1).values('state', 'source_version').first()
+    except (DatabaseError, OperationalError, ProgrammingError):
+        logger.exception('Could not determine whether owner timetable setup is required for schema=%s', schema_name)
+        return False
+
+    if not tenant_state:
+        return True
+    state = tenant_state['state']
+    return not bool(
+        tenant_state['source_version'] == source_version
+        and isinstance(state, dict)
+        and state.get('published', True)
+        and isinstance(state.get('schedules'), list)
+        and state['schedules']
+    )
 
 
 def _founder_timetable_source_payload():
@@ -720,7 +752,11 @@ def api_timetable_state(request, *args, **kwargs):
         is_real_tenant = bool(tenant and getattr(tenant, 'schema_name', None) not in {None, '', 'public'})
         state_row = TenantTimetableState.objects.filter(pk=1).first() if is_real_tenant else None
         state_data = state_row.state if state_row and isinstance(state_row.state, dict) else None
-        owner_access = _has_owner_system_access(request) if is_real_tenant else False
+        if is_real_tenant:
+            from service.views import _has_owner_admin_access
+            owner_access = _has_owner_admin_access(request, tenant)
+        else:
+            owner_access = False
         state_matches_source = bool(
             state_row and source_data and state_row.source_version == source_data['version']
         )
@@ -770,11 +806,11 @@ def api_timetable_state(request, *args, **kwargs):
         response['Cache-Control'] = 'private, no-cache'
         return response
 
-    denied = _ensure_owner_system_access(request)
-    if denied:
-        return denied
     if not tenant or getattr(tenant, 'schema_name', None) == 'public':
         return JsonResponse({'success': False, 'error': 'A tenant workspace is required'}, status=400)
+    from service.views import _has_owner_admin_access
+    if not _has_owner_admin_access(request, tenant):
+        return _tenant_owner_session_error(request)
     try:
         with schema_context('public'):
             current_source = _founder_timetable_source_payload()
@@ -787,10 +823,15 @@ def api_timetable_state(request, *args, **kwargs):
         if len(request.body) > 20 * 1024 * 1024:
             return JsonResponse({'success': False, 'error': 'Timetable data exceeds the 20 MB limit'}, status=413)
         body = json.loads(request.body or b'{}')
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return JsonResponse({'success': False, 'error': 'Invalid JSON payload'}, status=400)
     if not isinstance(body, dict):
         return JsonResponse({'success': False, 'error': 'Timetable payload must be an object'}, status=400)
+    if 'expected_revision' not in body:
+        return JsonResponse({
+            'success': False,
+            'error': 'Reload the timetable before saving so the current version can be checked.',
+        }, status=428)
     state = body.get('state')
     schedules = state.get('schedules') if isinstance(state, dict) else None
     if not isinstance(schedules, list) or len(schedules) > 20000:
@@ -800,6 +841,17 @@ def api_timetable_state(request, *args, **kwargs):
         return JsonResponse({'success': False, 'error': 'Published must be true or false'}, status=400)
     if published and not schedules:
         return JsonResponse({'success': False, 'error': 'A timetable must contain at least one schedule before it can be shared'}, status=400)
+    expected_revision = None
+    if 'expected_revision' in body:
+        value = body['expected_revision']
+        if isinstance(value, bool):
+            return JsonResponse({'success': False, 'error': 'Invalid timetable revision'}, status=400)
+        try:
+            expected_revision = int(value)
+        except (TypeError, ValueError):
+            return JsonResponse({'success': False, 'error': 'Invalid timetable revision'}, status=400)
+        if expected_revision < 0:
+            return JsonResponse({'success': False, 'error': 'Invalid timetable revision'}, status=400)
 
     allowed_days = {'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'}
     allowed_schedule_keys = {
@@ -809,6 +861,7 @@ def api_timetable_state(request, *args, **kwargs):
         'isActivity', 'activityType', 'leader', 'agenda',
     }
     clean_schedules = []
+    schedule_ids = set()
     for item in schedules:
         if not isinstance(item, dict):
             return JsonResponse({'success': False, 'error': 'Every schedule entry must be an object'}, status=400)
@@ -824,6 +877,14 @@ def api_timetable_state(request, *args, **kwargs):
         if not 0 <= start_slot < 14 or not 1 <= duration <= 14 - start_slot:
             return JsonResponse({'success': False, 'error': 'Schedule entry is outside the timetable hours'}, status=400)
         clean_item = {key: value for key, value in item.items() if key in allowed_schedule_keys}
+        schedule_id = clean_item.get('id')
+        if not isinstance(schedule_id, (str, int)) or isinstance(schedule_id, bool):
+            return JsonResponse({'success': False, 'error': 'Every schedule entry must have a unique identifier'}, status=400)
+        schedule_id = str(schedule_id).strip()
+        if not schedule_id or len(schedule_id) > 120 or schedule_id in schedule_ids:
+            return JsonResponse({'success': False, 'error': 'Every schedule entry must have a unique identifier'}, status=400)
+        schedule_ids.add(schedule_id)
+        clean_item['id'] = schedule_id
         if clean_item.get('status') not in (None, 'KIPO', 'HAKIPO'):
             return JsonResponse({'success': False, 'error': 'Schedule entry has an invalid attendance status'}, status=400)
         for key in ('id', 'cohort', 'code', 'title', 'lecturer', 'venue', 'status', 'swapType', 'swapUntil', 'swapPairId', 'activityType', 'leader', 'agenda'):
@@ -856,7 +917,10 @@ def api_timetable_state(request, *args, **kwargs):
     if not isinstance(raw_venues, list):
         return JsonResponse({'success': False, 'error': 'Venues must be a list'}, status=400)
     try:
-        source_version = max(0, int(body.get('source_version') or 0))
+        raw_source_version = body.get('source_version')
+        if isinstance(raw_source_version, bool):
+            raise ValueError
+        source_version = max(0, int(raw_source_version or 0))
     except (TypeError, ValueError):
         return JsonResponse({'success': False, 'error': 'Invalid timetable source version'}, status=400)
     if source_version != current_source['version']:
@@ -872,7 +936,16 @@ def api_timetable_state(request, *args, **kwargs):
         'sourceVersion': source_version,
     }
     with transaction.atomic():
-        state_row, _created = TenantTimetableState.objects.select_for_update().get_or_create(pk=1)
+        state_row, _created = TenantTimetableState.objects.select_for_update().get_or_create(
+            pk=1,
+            defaults={'revision': 0},
+        )
+        if expected_revision is not None and state_row.revision != expected_revision:
+            return JsonResponse({
+                'success': False,
+                'error': 'Another administrator saved a newer timetable. Reload before saving again.',
+                'revision': state_row.revision,
+            }, status=409)
         state_row.state = clean_state
         state_row.source_version = clean_state['sourceVersion']
         state_row.updated_by_owner_id = _get_product_owner_id(request)

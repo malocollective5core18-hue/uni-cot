@@ -1891,6 +1891,7 @@
       const DEMO_STORAGE_KEY = 'ring0_public_timetable_demo_v1';
       const API_URL = "{% if tenant_base_path %}{{ tenant_base_path }}/api/timetable/state/{% else %}{% url 'api_timetable_state' %}{% endif %}";
       let sourceVersion = 0;
+      let stateRevision = 0;
       let saveTimer = null;
       let tenantSaveQueue = Promise.resolve();
       const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -2118,6 +2119,7 @@
         const payload = await response.json();
         if (!response.ok || !payload.success) throw new Error(payload.error || 'Unable to load timetable.');
         sourceVersion = Number(payload.source_version || 0);
+        stateRevision = Number(payload.revision || 0);
         state.timetableStatus = payload.timetable_status || 'available';
         if (REAL_TENANT && state.timetableStatus === 'not_provided') {
           state.schedules = [];
@@ -2144,9 +2146,14 @@
               item.code,
               item.title,
             ].join('|');
-            const overrides = new Map(saved.schedules.filter(item => !item.temp).map(item => [key(item), item]));
+            const overrides = new Map();
+            saved.schedules.filter(item => !item.temp).forEach(item => {
+              const itemKey = key(item);
+              if (!overrides.has(itemKey)) overrides.set(itemKey, []);
+              overrides.get(itemKey).push(item);
+            });
             state.schedules = parsed.schedules.map(item => {
-              const previous = overrides.get(key(item));
+              const previous = overrides.get(key(item))?.shift();
               if (!previous) return item;
               const merged = {
                 ...item,
@@ -2220,13 +2227,22 @@
       async function saveTenantStateNow() {
         const cookie = document.cookie.split('; ').find(item => item.startsWith('csrftoken='));
         const csrf = cookie ? decodeURIComponent(cookie.split('=').slice(1).join('=')) : '';
-        const body = JSON.stringify({ state: timetableStatePayload(), source_version: sourceVersion });
-        const save = tenantSaveQueue.catch(() => {}).then(() => fetch(API_URL, {
-          method: 'PUT',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
-          body,
-        }));
+        const snapshot = timetableStatePayload();
+        const sourceVersionAtSave = sourceVersion;
+        const save = tenantSaveQueue.catch(() => {}).then(async () => {
+          const response = await fetch(API_URL, {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+            body: JSON.stringify({ state: snapshot, source_version: sourceVersionAtSave, expected_revision: stateRevision }),
+          });
+          const result = await response.clone().json().catch(() => ({}));
+          if (!response.ok || !result.success) {
+            throw new Error(result.error || 'Could not save timetable changes.');
+          }
+          if (Number.isInteger(Number(result.revision))) stateRevision = Number(result.revision);
+          return response;
+        });
         tenantSaveQueue = save.then(() => undefined, () => undefined);
         return save;
       }
@@ -2242,9 +2258,10 @@
         clearTimeout(saveTimer);
         saveTimer = setTimeout(async () => {
           try {
-            const response = await saveTenantStateNow();
-            if (!response.ok) showToast('Could not save timetable changes. Check owner access and retry.', 'error');
-          } catch (error) { showToast('Could not save timetable changes.', 'error'); }
+            await saveTenantStateNow();
+          } catch (error) {
+            showToast(error.message || 'Could not save timetable changes. Check owner access and retry.', 'error');
+          }
         }, 300);
       }
 

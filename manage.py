@@ -33,7 +33,7 @@ def main():
             os.environ["DATABASE_URL"] = provisioning_url
 
     if 'test' in sys.argv[1:]:
-        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.test_settings')
+        os.environ['DJANGO_SETTINGS_MODULE'] = 'mysite.settings_test'
     else:
         os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')
     try:

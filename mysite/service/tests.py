@@ -132,6 +132,8 @@ class CrossDeviceLoginTests(CacheIsolationMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Provider timetable not yet available")
         self.assertContains(response, "/t/timetable-status/501/")
+        self.assertContains(response, "/t/timetable-status/501/timetable/?manage=1")
+        self.assertNotContains(response, "setup=1")
 
     def test_public_member_login_lookup_does_not_query_tenants(self):
         with self.assertNumQueries(0):

@@ -26,8 +26,9 @@ services:
       - key: PORT
         value: "10000"
       
-      # Database (from Supabase Connection Pooler - NOT direct connection)
-      # Format: postgresql://user:password@pooler-host:5432/database
+      # Runtime DB must use Supabase session pooler (5432) or direct PostgreSQL.
+      # Do not use transaction pooler mode for django-tenants schema selection.
+      # Format: postgresql://user:password@session-pooler-host:5432/database
       - key: DATABASE_URL
         sync: false  # Set in Render dashboard, don't commit
       - key: PROVISIONING_DATABASE_URL

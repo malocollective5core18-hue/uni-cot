@@ -86,7 +86,9 @@ The request path provides an additional throttled recovery trigger for due
 queued/retryable jobs.
 
 Use a Supabase session-pooler URL on port 5432, or a direct Postgres URL, for
-`DATABASE_URL`. If runtime queries must use the transaction pooler on port
-6543, configure `PROVISIONING_DATABASE_URL` with a session-pooler or direct URL.
-Only tenant DDL/migration commands switch to that URL. The app refuses schema
-DDL over port 6543 when no provisioning URL is set.
+`DATABASE_URL`. Do not use the transaction pooler on port 6543 for tenant web
+requests: django-tenants relies on schema selection through PostgreSQL
+`search_path`, which transaction pooling does not preserve between
+transactions. Set `PROVISIONING_DATABASE_URL` to a session-pooler or direct URL
+when tenant DDL/migration commands need a separate connection. The app refuses
+schema DDL over port 6543 when no provisioning URL is set.

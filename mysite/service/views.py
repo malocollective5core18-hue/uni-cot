@@ -1087,7 +1087,7 @@ def owner_dashboard(request, *args, **kwargs):
         and tenant_timetable_state[0]['schedules']
     )
     timetable_management_url = (
-        f"{_tenant_base_path(request=request, tenant=tenant)}/timetable/?manage=1&setup=1"
+        f"{_tenant_base_path(request=request, tenant=tenant)}/timetable/?manage=1"
         if tenant else ''
     )
     
