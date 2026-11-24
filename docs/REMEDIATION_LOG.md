@@ -1,5 +1,14 @@
 # Remediation Log
 
+## Update selected timetable lesson venue safely (2026-11-24)
+
+- Finding: The regular `Change Venue` action opened the temporary-class creation flow. Selecting a room therefore added a yellow schedule entry and left the selected lesson unchanged. The public `/system/` demo correctly saves locally, but its UI did not clearly identify those edits as browser-only demo data.
+- Change: Added selected-schedule edit mode to the existing venue drawer. It preserves the selected lesson ID and schedule fields, excludes only that lesson from room/cohort conflict checks, updates its venue flags, and uses the existing `persistData()` path (tenant PUT with expected revision, or demo localStorage). Kept `finishAdd()` and `addClassInVenue()` for the separate temporary-class flow. Added a browser-local demo notice. Extended API and schema-isolation regression tests for venue updates, fresh reader GET, revision conflicts, public-schema hiding, and distinct tenant-schema responses.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Before/after evidence: Before, `confirmVenue()` advanced to subject selection and `finishAdd()` created a new temporary item. After, confirming a venue with `editScheduleId` updates only that existing schedule and saves it. `.venv/bin/python -m compileall -q .`, `.venv/bin/python manage.py check`, and the 8 `TenantLivePollingTemplateTests` pass. `.venv/bin/python manage.py makemigrations --check --dry-run` reports no model changes but cannot check migration history without PostgreSQL. `.venv/bin/python manage.py check --deploy` exits successfully with five deployment security warnings. The complete 134-test suite could not create its PostgreSQL test database because `127.0.0.1:5432` is unreachable in this execution environment. The rendered timetable script passes `node --check`; no browser automation or live DB verification was possible.
+- Remaining risk: The database-backed venue and two-schema regressions are added but have not executed here. The user’s separate terminal previously reported PostgreSQL online; the current tool environment reports no response. Run the full suite from the local project shell with the configured disposable PostgreSQL test target before deployment. The demo remains intentionally browser-local and does not synchronize across browsers.
+
+
 ## Keep selected cohort visible without a next-period badge (2026-11-24)
 
 - Finding: The manager timetable CSS hid the selected cohort label unconditionally. When `getNextPeriodForCohort()` returned no period, the selected navigation button had neither a visible cohort name nor a status badge.

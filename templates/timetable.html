@@ -1457,6 +1457,7 @@
       <div class="brand-title">
         <h1>Academic Timetable</h1>
         <p id="institutionSubtitle">NIT &bull; First Semester 2026/2027</p>
+        {% if demo_timetable %}<p class="demo-data-notice" role="status">Interactive demo · changes are saved only in this browser · not a published institutional timetable</p>{% endif %}
       </div>
     </div>
 
@@ -2845,7 +2846,7 @@
       // ---- Step-by-step open-venue flow: when -> venue (popup confirm) -> subject -> yellow temporary class ----
       const $id = (i) => document.getElementById(i);
       const VENUE_WINDOW_DAYS = 3; // a venue can only be added for a date within this many days
-      const venuePick = { day: 'Monday', from: 0, dur: null, to: 0, step: 1, venue: null, pending: null, choice: null, actType: 'Kikao', template: false, searchOpen: false, searchQuery: '', statusFilter: 'all' };
+      const venuePick = { day: 'Monday', from: 0, dur: null, to: 0, step: 1, venue: null, pending: null, choice: null, editScheduleId: null, actType: 'Kikao', template: false, searchOpen: false, searchQuery: '', statusFilter: 'all' };
 
       function escText(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').trim(); }
       function slotEndLabel(i) { return TIME_SLOTS[i].short.split('-')[1]; }
@@ -2899,7 +2900,7 @@
         });
         return out.sort((a, b) => a.priority - b.priority || a.venue.localeCompare(b.venue, undefined, { numeric: true }));
       }
-      function getOpenVenues() { return getOpenVenuesFor({ day: venuePick.day, from: venuePick.from, to: venuePick.to }, null); }
+      function getOpenVenues() { return getOpenVenuesFor({ day: venuePick.day, from: venuePick.from, to: venuePick.to }, venuePick.editScheduleId); }
 
       // ---- Temporary (yellow) classes: they vanish when their time ends ----
       function isTempExpired(x) { return Boolean(x.temp && x.expiresAt && x.expiresAt <= Date.now()); }
@@ -2946,7 +2947,12 @@
       }
 
       // Lessons of my cohort that stop a new class: anything in the window that is not HAKIPO.
-      function cohortBlockers() { return getCohortSchedules().filter(lessonInWindow).filter(x => x.status !== 'HAKIPO'); }
+      function cohortBlockers() {
+        const target = venuePick.editScheduleId && state.schedules.find(x => x.id === venuePick.editScheduleId);
+        const cohort = target ? target.cohort : state.cohort;
+        return state.schedules.filter(x => x.cohort === cohort && x.id !== venuePick.editScheduleId)
+          .filter(lessonInWindow).filter(x => x.status !== 'HAKIPO');
+      }
       function cohortFreed() { return getCohortSchedules().filter(lessonInWindow).filter(x => x.status === 'HAKIPO' && !x.temp); }
 
       function uniqueSubjects() {
@@ -2962,6 +2968,9 @@
       }
 
       function whenText() {
+        if (venuePick.editScheduleId) {
+          return `${venuePick.day}, ${TIME_SLOTS[venuePick.from].short.split('-')[0]}-${slotEndLabel(venuePick.from + venuePick.dur - 1)}`;
+        }
         const info = tempWindowInfo();
         return info.label + ', ' + TIME_SLOTS[venuePick.from].short.split('-')[0] + '-' + slotEndLabel(venuePick.to) +
           ' (' + venuePick.dur + ' hour' + (venuePick.dur > 1 ? 's' : '') + ')';
@@ -2991,13 +3000,15 @@
           return;
         }
         venuePick.to = venuePick.from + venuePick.dur - 1;
-        const info = tempWindowInfo();
-        const far = info.daysAhead > VENUE_WINDOW_DAYS;
+        const info = venuePick.editScheduleId ? null : tempWindowInfo();
+        const far = !venuePick.editScheduleId && info.daysAhead > VENUE_WINDOW_DAYS;
         venuePick.template = far;
         btn.disabled = false;
-        btn.textContent = far ? 'Add yellow template (venue later)' : 'Find open venues';
+        btn.textContent = venuePick.editScheduleId ? 'Find available venues' : far ? 'Add yellow template (venue later)' : 'Find open venues';
         note.style.color = far ? '#fde047' : '#64748b';
-        note.textContent = far
+        note.textContent = venuePick.editScheduleId
+          ? 'Changing venue for the selected lesson; its subject, class, day, time, and other details will stay the same.'
+          : far
           ? info.label + ' is more than ' + VENUE_WINDOW_DAYS + ' days away. Venues open ' + VENUE_WINDOW_DAYS + ' days before. Add a yellow template now and add the venue later.'
           : info.label;
       }
@@ -3090,6 +3101,23 @@
         if (!venuePick.pending) return;
         venuePick.venue = venuePick.pending;
         venuePick.pending = null;
+        if (venuePick.editScheduleId) {
+          const schedule = state.schedules.find(item => item.id === venuePick.editScheduleId);
+          if (!schedule) {
+            showToast('The selected lesson is no longer available. Reload the timetable and try again.', 'error');
+            return;
+          }
+          pushHistory();
+          schedule.venue = venuePick.venue;
+          schedule.needsVenue = false;
+          schedule.venueObtained = true;
+          persistData();
+          render();
+          $id('venueDrawer').classList.remove('open');
+          showToast(`Venue updated to ${venuePick.venue}.`);
+          venuePick.editScheduleId = null;
+          return;
+        }
         venuePick.step = 3;
         renderSteps();
         renderSubjects();
@@ -3108,6 +3136,7 @@
         venuePick.venue = null;
         venuePick.pending = null;
         venuePick.choice = null;
+        venuePick.editScheduleId = null;
         venuePick.searchQuery = '';
         venuePick.statusFilter = 'all';
         venuePick.searchOpen = false;
@@ -3117,9 +3146,10 @@
         $id('vfVenueSearchToggle').setAttribute('aria-expanded', 'false');
         const sch = preselectScheduleId ? state.schedules.find(x => x.id === preselectScheduleId) : null;
         if (sch) {
+          venuePick.editScheduleId = sch.id;
           venuePick.day = sch.day;
           venuePick.from = sch.startSlot;
-          venuePick.dur = null;
+          venuePick.dur = sch.duration;
         } else {
           venuePick.day = DAYS[(new Date().getDay() + 6) % 7];
           venuePick.from = 0;
@@ -3127,6 +3157,12 @@
         }
         $id('vfDay').value = venuePick.day;
         document.querySelectorAll('#vfDur .vf-seg-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.dur) === venuePick.dur));
+        $id('vfDay').disabled = Boolean(venuePick.editScheduleId);
+        $id('vfFrom').disabled = Boolean(venuePick.editScheduleId);
+        $id('vfDur').querySelectorAll('.vf-seg-btn').forEach(button => { button.disabled = Boolean(venuePick.editScheduleId); });
+        $id('vfDur').style.pointerEvents = venuePick.editScheduleId ? 'none' : '';
+        $id('vfDur').style.opacity = venuePick.editScheduleId ? '.55' : '';
+        $id('vfDur').setAttribute('aria-disabled', String(Boolean(venuePick.editScheduleId)));
         rebuildFromOptions();
         updateStep1UI();
         renderSteps();

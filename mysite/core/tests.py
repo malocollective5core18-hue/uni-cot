@@ -1,6 +1,7 @@
 import json
 import re
 import tempfile
+import uuid
 from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
@@ -213,6 +214,25 @@ class TenantLivePollingTemplateTests(SimpleTestCase):
         self.assertIn('<div class="brand">', rendered)
         self.assertIn('const DEMO_MODE = true;', rendered)
         self.assertIn('localStorage.setItem(DEMO_STORAGE_KEY', rendered)
+        self.assertIn('changes are saved only in this browser', rendered)
+        demo_save = rendered[rendered.index('function persistData()'):rendered.index('function pushHistory()')]
+        self.assertIn('if (DEMO_MODE)', demo_save)
+        self.assertIn('localStorage.setItem(DEMO_STORAGE_KEY', demo_save)
+        self.assertIn('return;', demo_save)
+
+    def test_change_venue_targets_existing_schedule_and_keeps_add_flow_separate(self):
+        template = (settings.BASE_DIR / 'templates' / 'timetable.html').read_text()
+        confirm = template[template.index('function confirmVenue()'):template.index('function openVenueDrawer(')]
+        add_flow = template[template.index('function finishAdd('):template.index('// ---- "Venues we took"')]
+        self.assertIn('venuePick.editScheduleId', confirm)
+        self.assertIn('state.schedules.find(item => item.id === venuePick.editScheduleId)', confirm)
+        self.assertIn('schedule.venue = venuePick.venue;', confirm)
+        self.assertIn('schedule.needsVenue = false;', confirm)
+        self.assertIn('schedule.venueObtained = true;', confirm)
+        self.assertIn('persistData();', confirm)
+        self.assertNotIn('state.schedules.push', confirm)
+        self.assertIn('addClassInVenue(c)', add_flow)
+        self.assertIn('state.schedules.push(base)', template)
 
     def test_shared_live_client_is_small_and_all_tenant_pages_include_it(self):
         live_path = settings.BASE_DIR / "static" / "js" / "tenant-live.js"
@@ -933,7 +953,8 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
             '/api/timetable/state/',
             data=json.dumps({'expected_revision': 0, 'state': {'schedules': [{
                 'id': 'lesson-monday-0800', 'status': 'HAKIPO', 'cohort': 'BAE (54)', 'code': 'AEU 08101',
-                'day': 'Monday', 'startSlot': 0, 'duration': 1,
+                'title': 'Architecture', 'lecturer': 'Dr Example', 'venue': 'Room 1',
+                'day': 'Monday', 'startSlot': 0, 'duration': 1, 'temp': False,
                 'isActivity': True, 'swapType': 'temporary', 'swapPairId': 'pair-1',
                 'originalDay': 'Tuesday', 'originalStartSlot': 3,
             }], 'venues': [], 'published': True}, 'source_version': 1}),
@@ -951,7 +972,39 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
             self.assertEqual(saved_schedule['originalDay'], 'Tuesday')
             self.assertEqual(saved_schedule['originalStartSlot'], 3)
             self.assertEqual(saved_schedule['status'], 'HAKIPO')
+            self.assertEqual(saved_schedule['venue'], 'Room 1')
+            self.assertEqual(saved_schedule['title'], 'Architecture')
+            self.assertEqual(saved_schedule['lecturer'], 'Dr Example')
+            self.assertEqual(saved_schedule['cohort'], 'BAE (54)')
+            self.assertEqual((saved_schedule['day'], saved_schedule['startSlot'], saved_schedule['duration']), ('Monday', 0, 1))
+            self.assertFalse(saved_schedule['temp'])
             self.assertEqual(TenantTimetableState.objects.get(pk=1).revision, 1)
+
+        venue_update = RequestFactory().put(
+            '/api/timetable/state/',
+            data=json.dumps({'expected_revision': 1, 'state': {'schedules': [{
+                'id': 'lesson-monday-0800', 'status': 'HAKIPO', 'cohort': 'BAE (54)', 'code': 'AEU 08101',
+                'title': 'Architecture', 'lecturer': 'Dr Example', 'venue': 'Room 2',
+                'day': 'Monday', 'startSlot': 0, 'duration': 1, 'temp': False,
+                'isActivity': True, 'swapType': 'temporary', 'swapPairId': 'pair-1',
+                'originalDay': 'Tuesday', 'originalStartSlot': 3,
+            }], 'venues': [], 'published': True}, 'source_version': 1}),
+            content_type='application/json',
+        )
+        venue_update.tenant = self.tenant
+        venue_update.session = {'service_user': {'user_type': 'owner', 'owner_id': self.owner.id}}
+        with schema_context(self.tenant.schema_name):
+            with self.assertNumQueries(18):
+                updated = views.api_timetable_state(venue_update)
+            self.assertEqual(updated.status_code, 200)
+            updated_schedules = TenantTimetableState.objects.get(pk=1).state['schedules']
+            self.assertEqual(len(updated_schedules), 1)
+            self.assertEqual(updated_schedules[0]['venue'], 'Room 2')
+            self.assertEqual(updated_schedules[0]['title'], 'Architecture')
+            self.assertEqual(updated_schedules[0]['lecturer'], 'Dr Example')
+            self.assertEqual(updated_schedules[0]['cohort'], 'BAE (54)')
+            self.assertEqual((updated_schedules[0]['day'], updated_schedules[0]['startSlot'], updated_schedules[0]['duration']), ('Monday', 0, 1))
+            self.assertFalse(updated_schedules[0]['temp'])
 
         request = RequestFactory().get('/api/timetable/state/')
         request.tenant = self.tenant
@@ -961,10 +1014,17 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
                 member_response = views.api_timetable_state(request)
         self.assertEqual(member_response.json()['timetable_status'], 'published')
         self.assertEqual(member_response.json()['data']['schedules'][0]['status'], 'HAKIPO')
+        self.assertEqual(member_response.json()['data']['schedules'][0]['venue'], 'Room 2')
+
+        public_request = RequestFactory().get('/api/timetable/state/')
+        public_request.tenant = SimpleNamespace(schema_name='public')
+        public_request.session = {}
+        public_reader = views.api_timetable_state(public_request)
+        self.assertIsNone(public_reader.json()['data'])
 
         stale_save = RequestFactory().put(
             '/api/timetable/state/',
-            data=json.dumps({'expected_revision': 0, 'source_version': 1, 'state': {
+            data=json.dumps({'expected_revision': 1, 'source_version': 1, 'state': {
                 'schedules': [{'id': 'lesson-monday-0800', 'day': 'Monday', 'startSlot': 0, 'duration': 1, 'status': 'KIPO'}],
                 'venues': [], 'published': True,
             }}),
@@ -976,8 +1036,9 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
             conflict = views.api_timetable_state(stale_save)
             persisted = TenantTimetableState.objects.get(pk=1)
         self.assertEqual(conflict.status_code, 409)
-        self.assertEqual(persisted.revision, 1)
+        self.assertEqual(persisted.revision, 2)
         self.assertEqual(persisted.state['schedules'][0]['status'], 'HAKIPO')
+        self.assertEqual(persisted.state['schedules'][0]['venue'], 'Room 2')
 
     def test_tenant_timetable_is_hidden_until_source_and_owner_publish(self):
         request = RequestFactory().get('/api/timetable/state/')
@@ -1027,6 +1088,44 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         self.assertEqual(visible.json()['timetable_status'], 'published')
         self.assertEqual(visible.json()['data'], published_state)
         self.assertNotIn('url', visible.json()['source'])
+
+    def test_published_timetable_reads_are_isolated_between_tenant_schemas(self):
+        with schema_context('public'):
+            FounderTimetableSource.objects.update_or_create(
+                pk=1,
+                defaults={'file': 'system/timetables/test.xlsx', 'original_filename': 'test.xlsx', 'version': 7},
+            )
+
+        schemas = [f'timetable_a_{uuid.uuid4().hex[:10]}', f'timetable_b_{uuid.uuid4().hex[:10]}']
+        for schema_name in schemas:
+            quoted_schema = connection.ops.quote_name(schema_name)
+            with connection.cursor() as cursor:
+                cursor.execute(f'CREATE SCHEMA {quoted_schema}')
+            with schema_context(schema_name):
+                with connection.schema_editor() as editor:
+                    editor.create_model(TenantTimetableState)
+                TenantTimetableState.objects.create(
+                    pk=1,
+                    source_version=7,
+                    revision=1,
+                    state={'published': True, 'schedules': [{
+                        'id': f'lesson-{schema_name}', 'cohort': 'BAE', 'code': 'AEU 08101',
+                        'title': 'Architecture', 'lecturer': 'Dr Example', 'venue': f'{schema_name}-room',
+                        'day': 'Monday', 'startSlot': 0, 'duration': 1,
+                    }]},
+                )
+
+        responses = []
+        for schema_name in schemas:
+            request = RequestFactory().get('/api/timetable/state/')
+            request.tenant = SimpleNamespace(schema_name=schema_name)
+            request.session = {}
+            with schema_context(schema_name):
+                responses.append(views.api_timetable_state(request).json())
+
+        self.assertEqual(responses[0]['data']['schedules'][0]['venue'], f'{schemas[0]}-room')
+        self.assertEqual(responses[1]['data']['schedules'][0]['venue'], f'{schemas[1]}-room')
+        self.assertNotIn(schemas[0] + '-room', json.dumps(responses[1]))
 
     def test_timetable_state_rejects_member_and_invalid_schedule(self):
         with schema_context('public'):
