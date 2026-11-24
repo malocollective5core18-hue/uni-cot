@@ -770,9 +770,9 @@ def api_timetable_state(request, *args, **kwargs):
         response_source = source_data
         timetable_status = 'available'
         response_data = state_data
+        if not owner_access and source_data:
+            response_source = {key: value for key, value in source_data.items() if key != 'url'}
         if is_real_tenant:
-            if not owner_access and source_data:
-                response_source = {key: value for key, value in source_data.items() if key != 'url'}
             if source_lookup_failed:
                 timetable_status = 'unavailable'
                 response_data = None

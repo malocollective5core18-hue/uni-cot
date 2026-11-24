@@ -1,9 +1,10 @@
 import json
 import re
 import tempfile
+from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.conf import settings
@@ -206,6 +207,130 @@ class TenantLivePollingTemplateTests(SimpleTestCase):
         self.assertIn("resource: 'properties'", properties)
         self.assertNotIn("setInterval", external[external.index("function startExternalTablesRefreshTimer"):external.index("function renderTablesList")])
         self.assertNotIn("setInterval", properties[properties.index("function startAdminUpdatesPolling"):properties.index("function stopAdminUpdatesPolling")])
+
+
+class MockTimetableStateApiTests(SimpleTestCase):
+    """Mock-based API checks; these tests do not prove database behavior."""
+
+    source = {'filename': 'founder.xlsx', 'url': '/private/founder.xlsx', 'version': 4}
+
+    def _tenant(self):
+        return SimpleNamespace(schema_name='tenant_a', owner_id=12, is_active=True)
+
+    def test_mock_based_reader_put_is_rejected(self):
+        """Mock-based authorization check; it does not exercise the database."""
+        request = RequestFactory().put('/t/tenant/1/key/api/timetable/state/', data=b'{}')
+        request.tenant = self._tenant()
+        request.session = {'service_user': {'user_type': 'member', 'owner_id': 12}}
+        with patch('service.views._has_owner_admin_access', return_value=False):
+            response = views.api_timetable_state(request)
+        self.assertEqual(response.status_code, 403)
+
+    def test_mock_based_unauthenticated_put_is_rejected(self):
+        """Mock-based unauthenticated check; it does not exercise the database."""
+        request = RequestFactory().put('/t/tenant/1/key/api/timetable/state/', data=b'{}')
+        request.tenant = self._tenant()
+        request.session = {}
+        with patch('service.views._has_owner_admin_access', return_value=False):
+            response = views.api_timetable_state(request)
+        self.assertEqual(response.status_code, 403)
+
+    def test_mock_based_malformed_and_invalid_utf8_json_are_rejected(self):
+        """Mock-based payload checks; they do not exercise the database."""
+        with patch('service.views._has_owner_admin_access', return_value=True), patch.object(
+            views, '_founder_timetable_source_payload', return_value=self.source
+        ):
+            for body in (b'{', b'\xff'):
+                request = RequestFactory().put(
+                    '/t/tenant/1/key/api/timetable/state/', data=body,
+                    content_type='application/json',
+                )
+                request.tenant = self._tenant()
+                request.session = {'service_user': {'user_type': 'owner', 'owner_id': 12}}
+                with self.subTest(body=body):
+                    response = views.api_timetable_state(request)
+                    self.assertEqual(response.status_code, 400)
+                    self.assertFalse(json.loads(response.content)['success'])
+
+    def test_mock_based_stale_expected_revision_is_rejected(self):
+        """Mock-based stale revision check; it does not prove row locking."""
+        state_row = SimpleNamespace(revision=8)
+        manager = Mock()
+        manager.select_for_update.return_value.get_or_create.return_value = (state_row, False)
+        body = json.dumps({
+            'expected_revision': 7,
+            'source_version': self.source['version'],
+            'state': {'schedules': [{'id': 'imp-1', 'day': 'Monday', 'startSlot': 0, 'duration': 1}], 'published': False},
+        })
+        request = RequestFactory().put(
+            '/t/tenant/1/key/api/timetable/state/', data=body,
+            content_type='application/json',
+        )
+        request.tenant = self._tenant()
+        request.session = {'service_user': {'user_type': 'owner', 'owner_id': 12}}
+        with patch('service.views._has_owner_admin_access', return_value=True), patch.object(
+            views, '_founder_timetable_source_payload', return_value=self.source
+        ), patch.object(views.TenantTimetableState, 'objects', manager), patch.object(
+            views.transaction, 'atomic', return_value=nullcontext()
+        ):
+            response = views.api_timetable_state(request)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(json.loads(response.content)['revision'], 8)
+        manager.select_for_update.return_value.get_or_create.assert_called_once()
+
+    def test_mock_based_reader_get_hides_founder_url_and_stale_state(self):
+        """Mock-based tenant privacy check; it does not exercise schema isolation."""
+        state_row = SimpleNamespace(
+            state={'published': True, 'schedules': [{'id': 'imp-1'}]},
+            source_version=3, revision=2,
+        )
+        manager = Mock()
+        manager.filter.return_value.first.return_value = state_row
+        request = RequestFactory().get('/t/tenant/1/key/api/timetable/state/')
+        request.tenant = self._tenant()
+        request.session = {'service_user': {'user_type': 'member', 'owner_id': 12}}
+        with patch.object(views, 'schema_context', return_value=nullcontext()), patch.object(
+            views, '_founder_timetable_source_payload', return_value=self.source
+        ), patch.object(views.TenantTimetableState, 'objects', manager), patch(
+            'service.views._has_owner_admin_access', return_value=False
+        ):
+            response = views.api_timetable_state(request)
+        payload = json.loads(response.content)
+        self.assertNotIn('url', payload['source'])
+        self.assertEqual(payload['timetable_status'], 'owner_setup')
+        self.assertIsNone(payload['data'])
+
+    def test_mock_based_public_reader_get_hides_founder_url(self):
+        """Mock-based public privacy check; it does not exercise the database."""
+        request = RequestFactory().get('/api/timetable/state/')
+        request.tenant = None
+        request.session = {}
+        with patch.object(views, 'schema_context', return_value=nullcontext()), patch.object(
+            views, '_founder_timetable_source_payload', return_value=self.source
+        ), patch('service.views._has_owner_admin_access', return_value=False):
+            response = views.api_timetable_state(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('url', json.loads(response.content)['source'])
+
+    def test_mock_based_reader_get_returns_304_for_matching_etag(self):
+        """Mock-based ETag check; it does not exercise persistence."""
+        manager = Mock()
+        manager.filter.return_value.first.return_value = None
+        request = RequestFactory().get('/api/timetable/state/')
+        request.tenant = None
+        request.session = {}
+        with patch.object(views, 'schema_context', return_value=nullcontext()), patch.object(
+            views, '_founder_timetable_source_payload', return_value=None
+        ), patch.object(views.TenantTimetableState, 'objects', manager):
+            first = views.api_timetable_state(request)
+            repeated_request = RequestFactory().get(
+                '/api/timetable/state/', HTTP_IF_NONE_MATCH=first['ETag'],
+            )
+            repeated_request.tenant = None
+            repeated_request.session = {}
+            second = views.api_timetable_state(repeated_request)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 304)
 
 
 class HealthEndpointTests(CacheIsolationMixin, TestCase):

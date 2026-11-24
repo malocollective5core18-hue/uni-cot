@@ -33,8 +33,8 @@ name as the runtime URL. It accepts only loopback hosts and the `unicott_test`
 database name; do not point this setting at Supabase or another remote server.
 Django's test runner creates and removes its test database, so the test role
 needs permission to create databases, and the test database role needs schema
-privileges for `django-tenants` migrations. The Docker sandbox and its setup
-commands are documented in [docs/POSTGRES_SANDBOX.md](docs/POSTGRES_SANDBOX.md).
+privileges for `django-tenants` migrations. Run the suite only against a
+disposable local PostgreSQL server configured as `unicott_test`.
 
 The project pins Django 4.2.11, `django-tenants` 3.5.0, and psycopg2-binary
 2.9.9. Django 4.2 supports PostgreSQL 12 and newer. Runtime tenant migrations
