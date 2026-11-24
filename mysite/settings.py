@@ -48,6 +48,8 @@ SHARED_APPS_CORRECTED = [
     'customers',
     # Public API routes also query Core models; migrate Core in public schema.
     'core',
+    # Founder exam timetable sources are shared and must not be tenant tables.
+    'exams',
     *COMMON_APPS_CORRECTED,
 ]
 

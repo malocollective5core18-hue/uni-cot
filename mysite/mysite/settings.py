@@ -13,10 +13,15 @@ import dj_database_url
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-# Load environment variables from a project root .env file when available.
+# Load the default root .env, or an explicitly selected environment file.
 # Do not auto-load arbitrary root env files in production.
-env_path = BASE_DIR / '.env'
-if env_path.exists():
+configured_env_file = os.getenv("DJANGO_ENV_FILE")
+env_path = Path(configured_env_file) if configured_env_file else BASE_DIR / ".env"
+if not env_path.is_absolute():
+    env_path = BASE_DIR / env_path
+if configured_env_file and not env_path.is_file():
+    raise ImproperlyConfigured(f"DJANGO_ENV_FILE does not exist: {env_path}")
+if env_path.is_file():
     load_dotenv(dotenv_path=env_path)
 
 # Temporary guard: ensure this module is loaded as the inner settings module
@@ -136,6 +141,8 @@ SHARED_APPS = [
     # The public service routes use Core models (for example system settings
     # and countdown cards), so their tables must exist in the public schema.
     'core',
+    # Founder examination sources are public-only; tenants must not get this table.
+    'exams',
     *COMMON_APPS,
 ]
 

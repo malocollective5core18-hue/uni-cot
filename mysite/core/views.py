@@ -741,10 +741,13 @@ def api_timetable_state(request, *args, **kwargs):
     tenant = getattr(request, 'tenant', None)
     if request.method == 'GET':
         source_data = None
+        exam_sources = {}
         source_lookup_failed = False
         try:
             with schema_context('public'):
                 source_data = _founder_timetable_source_payload()
+                from exams.services import exam_sources_metadata
+                exam_sources = exam_sources_metadata()
         except (DatabaseError, OperationalError, ProgrammingError):
             source_lookup_failed = True
             logger.exception('Could not read shared timetable source metadata')
@@ -792,11 +795,16 @@ def api_timetable_state(request, *args, **kwargs):
             'revision': state_row.revision if state_row else 0,
             'source_version': source_data['version'] if source_data else 0,
             'source': response_source,
+            'exam_sources': exam_sources,
             'timetable_status': timetable_status,
             'published': published,
         }
         access_scope = 'owner' if owner_access else 'reader'
-        etag = f'"timetable-{response_data["source_version"]}-{response_data["revision"]}-{timetable_status}-{access_scope}"'
+        exam_versions = '-'.join(
+            f'{source_type}{source.get("version", 0)}{int(bool(source.get("has_file")))}'
+            for source_type, source in sorted(exam_sources.items())
+        )
+        etag = f'"timetable-{response_data["source_version"]}-{response_data["revision"]}-{timetable_status}-{access_scope}-{exam_versions}"'
         if request.headers.get('If-None-Match') == etag:
             response = HttpResponseNotModified()
             response['ETag'] = etag
@@ -1020,7 +1028,7 @@ def founder_saas_system_control(request, *args, **kwargs):
         messages.success(request, 'Founder access granted.')
         return redirect('founder_saas_system_control')
 
-    if not request.user.is_authenticated or not request.user.is_staff:
+    if not request.user.is_authenticated or not request.user.is_active or not request.user.is_staff:
         return render(request, 'admin_only/founder_login.html', status=200)
 
     if request.method == 'POST':
@@ -1268,8 +1276,18 @@ def founder_saas_system_control(request, *args, **kwargs):
     try:
         with schema_context('public'):
             context['founder_timetable_source'] = _founder_timetable_source_payload()
+            from exams.services import exam_sources_metadata
+            source_rows = exam_sources_metadata()
+            context['founder_exam_sources'] = [
+                {**source_rows[source_type], 'label': label}
+                for source_type, label in (('test1', 'Test 1'), ('test2', 'Test 2'), ('ue', 'UE'))
+            ]
     except (DatabaseError, OperationalError, ProgrammingError):
         context['founder_timetable_source'] = None
+        context['founder_exam_sources'] = [
+            {'type': source_type, 'label': label, 'filename': None, 'version': 0, 'uploaded_at': None, 'has_file': False}
+            for source_type, label in (('test1', 'Test 1'), ('test2', 'Test 2'), ('ue', 'UE'))
+        ]
     return render(request, 'admin_only/founder_SAAS_system_control.html', context)
 
 

@@ -1241,6 +1241,7 @@ body.fc-active {
 @media (max-width: 1100px) {
   :root { --sidebar-w: 240px; }
   .fc-hero-grid { grid-template-columns: 1fr; }
+  .fc-exam-source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
 }
 
 @media (max-width: 820px) {
@@ -1277,6 +1278,7 @@ body.fc-active {
   .fc-headline { font-size: 1.8rem; }
   .fc-filter-bar { padding: 12px; gap: 8px; }
   .fc-insight-grid { grid-template-columns: 1fr; }
+  .fc-exam-source-grid { grid-template-columns: 1fr !important; }
   .fc-metrics { grid-template-columns: repeat(2, 1fr); }
   .fc-table-wrap { border-radius: var(--radius-sm); }
   .fc-table { min-width: 0; }
@@ -1520,6 +1522,27 @@ body.fc-active {
             <span id="founderTimetableBusy" role="status" hidden>Working…</span>
           </div>
           <small class="fc-pstep-body">The current workbook is the shared starting schedule for every owner workspace.</small>
+        </section>
+
+        <section aria-labelledby="exam-timetable-title" style="margin:22px 0">
+          <div class="fc-pbox-header" style="margin-bottom:12px"><span class="chip chip-warn">Examinations</span><span class="fc-pbox-title" id="exam-timetable-title">Shared examination timetables</span></div>
+          <div class="fc-exam-source-grid" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px">
+            {% for source in founder_exam_sources %}
+            <section class="fc-priority-box" data-exam-source-card="{{ source.type }}" style="min-width:0;padding:18px">
+              <h3 style="font-size:1rem;color:var(--c-text);margin-bottom:8px">{{ source.label }} Timetable</h3>
+              <p class="fc-pstep-body" data-exam-status="{{ source.type }}" role="status" aria-live="polite">
+                {% if source.has_file %}{{ source.filename }} · Version {{ source.version }} · Uploaded {{ source.uploaded_at }}{% else %}Not uploaded · Version {{ source.version }}{% endif %}
+              </p>
+              <div class="fc-btn-row" style="margin-top:12px;align-items:center">
+                <input type="file" accept=".xlsx" data-exam-file="{{ source.type }}" aria-label="Choose {{ source.label }} Excel timetable">
+                <button class="btn btn-primary" type="button" data-exam-upload="{{ source.type }}">Upload / replace</button>
+                <button class="btn btn-ghost" type="button" data-exam-delete="{{ source.type }}" {% if not source.has_file %}disabled{% endif %}>Delete</button>
+                <span role="status" data-exam-busy="{{ source.type }}" hidden>Working…</span>
+              </div>
+              <small class="fc-pstep-body">Use a valid .xlsx workbook with a dated exam table, course code or name, and exam time.</small>
+            </section>
+            {% endfor %}
+          </div>
         </section>
 
         <!-- Metrics -->
@@ -2442,6 +2465,54 @@ body.fc-active {
   document.getElementById('founderTimetableUpload').addEventListener('click', function() { updateFounderTimetable('POST'); });
   document.getElementById('founderTimetableDelete').addEventListener('click', function() {
     if (window.confirm('Delete the shared timetable workbook?')) updateFounderTimetable('DELETE');
+  });
+
+  async function updateFounderExamTimetable(type, method) {
+    var card = document.querySelector('[data-exam-source-card="' + type + '"]');
+    if (!card) return;
+    var fileInput = card.querySelector('[data-exam-file]');
+    var status = card.querySelector('[data-exam-status]');
+    var busy = card.querySelector('[data-exam-busy]');
+    var uploadButton = card.querySelector('[data-exam-upload]');
+    var deleteButton = card.querySelector('[data-exam-delete]');
+    var hadFile = !deleteButton.disabled;
+    busy.hidden = false;
+    uploadButton.disabled = true;
+    deleteButton.disabled = true;
+    try {
+      var options = { method: method, headers: { 'X-CSRFToken': founderCsrf() } };
+      if (method === 'POST') {
+        if (!fileInput.files[0]) throw new Error('Choose an .xlsx examination timetable first.');
+        var data = new FormData();
+        data.append('file', fileInput.files[0]);
+        options.body = data;
+      }
+      var response = await fetch('/api/founder/exam-timetable-source/' + encodeURIComponent(type) + '/', options);
+      var payload = await response.json().catch(function() { return {}; });
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'Could not update this examination timetable.');
+      var source = payload.data;
+      status.textContent = source.has_file
+        ? source.filename + ' · Version ' + source.version + ' · Uploaded ' + (source.uploaded_at || 'date unavailable')
+        : 'Not uploaded · Version ' + source.version;
+      deleteButton.disabled = !source.has_file;
+      fileInput.value = '';
+      if (window.TenantSync) window.TenantSync.publish('timetable-state');
+    } catch (error) {
+      status.textContent = error.message || 'Could not update this examination timetable.';
+      deleteButton.disabled = !hadFile;
+    } finally {
+      busy.hidden = true;
+      uploadButton.disabled = false;
+    }
+  }
+  document.querySelectorAll('[data-exam-upload]').forEach(function(button) {
+    button.addEventListener('click', function() { updateFounderExamTimetable(button.dataset.examUpload, 'POST'); });
+  });
+  document.querySelectorAll('[data-exam-delete]').forEach(function(button) {
+    button.addEventListener('click', function() {
+      var type = button.dataset.examDelete;
+      if (window.confirm('Delete the ' + type.toUpperCase() + ' examination timetable?')) updateFounderExamTimetable(type, 'DELETE');
+    });
   });
 })();
 </script>

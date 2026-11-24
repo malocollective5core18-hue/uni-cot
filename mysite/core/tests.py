@@ -135,7 +135,11 @@ class TenantLivePollingTemplateTests(SimpleTestCase):
         self.assertIn('aria-label="Download timetable as PDF"', rendered)
         self.assertIn('⬇ Download PDF</button>', rendered)
         self.assertIn("resource: 'timetable-state'", rendered)
-        self.assertIn('minMs: 5000', rendered)
+        self.assertIn('minMs: CAN_MANAGE ? 30000 : 5000', rendered)
+        self.assertIn('examDownloadPanel', rendered)
+        self.assertIn('data-exam-download="test1"', rendered)
+        self.assertIn('exam_tt_seen_${examType}', rendered)
+        self.assertIn("contentType.includes('application/pdf')", rendered)
         self.assertIn('expected_revision: stateRevision', rendered)
         self.assertIn('const overrides = new Map();', rendered)
         self.assertIn('overrides.get(key(item))?.shift()', rendered)
@@ -150,7 +154,7 @@ class TenantLivePollingTemplateTests(SimpleTestCase):
         self.assertIn('max-width:min(30vw,180px)', rendered)
         self.assertIn("badge.setAttribute('aria-label', badge.title);", rendered)
         self.assertIn('!tempHides(item)', rendered)
-        self.assertIn('if (!REAL_TENANT || CAN_MANAGE || !window.TenantLive) return;', rendered)
+        self.assertIn('if (!REAL_TENANT || !window.TenantLive) return;', rendered)
         self.assertIn('NOT HELD', rendered)
         self.assertIn('@page{size:A4 landscape;margin:10mm}', rendered)
         self.assertIn('.schedule-block.is-obtained,.schedule-block.is-temporary,.schedule-block.is-hakipo,.schedule-block.conflict-venue{display:none!important}', rendered)
@@ -216,6 +220,12 @@ class MockTimetableStateApiTests(SimpleTestCase):
 
     def _tenant(self):
         return SimpleNamespace(schema_name='tenant_a', owner_id=12, is_active=True)
+
+    def _exam_sources(self):
+        return {
+            key: {'type': key, 'filename': None, 'version': 0, 'uploaded_at': None, 'has_file': False}
+            for key in ('test1', 'test2', 'ue')
+        }
 
     def test_mock_based_reader_put_is_rejected(self):
         """Mock-based authorization check; it does not exercise the database."""
@@ -291,7 +301,9 @@ class MockTimetableStateApiTests(SimpleTestCase):
         request.session = {'service_user': {'user_type': 'member', 'owner_id': 12}}
         with patch.object(views, 'schema_context', return_value=nullcontext()), patch.object(
             views, '_founder_timetable_source_payload', return_value=self.source
-        ), patch.object(views.TenantTimetableState, 'objects', manager), patch(
+        ), patch('exams.services.exam_sources_metadata', return_value=self._exam_sources()), patch.object(
+            views.TenantTimetableState, 'objects', manager
+        ), patch(
             'service.views._has_owner_admin_access', return_value=False
         ):
             response = views.api_timetable_state(request)
@@ -307,7 +319,9 @@ class MockTimetableStateApiTests(SimpleTestCase):
         request.session = {}
         with patch.object(views, 'schema_context', return_value=nullcontext()), patch.object(
             views, '_founder_timetable_source_payload', return_value=self.source
-        ), patch('service.views._has_owner_admin_access', return_value=False):
+        ), patch('exams.services.exam_sources_metadata', return_value=self._exam_sources()), patch(
+            'service.views._has_owner_admin_access', return_value=False
+        ):
             response = views.api_timetable_state(request)
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('url', json.loads(response.content)['source'])
@@ -321,7 +335,9 @@ class MockTimetableStateApiTests(SimpleTestCase):
         request.session = {}
         with patch.object(views, 'schema_context', return_value=nullcontext()), patch.object(
             views, '_founder_timetable_source_payload', return_value=None
-        ), patch.object(views.TenantTimetableState, 'objects', manager):
+        ), patch('exams.services.exam_sources_metadata', return_value=self._exam_sources()), patch.object(
+            views.TenantTimetableState, 'objects', manager
+        ):
             first = views.api_timetable_state(request)
             repeated_request = RequestFactory().get(
                 '/api/timetable/state/', HTTP_IF_NONE_MATCH=first['ETag'],
@@ -880,13 +896,13 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         request.tenant = self.tenant
         request.session = {'service_user': {'user_type': 'owner', 'owner_id': self.owner.id}}
         with schema_context(self.tenant.schema_name):
-            with self.assertNumQueries(5):
+            with self.assertNumQueries(6):
                 response = views.api_timetable_state(request)
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response['ETag'].startswith('"timetable-1-0-'))
         request.META['HTTP_IF_NONE_MATCH'] = response['ETag']
         with schema_context(self.tenant.schema_name):
-            with self.assertNumQueries(5):
+            with self.assertNumQueries(6):
                 unchanged = views.api_timetable_state(request)
         self.assertEqual(unchanged.status_code, 304)
 
@@ -918,7 +934,7 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         request.tenant = self.tenant
         request.session = {'service_user': {'user_type': 'member', 'member_id': 1, 'owner_id': self.owner.id}}
         with schema_context(self.tenant.schema_name):
-            with self.assertNumQueries(4):
+            with self.assertNumQueries(5):
                 member_response = views.api_timetable_state(request)
         self.assertEqual(member_response.json()['timetable_status'], 'published')
         self.assertEqual(member_response.json()['data']['schedules'][0]['status'], 'HAKIPO')
@@ -947,7 +963,7 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         with schema_context('public'):
             FounderTimetableSource.objects.filter(pk=1).delete()
         with schema_context(self.tenant.schema_name):
-            with self.assertNumQueries(4):
+            with self.assertNumQueries(5):
                 missing = views.api_timetable_state(request)
         self.assertEqual(missing.json()['timetable_status'], 'not_provided')
         self.assertIsNone(missing.json()['data'])
@@ -965,14 +981,14 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
                 pk=1,
                 defaults={'state': draft_state, 'source_version': 3},
             )
-            with self.assertNumQueries(4):
+            with self.assertNumQueries(5):
                 hidden = views.api_timetable_state(request)
         self.assertEqual(hidden.json()['timetable_status'], 'owner_setup')
         self.assertIsNone(hidden.json()['data'])
 
         request.session = {'service_user': {'user_type': 'owner', 'owner_id': self.owner.id}}
         with schema_context(self.tenant.schema_name):
-            with self.assertNumQueries(5):
+            with self.assertNumQueries(6):
                 owner_view = views.api_timetable_state(request)
         self.assertEqual(owner_view.json()['timetable_status'], 'owner_setup')
         self.assertEqual(owner_view.json()['data'], draft_state)
@@ -983,7 +999,7 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
             TenantTimetableState.objects.filter(pk=1).update(state=published_state)
         request.session = {'service_user': {'user_type': 'member', 'member_id': 1, 'owner_id': self.owner.id}}
         with schema_context(self.tenant.schema_name):
-            with self.assertNumQueries(4):
+            with self.assertNumQueries(5):
                 visible = views.api_timetable_state(request)
         self.assertEqual(visible.json()['timetable_status'], 'published')
         self.assertEqual(visible.json()['data'], published_state)

@@ -327,6 +327,13 @@
       overflow: hidden;
     }
 
+    .exam-download-panel{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0 0;padding:10px;border:1px solid var(--border-hairline);border-radius:12px;background:var(--card)}
+    .exam-download-title{margin-right:auto;color:var(--text-secondary);font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+    .exam-download-button{position:relative;min-height:34px;padding:0 12px;border:1px solid rgba(34,211,238,.35);border-radius:999px;background:rgba(34,211,238,.1);color:var(--text-primary);font-size:.72rem;font-weight:750;cursor:pointer}
+    .exam-download-button:disabled{opacity:.65;cursor:wait}
+    .exam-new-badge{position:absolute;top:-7px;right:-5px;padding:2px 5px;border-radius:999px;background:#dc2626;color:#fff;font-size:.5rem;font-weight:900;letter-spacing:.04em}
+    .exam-new-badge[hidden]{display:none}
+
     /* Compact Institutional Sheet Header */
     .sheet-header {
       padding: 8px 14px;
@@ -1589,6 +1596,13 @@
         <table class="timetable" id="timetableGrid"></table>
       </div>
     </div>
+    <section class="exam-download-panel" id="examDownloadPanel" aria-label="Examination timetable downloads" hidden>
+      <span class="exam-download-title">Examination timetables</span>
+      <button type="button" class="exam-download-button" data-exam-download="test1" hidden>Test 1 <span class="exam-new-badge" data-exam-new="test1" hidden>NEW</span></button>
+      <button type="button" class="exam-download-button" data-exam-download="test2" hidden>Test 2 <span class="exam-new-badge" data-exam-new="test2" hidden>NEW</span></button>
+      <button type="button" class="exam-download-button" data-exam-download="ue" hidden>UE <span class="exam-new-badge" data-exam-new="ue" hidden>NEW</span></button>
+      <span id="examDownloadStatus" role="status" aria-live="polite" hidden></span>
+    </section>
 
   </main>
 
@@ -1890,6 +1904,7 @@
       const OWNER_SETUP_MODE = {{ owner_timetable_setup_mode|yesno:"true,false" }};
       const DEMO_STORAGE_KEY = 'ring0_public_timetable_demo_v1';
       const API_URL = "{% if tenant_base_path %}{{ tenant_base_path }}/api/timetable/state/{% else %}{% url 'api_timetable_state' %}{% endif %}";
+      const EXAM_PDF_BASE = "{% if tenant_base_path %}{{ tenant_base_path }}{% endif %}/api/timetable/exam-pdf/";
       let sourceVersion = 0;
       let stateRevision = 0;
       let saveTimer = null;
@@ -1956,7 +1971,8 @@
         historyStack: [],
         lastSundayReview: null,
         published: false,
-        timetableStatus: 'available'
+        timetableStatus: 'available',
+        examSources: {}
       };
 
       function splitCodeAndTitle(rawModule) {
@@ -2120,6 +2136,7 @@
         if (!response.ok || !payload.success) throw new Error(payload.error || 'Unable to load timetable.');
         sourceVersion = Number(payload.source_version || 0);
         stateRevision = Number(payload.revision || 0);
+        applyExamSourceMetadata(payload.exam_sources || {});
         state.timetableStatus = payload.timetable_status || 'available';
         if (REAL_TENANT && state.timetableStatus === 'not_provided') {
           state.schedules = [];
@@ -3369,8 +3386,79 @@
         reportTimetableFrameHeight();
       }
 
+      function applyExamSourceMetadata(sources) {
+        state.examSources = sources && typeof sources === 'object' ? sources : {};
+        renderExamDownloadButtons();
+      }
+
+      function renderExamDownloadButtons() {
+        const panel = document.getElementById('examDownloadPanel');
+        if (!panel) return;
+        let visibleCount = 0;
+        document.querySelectorAll('[data-exam-download]').forEach(button => {
+          const examType = button.dataset.examDownload;
+          const source = state.examSources[examType];
+          const visible = Boolean(REAL_TENANT && source && source.has_file);
+          button.hidden = !visible;
+          if (!visible) return;
+          visibleCount += 1;
+          const badge = button.querySelector('[data-exam-new]');
+          let seenVersion = 0;
+          try { seenVersion = Number(localStorage.getItem(`exam_tt_seen_${examType}`) || 0); }
+          catch (error) { seenVersion = 0; }
+          badge.hidden = Number(source.version || 0) <= seenVersion;
+        });
+        panel.hidden = visibleCount === 0;
+      }
+
+      async function downloadExamTimetable(button) {
+        if (button.disabled) return;
+        const examType = button.dataset.examDownload;
+        const source = state.examSources[examType];
+        if (!source || !source.has_file) return;
+        const label = ({ test1: 'Test 1', test2: 'Test 2', ue: 'UE' })[examType] || 'Examination';
+        button.disabled = true;
+        button.firstChild.textContent = 'Preparing… ';
+        try {
+          const response = await fetch(`${EXAM_PDF_BASE}${encodeURIComponent(examType)}/`, {
+            method: 'GET', credentials: 'same-origin', cache: 'no-store',
+          });
+          const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
+          if (!response.ok) {
+            const errorPayload = contentType.includes('json') ? await response.json().catch(() => ({})) : {};
+            throw new Error(errorPayload.error || `The ${label} timetable could not be downloaded (${response.status}).`);
+          }
+          if (!contentType.includes('application/pdf')) throw new Error('The server did not return a PDF file.');
+          const blob = await response.blob();
+          const signature = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+          if (String.fromCharCode(...signature) !== '%PDF-') throw new Error('The downloaded file is not a valid PDF.');
+          const objectUrl = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = objectUrl;
+          anchor.download = response.headers.get('Content-Disposition')?.match(/filename="?([^";]+)"?/i)?.[1] || `${examType.toUpperCase()}_timetable.pdf`;
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+          const downloadedVersion = Number(response.headers.get('X-Exam-Source-Version') || source.version || 0);
+          try {
+            localStorage.setItem(`exam_tt_seen_${examType}`, String(downloadedVersion));
+          } catch (error) {
+            showToast('PDF downloaded. This browser cannot save the notification state.', 'warning');
+          }
+          renderExamDownloadButtons();
+          showToast(`${label} examination timetable downloaded.`);
+        } catch (error) {
+          showToast(error.message || 'The examination timetable could not be downloaded.', 'error');
+        } finally {
+          button.disabled = false;
+          button.firstChild.textContent = label + ' ';
+        }
+      }
+
       function applyLiveTimetableState(payload) {
         if (!REAL_TENANT || !payload || !payload.success) return;
+        applyExamSourceMetadata(payload.exam_sources || {});
         sourceVersion = Number(payload.source_version || 0);
         state.timetableStatus = payload.timetable_status || 'unavailable';
         state.published = Boolean(payload.published);
@@ -3390,13 +3478,17 @@
       }
 
       function startTimetableLiveUpdates() {
-        if (!REAL_TENANT || CAN_MANAGE || !window.TenantLive) return;
+        if (!REAL_TENANT || !window.TenantLive) return;
         window.TenantLive.register({
           resource: 'timetable-state',
           url: API_URL,
-          minMs: 5000,
-          onData: applyLiveTimetableState,
+          minMs: CAN_MANAGE ? 30000 : 5000,
+          onData: payload => {
+            if (CAN_MANAGE) applyExamSourceMetadata(payload.exam_sources || {});
+            else applyLiveTimetableState(payload);
+          },
           onError: () => {
+            if (CAN_MANAGE) return;
             state.timetableStatus = 'unavailable';
             state.schedules = [];
             state.published = false;
@@ -3532,6 +3624,9 @@
         });
         const printTimetableBtn = document.getElementById('printTimetableBtn');
         if (printTimetableBtn) printTimetableBtn.addEventListener('click', () => window.print());
+        document.querySelectorAll('[data-exam-download]').forEach(button => {
+          button.addEventListener('click', () => downloadExamTimetable(button));
+        });
         const publishTimetableBtn = document.getElementById('publishTimetableBtn');
         if (publishTimetableBtn) publishTimetableBtn.addEventListener('click', publishTenantTimetable);
 

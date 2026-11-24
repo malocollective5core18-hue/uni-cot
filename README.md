@@ -1,5 +1,13 @@
 # UNI-COT
 
+## Local Supabase testing sandbox
+
+For manual local app testing, use a dedicated Supabase test project and an
+ignored `.env.sandbox` file. The setup runs on loopback with Django's development
+server and does not change Render configuration. See
+[`docs/LOCAL_SANDBOX.md`](docs/LOCAL_SANDBOX.md). Never point the sandbox at
+production or copy production credentials.
+
 ## Render and tenant provisioning
 
 The Free web service runs shared Django migrations at startup, then starts a
@@ -41,6 +49,13 @@ The project pins Django 4.2.11, `django-tenants` 3.5.0, and psycopg2-binary
 use `migrate_schemas --shared` for `public` and `migrate_schemas` for tenant
 schemas; the test suite still needs an isolated PostgreSQL server to verify
 both schema contexts safely.
+
+## Founder-managed examination timetables
+
+The founder examination timetable workflow, supported workbook layout, public
+schema migration, and tenant download behavior are documented in
+[docs/EXAM_TIMETABLES.md](docs/EXAM_TIMETABLES.md). The timetable parser accepts
+`.xlsx` only; legacy `.xls` workbooks are rejected explicitly.
 
 An external pinger can also nudge provisioning by making a GET or POST request
 to `https://uni-cot-mmt1.onrender.com/internal/run-provisioning/` with the
