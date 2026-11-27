@@ -19,7 +19,7 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 
 from core import views
-from core.models import ExternalTable, ExternalTableRecord, FounderTimetableSource, Property, TenantTimetableState, User, UserGroup, UserGroupMember
+from core.models import ExternalTable, ExternalTableRecord, FounderTimetableSource, Property, SystemSetting, TenantTimetableState, User, UserGroup, UserGroupMember
 from core.storage import PrivateWorkbookCloudinaryStorage
 from customers.models import CRTenant, TenantDashboardMetric
 from service.models import OwnerUser
@@ -894,6 +894,97 @@ class ExternalTableRecordCountTests(TestCase):
 
         table.refresh_from_db()
         self.assertEqual(table.record_count, 0)
+
+
+class SignupSettingDuplicateSelectionTests(SimpleTestCase):
+    def test_get_selects_a_stable_row_when_the_setting_is_duplicated(self):
+        setting = SimpleNamespace(setting_value='false')
+        queryset = Mock()
+        queryset.filter.return_value.order_by.return_value.first.return_value = setting
+        request = RequestFactory().get('/api/signup-setting/?cache=refresh')
+        request.tenant = None
+        query_context, queries = capture_queries()
+
+        with query_context, patch.object(
+            views, '_scope_system_settings_queryset', return_value=queryset,
+        ):
+            response = views.api_signup_setting(request)
+
+        self.assertEqual(queries, [])
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(json.loads(response.content)['data']['signup_allowed'])
+        queryset.filter.return_value.order_by.assert_called_once_with('-updated_at', '-pk')
+
+    def test_put_updates_the_selected_row_when_the_setting_is_duplicated(self):
+        setting = SimpleNamespace(setting_value='false', save=Mock())
+        queryset = Mock()
+        queryset.filter.return_value.order_by.return_value.first.return_value = setting
+        request = RequestFactory().put(
+            '/api/signup-setting/',
+            data=json.dumps({'signup_allowed': True}),
+            content_type='application/json',
+        )
+        request.tenant = None
+        query_context, queries = capture_queries()
+
+        with query_context, patch.object(
+            views, '_scope_system_settings_queryset', return_value=queryset,
+        ), patch.object(views, '_invalidate_api_cache'):
+            response = views.api_signup_setting(request)
+
+        self.assertEqual(queries, [])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)['data']['signup_allowed'], True)
+        self.assertEqual(setting.setting_value, 'true')
+        setting.save.assert_called_once_with()
+        queryset.filter.return_value.order_by.assert_called_once_with('-updated_at', '-pk')
+
+
+class SignupSettingDuplicateTests(CacheIsolationMixin, TestCase):
+    def setUp(self):
+        for value in ('true', 'true', 'false'):
+            SystemSetting.objects.create(
+                setting_key='signup_allowed',
+                setting_value=value,
+                setting_type='boolean',
+                created_by=None,
+            )
+
+    def test_get_uses_latest_duplicate_instead_of_returning_a_server_error(self):
+        request = RequestFactory().get('/api/signup-setting/')
+        request.tenant = None
+
+        with self.assertNumQueries(1):
+            response = views.api_signup_setting(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(json.loads(response.content)['data']['signup_allowed'])
+        self.assertEqual(
+            SystemSetting.objects.filter(setting_key='signup_allowed', created_by__isnull=True).count(),
+            3,
+        )
+
+    def test_put_updates_latest_duplicate_without_deleting_existing_rows(self):
+        request = RequestFactory().put(
+            '/api/signup-setting/',
+            data=json.dumps({'signup_allowed': True}),
+            content_type='application/json',
+        )
+        request.tenant = None
+
+        with self.assertNumQueries(2):
+            response = views.api_signup_setting(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(json.loads(response.content)['data']['signup_allowed'])
+        self.assertEqual(
+            SystemSetting.objects.filter(setting_key='signup_allowed', created_by__isnull=True).count(),
+            3,
+        )
+        latest = SystemSetting.objects.filter(
+            setting_key='signup_allowed', created_by__isnull=True,
+        ).order_by('-updated_at', '-pk').first()
+        self.assertEqual(latest.setting_value, 'true')
 
 
 class ExternalTableRecordRegistrationTests(CacheIsolationMixin, TestCase):

@@ -1,5 +1,13 @@
 # Remediation Log
 
+## Prevent duplicate signup settings from failing the public API (2026-11-27)
+
+- Finding: `GET /api/signup-setting/` selected a scoped setting with `.get()`. The supplied traceback shows three matching rows, causing `SystemSetting.MultipleObjectsReturned` and HTTP 500. Nullable `created_by` values can have duplicates under the existing uniqueness constraint. The PUT path also used `get_or_create()` and could fail on the same rows.
+- Change: GET and PUT now choose the most recently updated matching row, with primary key as a stable tie-breaker. The lookup remains owner/public-scope constrained. GET reads no longer need to modify or delete duplicate rows; PUT updates the selected row and preserves the others. Added database-backed duplicate-row/query-count regressions and database-free view tests.
+- Files touched: `mysite/core/views.py`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Before/after evidence: Before, the provided log shows `.get()` returning 3 rows and HTTP 500. After, 69 database-free core/exam `SimpleTestCase`s pass, including mocked duplicate-selection GET and PUT tests; Python compilation, `manage.py check`, and `git diff --check` pass.
+- Remaining risk: The new PostgreSQL regression tests could not be run because this environment's `127.0.0.1:5432` is unavailable. They verify that three duplicate public rows return 200, PUT updates the selected row without deleting duplicates, and query counts stay bounded. The duplicate rows remain in the database by design.
+
 ## Confirm examination storage, cohort isolation, and real Test 1 output (2026-11-27)
 
 - Finding: Workbook fields used the project's default image storage; authenticated founder source APIs did not require the public schema; unavailable exam markers parsed but were not printed; fresh demo initialization could fall through to the tenant timetable API; CI did not trigger for `admin-controller-fix`. Testing also exposed a broken exam upload reference (`user.id`) and a cohort normalization bug that treated BAE (54) as BAE (65).

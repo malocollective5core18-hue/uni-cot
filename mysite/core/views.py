@@ -2814,10 +2814,10 @@ def api_signup_setting(request, *args, **kwargs):
     if request.method == 'GET':
         try:
             def build_payload():
-                try:
-                    setting = _scope_system_settings_queryset(request).get(setting_key=SIGNUP_SETTING_KEY)
-                    signup_allowed = setting.setting_value == 'true'
-                except ObjectDoesNotExist:
+                setting = _scope_system_settings_queryset(request).filter(
+                    setting_key=SIGNUP_SETTING_KEY,
+                ).order_by('-updated_at', '-pk').first()
+                if setting is None:
                     setting = SystemSetting.objects.create(
                         setting_key=SIGNUP_SETTING_KEY,
                         setting_value='true',
@@ -2825,7 +2825,7 @@ def api_signup_setting(request, *args, **kwargs):
                         description='Controls whether new members can sign up',
                         created_by=_get_product_owner_id(request),
                     )
-                    signup_allowed = True
+                signup_allowed = setting.setting_value == 'true'
                 return {
                     'success': True,
                     'data': {'signup_allowed': signup_allowed, 'setting_key': SIGNUP_SETTING_KEY},
@@ -2843,17 +2843,20 @@ def api_signup_setting(request, *args, **kwargs):
         try:
             body = json.loads(request.body)
             signup_allowed = body.get('signup_allowed', True)
-            setting, created = SystemSetting.objects.get_or_create(
+            setting = _scope_system_settings_queryset(request).filter(
                 setting_key=SIGNUP_SETTING_KEY,
-                created_by=_get_product_owner_id(request),
-                defaults={
-                    'setting_value': 'true' if signup_allowed else 'false',
-                    'setting_type': 'boolean',
-                    'description': 'Controls whether new members can sign up',
-                },
-            )
-            if not created:
-                setting.setting_value = 'true' if signup_allowed else 'false'
+            ).order_by('-updated_at', '-pk').first()
+            setting_value = 'true' if signup_allowed else 'false'
+            if setting is None:
+                setting = SystemSetting.objects.create(
+                    setting_key=SIGNUP_SETTING_KEY,
+                    created_by=_get_product_owner_id(request),
+                    setting_value=setting_value,
+                    setting_type='boolean',
+                    description='Controls whether new members can sign up',
+                )
+            else:
+                setting.setting_value = setting_value
                 setting.save()
             _invalidate_api_cache(request, 'signup_setting', 'system_settings')
             return JsonResponse({
