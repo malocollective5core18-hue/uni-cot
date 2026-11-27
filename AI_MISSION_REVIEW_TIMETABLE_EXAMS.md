@@ -2,6 +2,14 @@
 
 Act as a Principal Django Engineer, multi-tenant SaaS security reviewer, QA lead, and office-document/PDF usability reviewer. Conduct a **read-only, pre-production end-to-end review** of the current UNI-COT working tree. Do not edit files, commit, push, deploy, upload workbooks, or alter databases or credentials.
 
+## Review source: GitHub production branch
+
+- Review the GitHub repository `malocollective5core18-hue/uni-cot`, branch `admin-controller-fix`.
+- This is the production-target branch containing the latest timetable/PDF implementation. Confirm its current HEAD and verify that commit `68a75fe` (`[P0-1] restore full exam PDF grid for A4`) is an ancestor of that HEAD before reviewing.
+- Review the files from that exact GitHub branch snapshot. Do not review `main`, another feature branch, a stale local checkout, or an uncommitted working tree instead.
+- If using a local clone, fetch and check out `origin/admin-controller-fix` in a separate temporary/read-only worktree or clone. Do not change the user's existing checkout. Record the full commit SHA and branch in the report, and link findings to that commit's files/lines where possible.
+- If GitHub access is unavailable, or the branch does not contain the expected commit, stop and report **Not verified** with the access/ref evidence. Do not silently substitute another branch or claim the GitHub review was completed.
+
 ## Review objective
 
 Determine whether the timetable and exam timetable flow works from founder upload through parsing, tenant/admin management, publication, member polling, and final PDF download. Identify concrete defects and release risks with evidence. Distinguish verified behavior from assumptions. Do not infer that a feature works merely because a template contains its button or a unit test passes.

@@ -1039,3 +1039,11 @@
 - Files touched: `mysite/exams/services.py`, `mysite/exams/views.py`, `mysite/exams/tests.py`, `templates/timetable.html`, `docs/EXAM_TIMETABLES.md`, `docs/REMEDIATION_LOG.md`, `AI_MISSION_REVIEW_TIMETABLE_EXAMS.md`.
 - Evidence: The 29-test exam suite passes, asserting 15 source periods, all five BAE (65) exam entries, and one landscape A4 page. A generated PDF preview is one landscape A4 page; source content and layout were visually inspected. Focused reader tests, Django checks, compile checks, and migration drift checks pass; deploy checks report five existing warnings. The full suite cannot create its PostgreSQL test database in this environment, so full tenant publication and browser-to-download E2E behavior is not verified here.
 - Remaining risk: Actual printer/device legibility still needs office acceptance at A4 size. The compact full-width grid uses small text. Test 02 and UE samples were not provided. Do not treat this as a production-readiness sign-off until the separate AI review verifies the tenant publication/download path and reports the PDF usability verdict.
+
+## Direct the pre-production AI review to the GitHub production branch (2026-11-27)
+
+- Finding: The review mission asked the reviewer to inspect the current working tree without naming the GitHub branch containing the latest timetable/PDF commit, leaving room to audit stale or unrelated code.
+- Change: Specified `malocollective5core18-hue/uni-cot` on `admin-controller-fix`, required verification that commit `68a75fe` is included, and required the reviewer to stop with an explicit access/ref limitation instead of silently substituting another branch.
+- Files touched: `AI_MISSION_REVIEW_TIMETABLE_EXAMS.md`, `docs/REMEDIATION_LOG.md`.
+- Evidence: The prompt now names the GitHub repository, branch, expected implementation commit, read-only checkout guidance, and report fields needed to identify the reviewed ref. No remote review was performed by this documentation change.
+- Remaining risk: The AI reviewer must have GitHub access and independently verify the live branch head before it can assess the code.
