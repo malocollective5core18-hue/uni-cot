@@ -41,6 +41,7 @@ class ExamGridCell:
     course: str = ''
     venue: str = ''
     blocked: bool = False
+    marker: str = ''
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,16 @@ def normalize_cohort(value):
     value = re.sub(r'\s*\(\s*\d+\s*\)\s*$', '', value)
     value = re.sub(r'(?<=[A-Z])\.(?=[A-Z])', '', value)
     value = re.sub(r'[^A-Z0-9]+', ' ', value)
+    return ' '.join(value.split())
+
+
+def _cohort_identity(value):
+    """Normalize a cohort label while retaining a trailing class-size key."""
+    if value is None:
+        return ''
+    value = unicodedata.normalize('NFKC', str(value)).strip().upper()
+    value = re.sub(r'(?<=[A-Z])\.(?=[A-Z])', '', value)
+    value = re.sub(r'[^A-Z0-9()]+', ' ', value)
     return ' '.join(value.split())
 
 
@@ -214,7 +225,12 @@ def _find_grid_sections(file_bytes):
                         venue_value = _cell_text(
                             detail_row[source_column] if source_column < len(detail_row) else ''
                         )
-                        cells.append(ExamGridCell(course=course, venue=venue_value if course else '', blocked=blocked))
+                        cells.append(ExamGridCell(
+                            course=course,
+                            venue=venue_value if course else '',
+                            blocked=blocked,
+                            marker=value if blocked else '',
+                        ))
                     days.append(ExamGridDay(day_label, tuple(cells)))
                     row_index += 2 if detail_row else 1
                 if days and any(cell.course for day in days for cell in day.cells):
@@ -234,7 +250,7 @@ def extract_exam_timetable(file_bytes, cohort):
     sections = _find_grid_sections(file_bytes)
     if sections:
         selected_label = _resolve_target(cohort, [section['cohort'] for section in sections])
-        matches = [section for section in sections if normalize_cohort(section['cohort']) == selected_label]
+        matches = [section for section in sections if _cohort_identity(section['cohort']) == selected_label]
         if len(matches) != 1:
             raise ExamCohortAmbiguous(
                 f'The cohort {cohort} appears in multiple examination timetable sections.'
@@ -278,23 +294,28 @@ def _find_header_rows(sheet):
 
 def _sheet_cohort(sheet_title):
     title = SHEET_NOISE.sub(' ', unicodedata.normalize('NFKC', sheet_title))
-    return normalize_cohort(title)
+    return _cohort_identity(title)
 
 
 def _resolve_target(cohort, candidates):
-    target = normalize_cohort(cohort)
+    target = _cohort_identity(cohort)
     if not target:
         raise ExamTimetableError('This tenant has no saved cohort in its class timetable.')
-    labels = sorted({normalize_cohort(value) for value in candidates if normalize_cohort(value)})
+    labels = sorted({_cohort_identity(value) for value in candidates if _cohort_identity(value)})
     exact = [label for label in labels if label == target]
     if exact:
         return exact[0]
-    related_sections = [label for label in labels if label.startswith(target + ' ')]
-    if len(target.split()) == 1:
-        related_sections.extend(
-            label for label in labels
-            if label.split()[0] == target and len(label.split()) > 1 and label not in related_sections
-        )
+    if re.search(r'\(\s*\d+\s*\)$', target):
+        raise ExamCohortNotFound(f'No examination timetable section matches cohort {cohort}.')
+    target_base = normalize_cohort(target)
+    same_base = [label for label in labels if normalize_cohort(label) == target_base]
+    if len(same_base) == 1:
+        return same_base[0]
+    related_sections = [
+        label for label in labels
+        if label.startswith(target + ' ') or normalize_cohort(label).startswith(target_base + ' ')
+    ]
+    related_sections = sorted(set(related_sections))
     if len(related_sections) > 1:
         raise ExamCohortAmbiguous(
             f'The cohort {cohort} matches multiple examination sections: {", ".join(related_sections)}.'
@@ -375,7 +396,7 @@ def extract_cohort_records(file_bytes, cohort):
                 if 'cohort' in columns:
                     raw_cohort = row[columns['cohort']] if columns['cohort'] < len(row) else None
                     if _cell_text(raw_cohort):
-                        row_cohort = normalize_cohort(raw_cohort)
+                        row_cohort = _cohort_identity(raw_cohort)
                     if row_cohort != selected:
                         continue
                 values = [row[index] if index < len(row) else None for index in columns.values()]
@@ -542,7 +563,7 @@ def build_exam_grid_pdf(timetable, exam_type, version):
     )
     cell_style = ParagraphStyle(
         'ExamGridCell', parent=styles['Normal'], fontName='Helvetica',
-        fontSize=cell_font_size, leading=cell_font_size + 1.4, textColor=colors.HexColor('#10232e'), wordWrap='CJK',
+        fontSize=cell_font_size, leading=cell_font_size + 1.4, textColor=colors.HexColor('#10232e'),
     )
 
     version_label = 'Sample preview' if version == 'SAMPLE PREVIEW' else f'Source version: {version}'
@@ -577,6 +598,8 @@ def build_exam_grid_pdf(timetable, exam_type, version):
                 if cell.venue:
                     text += f'<br/>{_escape_pdf(cell.venue)}'
                 row.append(Paragraph(text, cell_style))
+            elif cell.blocked:
+                row.append(Paragraph(_escape_pdf(cell.marker or 'X'), cell_style))
             else:
                 row.append('')
         table_data.append(row)
@@ -646,7 +669,7 @@ def _compact_day_label(value):
     if not match:
         return _escape_pdf(value)
     day, date_day, month, year = match.groups()
-    return f'{_escape_pdf(day[:3])}<br/>{date_day}/{month}/{year}'
+    return f'{_escape_pdf(day)}<br/>{date_day}/{month}/{year}'
 
 
 def _time_slot_minutes(value):

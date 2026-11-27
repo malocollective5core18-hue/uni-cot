@@ -12,6 +12,7 @@ from django.views.decorators.http import require_http_methods
 from django_tenants.utils import schema_context
 
 from core.models import TenantTimetableState
+from core.permissions import is_public_founder_staff_request
 from .models import FounderExamTimetableSource
 from .services import (
     ExamCohortAmbiguous,
@@ -168,8 +169,7 @@ def _delete_source(source_type):
 def api_founder_exam_timetable_source(request, exam_type):
     if exam_type not in EXAM_TYPES:
         return JsonResponse({'success': False, 'error': 'Unknown examination timetable type.'}, status=404)
-    user = getattr(request, 'user', None)
-    if not user or not user.is_authenticated or not user.is_active or not user.is_staff:
+    if not is_public_founder_staff_request(request):
         return JsonResponse({'success': False, 'error': 'Founder access required.'}, status=403)
 
     try:
@@ -178,7 +178,7 @@ def api_founder_exam_timetable_source(request, exam_type):
                 return JsonResponse({'success': True, 'data': exam_sources_metadata()[exam_type]})
             if request.method == 'POST':
                 filename, contents = _validate_upload(request.FILES.get('file'))
-                _store_new_source_file(exam_type, filename, contents, user.id)
+                _store_new_source_file(exam_type, filename, contents, request.user.id)
                 return JsonResponse({'success': True, 'data': exam_sources_metadata()[exam_type]})
             _delete_source(exam_type)
             return JsonResponse({'success': True, 'data': exam_sources_metadata()[exam_type]})

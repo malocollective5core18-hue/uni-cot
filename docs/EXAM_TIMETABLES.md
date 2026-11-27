@@ -27,20 +27,23 @@ dates come from this exam workbook, independently of the tenant's recurring
 class timetable. Grid PDFs keep every source time column, including empty
 periods, in the same full-width landscape A4 grid style as the regular class
 timetable printout. Scheduled exams are green and unavailable periods are gray.
-Dates, courses, venues, and the full source time axis are preserved. Standard workbook
-headings are formatted into an institution title and a semester/exam/year line
-when those fields can be identified.
+Dates, courses, venues, unavailable markers, and the full source time axis are
+preserved. Standard workbook headings are formatted into an institution title
+and a semester/exam/year line when those fields can be identified.
 Row-oriented tables continue to produce the compact date/course/venue PDF.
-Cohort matching normalizes case, dotted abbreviations, punctuation, whitespace,
-and trailing parenthesized student counts. It never uses substring matching;
-unmatched and ambiguous cohorts produce errors rather than a PDF.
+Cohort matching normalizes case, dotted abbreviations, punctuation, and
+whitespace while preserving a supplied parenthesized class size as part of the
+identity. A cohort label without a class size may resolve only when there is one
+matching section; unmatched or ambiguous cohorts produce an error rather than a
+PDF.
 
-The representative Test 1 2025/2026 workbook was inspected: it has one sheet,
-200 cohort sections, 15 time columns, and nine dated rows per cohort from 5
-through 13 January 2026. Each section includes the following week, and its
-course and room assignments vary by cohort. Those exam dates are intentionally
-read from the exam source; they are not copied from or reconciled with the
-tenant's recurring class schedule.
+The supplied Test 1 2025/2026 workbook was inspected: it has one sheet and 177
+populated timetable sections recognized by the parser. Each recognized section
+has 15 time columns and nine dated rows from 5 through 13 January 2026. Course
+and room assignments vary by cohort. BAE (65) resolves to its five scheduled
+exams; BAE (54) is rejected because that cohort is absent from this workbook.
+Those exam dates are intentionally read from the exam source; they are not
+copied from or reconciled with the tenant's recurring class schedule.
 
 Legacy `.xls` and unrecognized `.xlsx` layouts are rejected with a validation
 error. The Test 1 grid workbook supplied during development is covered by a
@@ -49,19 +52,35 @@ before publishing it.
 
 ## Deployment
 
-`reportlab==5.1.0` is required to generate PDFs. Deploy the dependency with the
-application, then apply the shared schema migration:
+`reportlab==5.1.0` is required to generate PDFs. Workbook `FileField`s use
+`PrivateWorkbookCloudinaryStorage`: uploads are Cloudinary `raw/authenticated`
+assets; the storage refuses direct `.url` generation; tenant timetable owners
+download the shared class workbook through an owner-checked same-origin stream;
+exam PDFs are generated server-side and returned with tenant-private headers.
+Older workbook keys remain readable through a compatibility path during storage
+migration. The migration command defaults to a read-only inventory and requires
+`--apply` before it re-uploads legacy objects and removes their prior assets:
+
+```bash
+python manage.py migrate_workbooks_to_private_storage
+python manage.py migrate_workbooks_to_private_storage --apply
+```
+
+Run the inventory against the intended environment first. Existing public
+Cloudinary objects remain public until the `--apply` migration succeeds; verify
+the old object deletion results in Cloudinary before treating storage privacy as
+complete. A live Cloudinary upload/download was not verified by unit tests.
+
+After deploying the code, apply the new shared `core` and `exams` migrations:
 
 ```bash
 python manage.py migrate_schemas --shared
 ```
 
-No tenant schema migration is required for the new exam source table. Existing
-Render startup already runs `migrate_schemas --shared`; verify deployment logs
-show the `exams.0001_initial` migration applied before enabling the founder
-upload UI. No new environment variables are used. The source workbook remains
-private in Django's configured storage; the download endpoint returns only the
-selected tenant cohort's generated PDF.
+No tenant schema migration is required for these source storage field changes.
+No new environment variables are used. The exam download endpoint returns only
+the selected tenant cohort's generated PDF; tenant members do not receive source
+workbook URLs.
 
 The `NEW` badge uses per-browser `localStorage`. It is cleared only after that
 browser receives a successful PDF response. It is not an account-level or

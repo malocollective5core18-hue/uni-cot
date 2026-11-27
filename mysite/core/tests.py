@@ -20,10 +20,21 @@ from django.urls import reverse
 
 from core import views
 from core.models import ExternalTable, ExternalTableRecord, FounderTimetableSource, Property, TenantTimetableState, User, UserGroup, UserGroupMember
+from core.storage import PrivateWorkbookCloudinaryStorage
 from customers.models import CRTenant, TenantDashboardMetric
 from service.models import OwnerUser
 from mysite.mysite.rate_limit import client_ip, is_rate_limited
 from mysite.tests.helpers import CacheIsolationMixin
+
+
+def capture_queries():
+    queries = []
+
+    def record(execute, sql, params, many, context):
+        queries.append(sql)
+        return execute(sql, params, many, context)
+
+    return connection.execute_wrapper(record), queries
 
 
 class SessionConfigurationTests(SimpleTestCase):
@@ -32,6 +43,48 @@ class SessionConfigurationTests(SimpleTestCase):
         self.assertEqual(settings.SESSION_CACHE_ALIAS, 'default')
         self.assertFalse(settings.SESSION_SAVE_EVERY_REQUEST)
         self.assertEqual(settings.SESSION_COOKIE_AGE, 60 * 60 * 24 * 7)
+
+
+class PrivateWorkbookStorageTests(SimpleTestCase):
+    def test_workbooks_upload_as_raw_authenticated_assets(self):
+        storage = PrivateWorkbookCloudinaryStorage()
+        with patch('core.storage.cloudinary.uploader.upload', return_value={
+            'public_id': 'media/private_workbooks/test/source',
+        }) as upload:
+            stored_name = storage._save('system/timetables/source.xlsx', SimpleUploadedFile('source.xlsx', b'xlsx'))
+
+        self.assertTrue(PrivateWorkbookCloudinaryStorage.is_private_workbook(stored_name))
+        self.assertTrue(stored_name.endswith('.xlsx'))
+        kwargs = upload.call_args.kwargs
+        self.assertEqual(kwargs['resource_type'], 'raw')
+        self.assertEqual(kwargs['type'], 'authenticated')
+        self.assertFalse(kwargs['overwrite'])
+        with patch('core.storage.cloudinary.utils.private_download_url', return_value='https://signed.example/download') as signed:
+            self.assertEqual(storage._get_url(stored_name), 'https://signed.example/download')
+        self.assertTrue(signed.call_args.args[0].endswith('.xlsx'))
+        self.assertEqual(signed.call_args.args[1], 'xlsx')
+        self.assertEqual(signed.call_args.kwargs['resource_type'], 'raw')
+        self.assertEqual(signed.call_args.kwargs['type'], 'authenticated')
+        with self.assertRaisesRegex(ValueError, 'authorized application view'):
+            storage.url(stored_name)
+
+    def test_delete_uses_authenticated_raw_api_and_legacy_keys_keep_old_storage(self):
+        storage = PrivateWorkbookCloudinaryStorage()
+        with patch('core.storage.cloudinary.uploader.destroy', return_value={'result': 'ok'}) as destroy:
+            self.assertTrue(storage.delete('media/private_workbooks/test/source.xlsx'))
+        self.assertEqual(destroy.call_args.args[0], 'media/private_workbooks/test/source.xlsx')
+        self.assertEqual(destroy.call_args.kwargs['resource_type'], 'raw')
+        self.assertEqual(destroy.call_args.kwargs['type'], 'authenticated')
+        with patch('core.storage.MediaCloudinaryStorage.delete', return_value=True) as legacy_delete:
+            self.assertTrue(storage.delete('system/timetables/legacy'))
+        legacy_delete.assert_called_once_with('system/timetables/legacy')
+
+
+class CloudinaryStaticTagTests(SimpleTestCase):
+    def test_homepage_template_renders_cloudinary_assets(self):
+        cloud_name = settings.CLOUDINARY_CLOUD_NAME
+        rendered = render_to_string('index.html', {'csrf_token': 'test-token'})
+        self.assertIn(f'https://res.cloudinary.com/{cloud_name}/image/upload/', rendered)
 
 
 @override_settings(
@@ -145,6 +198,7 @@ class TenantLivePollingTemplateTests(SimpleTestCase):
         self.assertIn('data-exam-download="test1"', rendered)
         self.assertIn('exam_tt_seen_${examType}', rendered)
         self.assertIn("contentType.includes('application/pdf')", rendered)
+
         self.assertIn('expected_revision: stateRevision', rendered)
         self.assertIn('const overrides = new Map();', rendered)
         self.assertIn('overrides.get(key(item))?.shift()', rendered)
@@ -247,12 +301,19 @@ class TenantLivePollingTemplateTests(SimpleTestCase):
         self.assertNotIn('.brand-title p { display: none; }', rendered)
         self.assertIn('<div class="brand">', rendered)
         self.assertIn('const DEMO_MODE = true;', rendered)
-        self.assertIn('localStorage.setItem(DEMO_STORAGE_KEY', rendered)
+        self.assertIn("public-timetable-demo.js", rendered)
+        self.assertIn('window.UniCotDemoStorage.write(DEMO_STORAGE_KEY', rendered)
         self.assertIn('changes are saved only in this browser', rendered)
         demo_save = rendered[rendered.index('function persistData()'):rendered.index('function pushHistory()')]
         self.assertIn('if (DEMO_MODE)', demo_save)
-        self.assertIn('localStorage.setItem(DEMO_STORAGE_KEY', demo_save)
+        self.assertIn('window.UniCotDemoStorage.write(DEMO_STORAGE_KEY', demo_save)
         self.assertIn('return;', demo_save)
+        init_data = rendered[rendered.index('async function initData()'):rendered.index('function addClassInVenue(')]
+        demo_init = init_data[:init_data.index('const response = await fetch(API_URL')]
+        self.assertIn('window.UniCotDemoStorage.read(DEMO_STORAGE_KEY)', demo_init)
+        self.assertIn('if (DEMO_MODE)', demo_init)
+        self.assertIn('return;', demo_init)
+        self.assertNotIn('fetch(API_URL', demo_init)
 
     def test_change_venue_targets_existing_schedule_and_keeps_add_flow_separate(self):
         template = (settings.BASE_DIR / 'templates' / 'timetable.html').read_text()
@@ -355,12 +416,14 @@ class MockTimetableStateApiTests(SimpleTestCase):
         )
         request.tenant = self._tenant()
         request.session = {'service_user': {'user_type': 'owner', 'owner_id': 12}}
-        with patch('service.views._has_owner_admin_access', return_value=True), patch.object(
+        query_context, queries = capture_queries()
+        with query_context, patch('service.views._has_owner_admin_access', return_value=True), patch.object(
             views, '_founder_timetable_source_payload', return_value=self.source
         ), patch.object(views.TenantTimetableState, 'objects', manager), patch.object(
             views.transaction, 'atomic', return_value=nullcontext()
         ):
             response = views.api_timetable_state(request)
+        self.assertEqual(queries, [])
         self.assertEqual(response.status_code, 409)
         self.assertEqual(json.loads(response.content)['revision'], 8)
         manager.select_for_update.return_value.get_or_create.assert_called_once()
@@ -376,7 +439,8 @@ class MockTimetableStateApiTests(SimpleTestCase):
         request = RequestFactory().get('/t/tenant/1/key/api/timetable/state/')
         request.tenant = self._tenant()
         request.session = {'service_user': {'user_type': 'member', 'owner_id': 12}}
-        with patch.object(views, 'schema_context', return_value=nullcontext()), patch.object(
+        query_context, queries = capture_queries()
+        with query_context, patch.object(views, 'schema_context', return_value=nullcontext()), patch.object(
             views, '_founder_timetable_source_payload', return_value=self.source
         ), patch('exams.services.exam_sources_metadata', return_value=self._exam_sources()), patch.object(
             views.TenantTimetableState, 'objects', manager
@@ -385,6 +449,7 @@ class MockTimetableStateApiTests(SimpleTestCase):
         ):
             response = views.api_timetable_state(request)
         payload = json.loads(response.content)
+        self.assertEqual(queries, [])
         self.assertNotIn('url', payload['source'])
         self.assertEqual(payload['timetable_status'], 'owner_setup')
         self.assertIsNone(payload['data'])
@@ -402,6 +467,70 @@ class MockTimetableStateApiTests(SimpleTestCase):
             response = views.api_timetable_state(request)
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('url', json.loads(response.content)['source'])
+
+    def test_tenant_owner_gets_same_origin_workbook_endpoint_not_cloudinary_url(self):
+        manager = Mock()
+        manager.filter.return_value.first.return_value = None
+        request = RequestFactory().get('/t/tenant-a/4/key/api/timetable/state/')
+        request.tenant = SimpleNamespace(
+            schema_name='tenant_a', owner_id=12, is_active=True,
+            subdomain='tenant-a', id=4, tenant_key='key',
+        )
+        request.session = {'service_user': {'user_type': 'owner', 'owner_id': 12}}
+        query_context, queries = capture_queries()
+        with query_context, patch.object(views, 'schema_context', return_value=nullcontext()), patch.object(
+            views, '_founder_timetable_source_payload', return_value=self.source
+        ), patch('exams.services.exam_sources_metadata', return_value=self._exam_sources()), patch.object(
+            views.TenantTimetableState, 'objects', manager
+        ), patch('service.views._has_owner_admin_access', return_value=True):
+            response = views.api_timetable_state(request)
+        self.assertEqual(queries, [])
+        source = json.loads(response.content)['source']
+        self.assertEqual(source['url'], '/t/tenant-a/4/key/api/timetable/source-file/')
+
+
+class TenantTimetableSourceFileAccessTests(SimpleTestCase):
+    def _exam_sources(self):
+        return {
+            key: {'type': key, 'filename': None, 'version': 0, 'uploaded_at': None, 'has_file': False}
+            for key in ('test1', 'test2', 'ue')
+        }
+
+    def test_only_the_current_tenant_owner_can_download_the_shared_workbook(self):
+        request = RequestFactory().get('/api/timetable/source-file/')
+        request.tenant = SimpleNamespace(schema_name='tenant_a', owner_id=12, is_active=True)
+        request.session = {'service_user': {'user_type': 'owner', 'owner_id': 12}}
+        file_handle = tempfile.SpooledTemporaryFile()
+        file_handle.write(b'xlsx-data')
+        file_handle.seek(0)
+        source = SimpleNamespace(
+            file=SimpleNamespace(name='private_workbooks/source.xlsx', open=Mock(return_value=file_handle)),
+            original_filename='institution timetable.xlsx',
+        )
+        manager = Mock()
+        manager.filter.return_value.first.return_value = source
+        query_context, queries = capture_queries()
+        with query_context, patch.object(
+            views, 'schema_context', return_value=nullcontext()
+        ), patch.object(FounderTimetableSource, 'objects', manager), patch(
+            'service.views._has_owner_admin_access', return_value=True
+        ):
+            response = views.api_tenant_timetable_source_file(request)
+        self.assertEqual(queries, [])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        self.assertEqual(response['Cache-Control'], 'private, no-store')
+        self.assertEqual(b''.join(response.streaming_content), b'xlsx-data')
+
+    def test_non_owner_cannot_retrieve_source_file(self):
+        request = RequestFactory().get('/api/timetable/source-file/')
+        request.tenant = SimpleNamespace(schema_name='tenant_a', owner_id=12, is_active=True)
+        request.session = {'service_user': {'user_type': 'member', 'owner_id': 12}}
+        query_context, queries = capture_queries()
+        with query_context, patch('service.views._has_owner_admin_access', return_value=False):
+            response = views.api_tenant_timetable_source_file(request)
+        self.assertEqual(queries, [])
+        self.assertEqual(response.status_code, 403)
 
     def test_mock_based_reader_get_returns_304_for_matching_etag(self):
         """Mock-based ETag check; it does not exercise persistence."""
@@ -1240,15 +1369,24 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
     def test_founder_timetable_source_endpoint_is_staff_only_and_query_bounded(self):
         request = RequestFactory().get('/api/founder/timetable-source/')
         request.user = get_user_model()(is_active=True, is_staff=False)
+        request.tenant = SimpleNamespace(schema_name='public')
         denied = views.api_founder_timetable_source(request)
         self.assertEqual(denied.status_code, 403)
 
         request.user = get_user_model()(is_active=True, is_staff=True)
+        request.tenant = SimpleNamespace(schema_name='public')
         with schema_context('public'):
             FounderTimetableSource.objects.filter(pk=1).delete()
             with self.assertNumQueries(4):
                 response = views.api_founder_timetable_source(request)
         self.assertEqual(response.status_code, 200)
+
+    def test_tenant_staff_cannot_access_founder_timetable_source_api(self):
+        request = RequestFactory().get('/api/founder/timetable-source/')
+        request.user = get_user_model()(is_active=True, is_staff=True)
+        request.tenant = SimpleNamespace(schema_name='tenant_a')
+        response = views.api_founder_timetable_source(request)
+        self.assertEqual(response.status_code, 403)
 
     def test_founder_timetable_delete_keeps_version_monotonic_for_reupload(self):
         with schema_context('public'):
@@ -1261,6 +1399,7 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
         user = get_user_model()(is_active=True, is_staff=True, id=9001)
         request = RequestFactory().delete('/api/founder/timetable-source/')
         request.user = user
+        request.tenant = SimpleNamespace(schema_name='public')
         with schema_context('public'):
             with self.assertNumQueries(4):
                 response = views.api_founder_timetable_source(request)
@@ -1275,9 +1414,11 @@ class TenantSystemIsolationTests(CacheIsolationMixin, TestCase):
             upload = SimpleUploadedFile('replacement.xlsx', b'workbook')
             request = RequestFactory().post('/api/founder/timetable-source/', {'file': upload})
             request.user = user
-            with schema_context('public'):
-                with self.assertNumQueries(5):
-                    response = views.api_founder_timetable_source(request)
+            request.tenant = SimpleNamespace(schema_name='public')
+            with patch.object(PrivateWorkbookCloudinaryStorage, '_save', return_value='media/private_workbooks/test/replacement.xlsx'):
+                with schema_context('public'):
+                    with self.assertNumQueries(5):
+                        response = views.api_founder_timetable_source(request)
             self.assertEqual(response.status_code, 200)
         self.assertGreater(response.json()['data']['version'], 8)
 

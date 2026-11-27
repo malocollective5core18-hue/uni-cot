@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.postgres.indexes import GinIndex
+from core.storage import PrivateWorkbookCloudinaryStorage
 import uuid
 import json
 
@@ -284,7 +285,7 @@ class SystemSetting(models.Model):
 class FounderTimetableSource(models.Model):
     """The current founder-published workbook shared with every tenant."""
     id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
-    file = models.FileField(upload_to='system/timetables/')
+    file = models.FileField(upload_to='system/timetables/', storage=PrivateWorkbookCloudinaryStorage())
     original_filename = models.CharField(max_length=255)
     version = models.PositiveIntegerField(default=1)
     uploaded_by_id = models.BigIntegerField(blank=True, null=True)

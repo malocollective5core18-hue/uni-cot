@@ -7,6 +7,7 @@
   <title>Academic Timetable</title>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="{% static 'js/tenant-live.js' %}" defer></script>
+  <script src="{% static 'js/public-timetable-demo.js' %}" defer></script>
   <style>
     :root {
       /* system_index.html RING-0 root palette */
@@ -2143,14 +2144,24 @@
 
       async function initData() {
         if (DEMO_MODE) {
-          try {
-            const demoState = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY) || 'null');
-            if (demoState && Array.isArray(demoState.schedules) && demoState.schedules.length) {
-              Object.assign(state, demoState);
-              sourceVersion = Number(demoState.sourceVersion || 0);
-              return;
-            }
-          } catch (error) { /* use the shared timetable source below */ }
+          const demoState = window.UniCotDemoStorage.read(DEMO_STORAGE_KEY);
+          if (demoState) {
+            state.schedules = demoState.schedules;
+            if (Array.isArray(demoState.venues)) state.venues = demoState.venues;
+            if (typeof demoState.institutionTitle === 'string') state.institutionTitle = demoState.institutionTitle;
+            if (typeof demoState.sourceLabel === 'string') state.sourceLabel = demoState.sourceLabel;
+            if (typeof demoState.cohort === 'string') state.cohort = demoState.cohort;
+            state.lastSundayReview = demoState.lastSundayReview || null;
+            state.published = Boolean(demoState.published);
+            sourceVersion = Number.isFinite(Number(demoState.sourceVersion)) ? Number(demoState.sourceVersion) : 0;
+            return;
+          }
+          state.schedules = JSON.parse(JSON.stringify(INITIAL_SCHEDULES));
+          state.cohort = 'BAE (54)';
+          state.published = true;
+          state.timetableStatus = 'available';
+          sourceVersion = 0;
+          return;
         }
         const response = await fetch(API_URL, { credentials: 'same-origin', cache: 'no-store' });
         const payload = await response.json();
@@ -2287,9 +2298,9 @@
 
       function persistData() {
         if (DEMO_MODE) {
-          try {
-            localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify({ ...timetableStatePayload(), sourceVersion }));
-          } catch (error) { showToast('Demo changes could not be saved in this browser.', 'error'); }
+          if (!window.UniCotDemoStorage.write(DEMO_STORAGE_KEY, { ...timetableStatePayload(), sourceVersion })) {
+            showToast('Demo changes could not be saved in this browser.', 'error');
+          }
           return;
         }
         if (!CAN_MANAGE) return;
@@ -3665,7 +3676,7 @@
         const resetBtn = document.getElementById('resetBtn');
         if (resetBtn) resetBtn.addEventListener('click', () => {
           pushHistory();
-          if (DEMO_MODE) localStorage.removeItem(DEMO_STORAGE_KEY);
+          if (DEMO_MODE) window.UniCotDemoStorage.remove(DEMO_STORAGE_KEY);
           state.schedules = JSON.parse(JSON.stringify(INITIAL_SCHEDULES));
           state.institutionTitle = 'NATIONAL INSTITUTE OF TRANSPORT FIRST SEMESTER TIMETABLE FOR ACADEMIC YEAR 2026_2027';
           state.sourceLabel = 'Sample Data';

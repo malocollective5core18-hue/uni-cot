@@ -3,6 +3,7 @@ import logging
 import re
 from hashlib import sha256
 from datetime import datetime
+from pathlib import Path
 from time import time
 
 from django.conf import settings
@@ -15,8 +16,7 @@ from django.core.paginator import Paginator
 from django.db import DatabaseError, IntegrityError, OperationalError, ProgrammingError, connection, transaction
 from django.db.models import Avg, Count, F, Prefetch, Q, Sum
 from django.db.models.functions import Greatest
-from django.http import HttpResponseNotModified, JsonResponse
-from django.http import HttpResponse
+from django.http import FileResponse, HttpResponse, HttpResponseNotModified, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -40,6 +40,7 @@ from .models import (
     UserGroup,
     UserGroupMember,
 )
+from .permissions import is_public_founder_staff_request
 from customers.models import (
     CRTenant,
     Domain,
@@ -723,13 +724,8 @@ def _founder_timetable_source_payload():
     source = FounderTimetableSource.objects.filter(pk=1).first()
     if not source or not source.file:
         return None
-    try:
-        url = source.file.url
-    except (ValueError, OSError):
-        url = ''
     return {
         'filename': source.original_filename,
-        'url': url,
         'version': source.version,
         'uploaded_at': source.uploaded_at.isoformat() if source.uploaded_at else None,
     }
@@ -773,7 +769,12 @@ def api_timetable_state(request, *args, **kwargs):
         response_source = source_data
         timetable_status = 'available'
         response_data = state_data
-        if not owner_access and source_data:
+        if owner_access and source_data:
+            response_source = {
+                **source_data,
+                'url': f"{_tenant_base_path(request)}/api/timetable/source-file/",
+            }
+        elif source_data:
             response_source = {key: value for key, value in source_data.items() if key != 'url'}
         if is_real_tenant:
             if source_lookup_failed:
@@ -962,10 +963,45 @@ def api_timetable_state(request, *args, **kwargs):
     return JsonResponse({'success': True, 'revision': state_row.revision})
 
 
+@require_http_methods(['GET'])
+def api_tenant_timetable_source_file(request):
+    """Stream the shared workbook only to the active owner of this tenant."""
+    tenant = getattr(request, 'tenant', None)
+    if not tenant or getattr(tenant, 'schema_name', None) in {None, '', 'public'}:
+        return JsonResponse({'success': False, 'error': 'A tenant workspace is required'}, status=400)
+    from service.views import _has_owner_admin_access
+    if not _has_owner_admin_access(request, tenant):
+        return JsonResponse({'success': False, 'error': 'Owner access required'}, status=403)
+
+    try:
+        with schema_context('public'):
+            source = FounderTimetableSource.objects.filter(pk=1).first()
+            if not source or not source.file:
+                return JsonResponse({'success': False, 'error': 'No shared timetable workbook is available'}, status=404)
+            file_handle = source.file.open('rb')
+            filename = Path(source.original_filename or source.file.name).name
+    except (DatabaseError, OperationalError, ProgrammingError):
+        logger.exception('Could not locate the shared timetable workbook for a tenant owner')
+        return JsonResponse({'success': False, 'error': 'The shared timetable workbook is unavailable'}, status=503)
+    except Exception:
+        logger.exception('Could not open the shared timetable workbook for a tenant owner')
+        return JsonResponse({'success': False, 'error': 'The shared timetable workbook is unavailable'}, status=503)
+
+    content_type = (
+        'application/vnd.ms-excel'
+        if filename.lower().endswith('.xls')
+        else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response = FileResponse(file_handle, as_attachment=True, filename=filename, content_type=content_type)
+    response['Cache-Control'] = 'private, no-store'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
 @require_http_methods(['GET', 'POST', 'DELETE'])
 def api_founder_timetable_source(request, *args, **kwargs):
     """Founder-only current XLSX source shared with all public timetable views."""
-    if not request.user.is_authenticated or not request.user.is_staff or not request.user.is_active:
+    if not is_public_founder_staff_request(request):
         return JsonResponse({'success': False, 'error': 'Founder access required'}, status=403)
 
     with schema_context('public'):

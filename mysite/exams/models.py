@@ -1,4 +1,5 @@
 from django.db import models
+from core.storage import PrivateWorkbookCloudinaryStorage
 
 
 class FounderExamTimetableSource(models.Model):
@@ -12,7 +13,11 @@ class FounderExamTimetableSource(models.Model):
     )
 
     type = models.CharField(max_length=10, choices=TYPE_CHOICES, unique=True)
-    file = models.FileField(upload_to='system/exam_timetables/', blank=True)
+    file = models.FileField(
+        upload_to='system/exam_timetables/',
+        storage=PrivateWorkbookCloudinaryStorage(),
+        blank=True,
+    )
     original_filename = models.CharField(max_length=255, blank=True)
     version = models.PositiveIntegerField(default=0)
     uploaded_by_id = models.BigIntegerField(blank=True, null=True)

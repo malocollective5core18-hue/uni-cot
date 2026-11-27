@@ -1,7 +1,14 @@
-"""Custom static file storage that maps to Cloudinary URLs for migrated images"""
+"""Cloudinary storage backends used by UNI-COT."""
+import time
+from pathlib import PurePosixPath
+from uuid import uuid4
+
 import cloudinary
+import cloudinary.uploader
+import cloudinary.utils
 from cloudinary import CloudinaryImage
-from cloudinary_storage.storage import StaticCloudinaryStorage
+from cloudinary_storage.storage import MediaCloudinaryStorage, RawMediaCloudinaryStorage, StaticCloudinaryStorage
+from django.utils.deconstruct import deconstructible
 
 
 class CloudinaryMappedStaticStorage(StaticCloudinaryStorage):
@@ -56,3 +63,98 @@ class CloudinaryMappedStaticStorage(StaticCloudinaryStorage):
         
         # Fallback to parent implementation
         return super().url(name)
+
+
+@deconstructible
+class PrivateWorkbookCloudinaryStorage(RawMediaCloudinaryStorage):
+    """Store workbook sources as authenticated raw files and never expose a CDN URL.
+
+    Existing keys from the default image storage remain readable/deletable while
+    they are migrated. New keys live in a distinct folder so the delivery mode
+    can be identified from the FileField name.
+    """
+
+    PRIVATE_FOLDER = 'private_workbooks'
+
+    @staticmethod
+    def is_ready():
+        config = cloudinary.config()
+        return bool(config.cloud_name and config.api_key and config.api_secret)
+
+    def get_available_name(self, name, max_length=None):
+        # _save adds a UUID to the Cloudinary public ID, so a remote HEAD request
+        # is unnecessary and would be unreliable for authenticated assets.
+        return name
+
+    @classmethod
+    def is_private_workbook(cls, name):
+        path = '/' + str(name or '').replace('\\', '/').lstrip('/')
+        return f'/{cls.PRIVATE_FOLDER}/' in path
+
+    @staticmethod
+    def _private_asset_id(name):
+        return str(name or '').replace('\\', '/').lstrip('/')
+
+    @classmethod
+    def _private_asset_parts(cls, name):
+        public_id = cls._private_asset_id(name)
+        extension = PurePosixPath(public_id).suffix.lstrip('.').lower()
+        if not extension:
+            raise ValueError('Private workbook storage key has no file extension.')
+        return public_id, extension
+
+    def _save(self, name, content):
+        filename = PurePosixPath(name.replace('\\', '/')).name
+        if not filename or not PurePosixPath(filename).suffix:
+            raise ValueError('Workbook storage requires a file extension.')
+        public_id = self._prepend_prefix(
+            f'{self.PRIVATE_FOLDER}/{uuid4().hex}/{filename}'
+        )
+        result = cloudinary.uploader.upload(
+            content,
+            public_id=public_id,
+            resource_type='raw',
+            type='authenticated',
+            overwrite=False,
+            use_filename=False,
+            unique_filename=False,
+            tags=self.TAG,
+        )
+        stored_id = result.get('public_id')
+        if not stored_id:
+            raise IOError('Cloudinary did not return a workbook asset identifier.')
+        extension = PurePosixPath(filename).suffix.lower()
+        if not PurePosixPath(stored_id).suffix:
+            stored_id += extension
+        return stored_id
+
+    def _get_url(self, name):
+        if not self.is_private_workbook(name):
+            # Compatibility for existing assets that were stored before the
+            # field was assigned this backend. A migration command can read
+            # these through the old image delivery path and re-upload them.
+            return MediaCloudinaryStorage()._get_url(name)
+        public_id, extension = self._private_asset_parts(name)
+        return cloudinary.utils.private_download_url(
+            public_id,
+            extension,
+            resource_type='raw',
+            type='authenticated',
+            expires_at=int(time.time()) + 300,
+            attachment=True,
+        )
+
+    def url(self, name):
+        raise ValueError('Workbook source URLs are available only through an authorized application view.')
+
+    def delete(self, name):
+        if not self.is_private_workbook(name):
+            return MediaCloudinaryStorage().delete(name)
+        public_id, _extension = self._private_asset_parts(name)
+        result = cloudinary.uploader.destroy(
+            public_id,
+            resource_type='raw',
+            type='authenticated',
+            invalidate=True,
+        )
+        return result.get('result') == 'ok'

@@ -2,11 +2,42 @@ name: Django CI/CD
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "admin-controller-fix", "fix/**", "feat/**" ]
+  pull_request:
+    branches: [ "main", "admin-controller-fix" ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DJANGO_SECRET_KEY: ci-only-not-a-deployment-secret
+      DJANGO_DEBUG: "true"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,testserver"
+      CLOUDINARY_CLOUD_NAME: ci-test
+      CLOUDINARY_API_KEY: ci-test
+      CLOUDINARY_API_SECRET: ci-test
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+      POSTGRES_SSLMODE: disable
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/unicott_test
 
     steps:
     - name: Checkout code
@@ -15,12 +46,34 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: 3.11
+        python-version: 3.12
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
 
     - name: Install dependencies
       run: |
+        python -m pip install --upgrade pip
         pip install -r requirements.txt
+        sudo apt-get update
+        sudo apt-get install --yes poppler-utils
 
-    - name: Run tests
+    - name: Compile Python source
+      run: python -m compileall -q .
+
+    - name: Run Django system checks
+      run: python manage.py check
+
+    - name: Check migration state
+      run: python manage.py makemigrations --check --dry-run
+
+    - name: Check timetable JavaScript syntax
       run: |
-        python manage.py test
+        node --check mysite/static/js/public-timetable-demo.js
+        node scripts/test_public_timetable_demo.js
+        python scripts/check_timetable_javascript.py
+
+    - name: Run full Django test suite
+      run: python manage.py test

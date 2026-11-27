@@ -1,8 +1,10 @@
 from datetime import date, time, timedelta
+from dataclasses import replace
 from contextlib import contextmanager, nullcontext
 from io import BytesIO
 import json
 import re
+import subprocess
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -18,6 +20,7 @@ from .services import (
     ExamCohortAmbiguous,
     ExamCohortNotFound,
     ExamGrid,
+    ExamGridCell,
     ExamRecord,
     ExamTimetableError,
     _office_exam_heading,
@@ -152,6 +155,39 @@ class ExamWorkbookServiceTests(SimpleTestCase):
         self.assertIn(b'/MediaBox [ 0 0 841.8898 595.2756 ]', pdf)
         self.assertEqual(len(re.findall(rb'/Type\s*/Page\b', pdf)), 1)
 
+    def test_generated_pdf_text_preserves_source_axis_exams_venues_dates_and_unavailable_markers(self):
+        timetable = views._demo_test1_timetable()
+        first_day = list(timetable.days[0].cells)
+        first_day[0] = ExamGridCell(blocked=True, marker='-X-')
+        first_day[1] = ExamGridCell(blocked=True, marker='X')
+        days = (replace(timetable.days[0], cells=tuple(first_day)), *timetable.days[1:])
+        timetable = replace(timetable, days=days)
+
+        pdf = build_exam_grid_pdf(timetable, 'test1', 'PDF TEXT TEST')
+        result = subprocess.run(
+            ['pdftotext', '-layout', '-', '-'], input=pdf,
+            capture_output=True, check=True,
+        )
+        extracted = result.stdout.decode('utf-8')
+        normalized = ' '.join(extracted.split())
+
+        self.assertEqual(len(re.findall(rb'/Type\s*/Page\b', pdf)), 1)
+        for slot in timetable.time_slots:
+            start, end = slot.split('-', 1)
+            self.assertIn(start, extracted)
+            self.assertIn(end, extracted)
+        self.assertIn('-X-', normalized)
+        self.assertRegex(normalized, r'\bX\b')
+        self.assertIn('Monday', extracted)
+        self.assertIn('05/01/2026', extracted)
+        for day in timetable.days:
+            for cell in day.cells:
+                if cell.course:
+                    for token in cell.course.split():
+                        self.assertIn(token, normalized)
+                    for token in cell.venue.split():
+                        self.assertIn(token, normalized)
+
     def test_grid_pdf_preserves_weekly_columns_and_uses_compact_print_colors(self):
         timetable = extract_exam_timetable(make_grid_workbook(), 'BAE')
         pdf = build_exam_grid_pdf(timetable, 'test1', 4)
@@ -210,6 +246,26 @@ class ExamWorkbookServiceTests(SimpleTestCase):
         timetable = extract_exam_timetable(workbook, 'BATF STREAM B')
         self.assertEqual(timetable.days[0].cells[0].course, 'B exam')
 
+    def test_grid_cohort_selection_preserves_class_size_and_rejects_ambiguous_bare_code(self):
+        workbook = make_exam_workbook([('Sheet1', [
+            ['Test timetable'], [None, 'BAE (65)'],
+            [None, '07:00-08:00', '08:00-09:00', '09:00-10:00', '10:00-11:00'],
+            ['Monday 01/12/2026', 'BAE65 exam', '---', '---', '---'], [None],
+            ['Test timetable'], [None, 'BAE (54)'],
+            [None, '07:00-08:00', '08:00-09:00', '09:00-10:00', '10:00-11:00'],
+            ['Monday 01/12/2026', 'BAE54 exam', '---', '---', '---'], [None],
+        ])])
+        self.assertEqual(
+            extract_exam_timetable(workbook, 'BAE (65)').days[0].cells[0].course,
+            'BAE65 exam',
+        )
+        self.assertEqual(
+            extract_exam_timetable(workbook, 'BAE (54)').days[0].cells[0].course,
+            'BAE54 exam',
+        )
+        with self.assertRaises(ExamCohortAmbiguous):
+            extract_exam_timetable(workbook, 'BAE')
+
     def test_pdf_is_generated_for_meaningful_records(self):
         record = ExamRecord(
             exam_date=date(2026, 12, 1), day='Tuesday',
@@ -229,6 +285,7 @@ class ExamApiTests(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
         self.staff = SimpleNamespace(is_authenticated=True, is_active=True, is_staff=True, id=5)
+        self.public_tenant = SimpleNamespace(schema_name='public')
 
     def test_examination_source_app_is_shared_but_not_tenant_installed(self):
         from django.conf import settings
@@ -279,8 +336,19 @@ class ExamApiTests(SimpleTestCase):
     def test_unauthorized_founder_source_request_is_rejected_before_storage(self):
         request = self.factory.delete('/api/founder/exam-timetable-source/test1/')
         request.user = SimpleNamespace(is_authenticated=True, is_active=True, is_staff=False)
+        request.tenant = self.public_tenant
         response = views.api_founder_exam_timetable_source(request, 'test1')
         self.assertEqual(response.status_code, 403)
+
+    def test_tenant_staff_cannot_upload_or_read_founder_exam_sources(self):
+        request = self.factory.post('/api/founder/exam-timetable-source/test1/')
+        request.user = self.staff
+        request.tenant = SimpleNamespace(schema_name='tenant_a')
+        with capture_queries() as queries, patch.object(views, '_store_new_source_file') as store:
+            response = views.api_founder_exam_timetable_source(request, 'test1')
+        self.assertEqual(len(queries), 0)
+        self.assertEqual(response.status_code, 403)
+        store.assert_not_called()
 
     def test_unknown_examination_type_is_rejected(self):
         request = self.factory.get('/api/founder/exam-timetable-source/final/')
@@ -291,6 +359,7 @@ class ExamApiTests(SimpleTestCase):
     def test_xls_and_invalid_xlsx_uploads_are_rejected(self):
         request = self.factory.post('/api/founder/exam-timetable-source/test1/')
         request.user = self.staff
+        request.tenant = self.public_tenant
         for filename, contents in (('legacy.xls', b'not an xls'), ('broken.xlsx', b'not a workbook')):
             request.FILES['file'] = SimpleUploadedFile(filename, contents)
             with patch.object(views, 'schema_context', return_value=nullcontext()):
@@ -302,6 +371,7 @@ class ExamApiTests(SimpleTestCase):
     def test_oversized_upload_is_rejected_without_reading_its_content(self):
         request = self.factory.post('/api/founder/exam-timetable-source/test1/')
         request.user = self.staff
+        request.tenant = self.public_tenant
         oversized = SimpleNamespace(name='large.xlsx', size=25 * 1024 * 1024 + 1, read=Mock())
         request.FILES['file'] = oversized
         with patch.object(views, 'schema_context', return_value=nullcontext()):
@@ -316,6 +386,7 @@ class ExamApiTests(SimpleTestCase):
         ])])
         request = self.factory.post('/api/founder/exam-timetable-source/test2/')
         request.user = self.staff
+        request.tenant = self.public_tenant
         request.FILES['file'] = SimpleUploadedFile('test2.xlsx', workbook)
         source = SimpleNamespace(
             type='test2', file=SimpleNamespace(name='safe.xlsx'), original_filename='test2.xlsx',
@@ -338,6 +409,7 @@ class ExamApiTests(SimpleTestCase):
     def test_grid_xlsx_upload_is_accepted_for_founder_source(self):
         request = self.factory.post('/api/founder/exam-timetable-source/test1/')
         request.user = self.staff
+        request.tenant = self.public_tenant
         request.FILES['file'] = SimpleUploadedFile('test1.xlsx', make_grid_workbook())
         source = SimpleNamespace(type='test1', file=SimpleNamespace(name='safe.xlsx'))
         metadata = {

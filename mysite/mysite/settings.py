@@ -214,15 +214,20 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 
+# The cloud name is a public account identifier already used by site templates.
+# Keep static image URLs working in local environments that omit this optional
+# environment variable; an explicitly configured deployment value still wins.
+CLOUDINARY_CLOUD_NAME = os.getenv('CLOUDINARY_CLOUD_NAME') or 'dcpqnmdas'
+
 cloudinary.config(
-    cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
+    cloud_name=CLOUDINARY_CLOUD_NAME,
     api_key=os.getenv('CLOUDINARY_API_KEY'),
     api_secret=os.getenv('CLOUDINARY_API_SECRET'),
 )
 
 # Cloudinary storage settings for static files
 CLOUDINARY_STORAGE = {
-    "CLOUDINARY_CLOUD_NAME": os.getenv('CLOUDINARY_CLOUD_NAME'),
+    "CLOUDINARY_CLOUD_NAME": CLOUDINARY_CLOUD_NAME,
     "CLOUDINARY_API_KEY": os.getenv('CLOUDINARY_API_KEY'),
     "CLOUDINARY_API_SECRET": os.getenv('CLOUDINARY_API_SECRET'),
     "STATIC_TAG": "ring0",

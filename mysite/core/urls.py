@@ -11,6 +11,7 @@ urlpatterns = [
     path('external-tables/', views.external_tables, name='external_tables'),
     path('timetable/', views.timetable, name='timetable'),
     path('api/timetable/state/', views.api_timetable_state, name='api_timetable_state'),
+    path('api/timetable/source-file/', views.api_tenant_timetable_source_file, name='api_tenant_timetable_source_file'),
     path('api/founder/timetable-source/', views.api_founder_timetable_source, name='api_founder_timetable_source'),
     path('api/founder/exam-timetable-source/<str:exam_type>/', exam_views.api_founder_exam_timetable_source, name='api_founder_exam_timetable_source'),
     path('api/timetable/exam-pdf/<str:exam_type>/', exam_views.api_tenant_exam_timetable_pdf, name='api_tenant_exam_timetable_pdf'),
