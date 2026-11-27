@@ -5134,7 +5134,7 @@ footer img:hover {
 <div class="timetable-popup-overlay" id="publicTimetablePopup" role="dialog" aria-modal="true" aria-label="Timetable" hidden>
   <div class="timetable-popup-card">
     <button type="button" class="timetable-popup-close" aria-label="Close timetable" onclick="closePublicTimetablePopup()">×</button>
-    <iframe title="Read-only academic timetable" src="{% if tenant_base_path %}{{ tenant_base_path }}/timetable/{% else %}{% url 'timetable' %}{% endif %}"></iframe>
+    <iframe title="Read-only academic timetable" src="{% if tenant_base_path %}{{ tenant_base_path }}/timetable/{% else %}{% url 'timetable' %}?demo=1{% endif %}"></iframe>
   </div>
 </div>
 {% endif %}

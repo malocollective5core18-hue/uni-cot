@@ -14,6 +14,7 @@ urlpatterns = [
     path('api/founder/timetable-source/', views.api_founder_timetable_source, name='api_founder_timetable_source'),
     path('api/founder/exam-timetable-source/<str:exam_type>/', exam_views.api_founder_exam_timetable_source, name='api_founder_exam_timetable_source'),
     path('api/timetable/exam-pdf/<str:exam_type>/', exam_views.api_tenant_exam_timetable_pdf, name='api_tenant_exam_timetable_pdf'),
+    path('api/demo/exam-pdf/<str:exam_type>/', exam_views.api_demo_exam_timetable_pdf, name='api_demo_exam_timetable_pdf'),
     # API endpoints for image posts (slider images)
     path('api/slider-images/', views.api_slider_images, name='api_slider_images'),
     path('api/slider-images/<str:image_id>/', views.api_slider_image_detail, name='api_slider_image_detail'),

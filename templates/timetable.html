@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>uni-cot | Academic Timetable Console</title>
+  <title>Academic Timetable</title>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="{% static 'js/tenant-live.js' %}" defer></script>
   <style>
@@ -328,9 +328,10 @@
     }
 
     .exam-download-panel{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0 0;padding:10px;border:1px solid var(--border-hairline);border-radius:12px;background:var(--card)}
-    .exam-download-title{margin-right:auto;color:var(--text-secondary);font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+    .exam-download-title{flex-basis:100%;color:var(--text-secondary);font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
     .exam-download-button{position:relative;min-height:34px;padding:0 12px;border:1px solid rgba(34,211,238,.35);border-radius:999px;background:rgba(34,211,238,.1);color:var(--text-primary);font-size:.72rem;font-weight:750;cursor:pointer}
-    .exam-download-button:disabled{opacity:.65;cursor:wait}
+    a.exam-download-button{display:inline-flex;align-items:center;text-decoration:none}
+    .exam-download-button:disabled{opacity:.5;cursor:not-allowed}
     .exam-new-badge{position:absolute;top:-7px;right:-5px;padding:2px 5px;border-radius:999px;background:#dc2626;color:#fff;font-size:.5rem;font-weight:900;letter-spacing:.04em}
     .exam-new-badge[hidden]{display:none}
 
@@ -1520,6 +1521,18 @@
     body.timetable-manager .schedule-block > div,body.timetable-manager .schedule-block .sb-meta{min-height:0;overflow:visible}
     body.timetable-manager .sb-title{display:block;-webkit-line-clamp:unset;overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere}
     body.timetable-manager .sb-lecturer,body.timetable-manager .sb-venue{overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere}
+    html:has(body.timetable-reader),body.timetable-reader{height:auto;min-height:100%;overflow-x:hidden;overflow-y:auto}
+    body.timetable-reader{height:auto;min-height:100dvh}
+    body.timetable-reader .workspace{flex:0 0 auto;min-height:auto;overflow:visible;padding-bottom:12px}
+    body.timetable-reader .sheet-card{flex:0 0 auto;min-height:auto;overflow:visible}
+    body.timetable-reader .table-scroll{display:block;flex:0 0 auto;min-height:auto;overflow:visible}
+    body.timetable-reader table.timetable{height:auto!important}
+    body.timetable-reader table.timetable tbody tr{height:auto!important}
+    body.timetable-reader .schedule-block{height:auto!important;min-height:52px!important;max-height:none!important;justify-content:flex-start;gap:2px;overflow:visible}
+    body.timetable-reader .schedule-block > div,body.timetable-reader .schedule-block .sb-meta{min-height:0;overflow:visible}
+    body.timetable-reader .sb-code{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+    body.timetable-reader .sb-title{display:block;-webkit-line-clamp:unset!important;overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere}
+    body.timetable-reader .sb-lecturer,body.timetable-reader .sb-venue{display:block!important;white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
     .timetable-status-notice{margin:12px;padding:18px;border:1px solid rgba(91,140,255,.28);border-radius:12px;background:rgba(91,140,255,.08);color:var(--text-primary);line-height:1.5}
     .timetable-status-notice[hidden]{display:none!important}
     .timetable-status-notice strong{display:block;margin-bottom:5px;font-size:1rem}
@@ -1529,27 +1542,28 @@
     body.timetable-manager.real-tenant #publishTimetableBtn{display:inline-flex}
     .print-heading{display:none}
     @media print {
-      @page{size:A4 landscape;margin:10mm}
-      html,body{height:auto!important;min-height:0!important;overflow:visible!important;background:#fff!important;color:#111!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-      .topbar,.switch-banner,.coach-bar,.timetable-print-button,.timetable-status-notice,.drawer-overlay,.modal-backdrop,.toast-container{display:none!important}
+      @page{size:A4 landscape;margin:0}
+      html,body{height:auto!important;min-height:0!important;margin:0!important;padding:0!important;overflow:visible!important;background:#fff!important;color:#111!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      body{padding:6mm!important}
+      .topbar,.switch-banner,.coach-bar,.timetable-print-button,.timetable-status-notice,.exam-download-panel,.drawer-overlay,.modal-backdrop,.toast-container{display:none!important}
       .workspace{display:block!important;width:100%!important;max-width:none!important;margin:0!important;padding:0!important;overflow:visible!important}
       .sheet-card{overflow:visible!important;border:0!important;box-shadow:none!important;background:#fff!important}
-      .sheet-header{padding:0 0 8px!important;background:#fff!important;border-bottom:2px solid #164e63!important}
-      .print-heading{display:block!important;width:100%;font-size:18pt;font-weight:700;color:#123047}
+      .sheet-header{padding:0 0 3mm!important;background:#fff!important;border-bottom:1px solid #164e63!important}
+      .print-heading{display:block!important;width:100%;font-size:12pt;line-height:1.1;font-weight:700;color:#123047}
       .sheet-header-left{display:block!important}
-      .cohort-pill{display:inline-block!important;margin-top:5px;background:#eaf3f8!important;color:#123047!important;border-color:#9ab8c8!important}
+      .cohort-pill{display:inline-block!important;margin-top:2mm;padding:2px 6px!important;font-size:8pt!important;background:#eaf3f8!important;color:#123047!important;border-color:#9ab8c8!important}
       .table-scroll{display:block!important;overflow:visible!important}
       table.timetable{width:100%!important;min-width:0!important;border-collapse:collapse!important;table-layout:fixed!important}
       table.timetable{height:auto!important}
       table.timetable tbody tr{height:auto!important}
-      table.timetable th,table.timetable td{border:1px solid #9aa7b1!important;color:#15212b!important}
-      table.timetable thead th{display:table-cell!important;margin:0!important;background:#e8eef2!important;color:#15212b!important;font-size:7pt!important;line-height:1.1!important}
+      table.timetable th,table.timetable td{padding:1px!important;border:1px solid #9aa7b1!important;color:#15212b!important}
+      table.timetable thead th{display:table-cell!important;margin:0!important;padding:2px 1px!important;background:#e8eef2!important;color:#15212b!important;font-size:6pt!important;line-height:1!important}
       table.timetable tbody th.day-cell{background:#f0f4f6!important;color:#15212b!important}
       .schedule-block.is-obtained,.schedule-block.is-temporary,.schedule-block.is-hakipo,.schedule-block.conflict-venue{display:none!important}
-      .schedule-block{min-height:44px!important;height:auto!important;padding:3px!important;border-radius:3px!important;box-shadow:none!important;break-inside:avoid;color:#10232e!important}
+      .schedule-block{min-height:0!important;height:auto!important;padding:2px!important;border-radius:3px!important;box-shadow:none!important;break-inside:avoid;color:#10232e!important}
       .schedule-block:not(.is-switched){border:1px solid #16875a!important;background:#def4e9!important}
       .schedule-block.is-switched{border:1px solid #7041c2!important;background:#eee7fc!important}
-      .sb-code,.sb-title,.sb-lecturer,.sb-venue{color:#14242c!important;font-size:7pt!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
+      .sb-code,.sb-title,.sb-lecturer,.sb-venue{color:#14242c!important;font-size:6pt!important;line-height:1.05!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
       .status-pill,.swap-tag,.obtained-tag,.venue-conflict-tag{display:none!important}
       .manager-cohort-nav{display:none!important}
     }
@@ -1597,12 +1611,18 @@
         <table class="timetable" id="timetableGrid"></table>
       </div>
     </div>
-    <section class="exam-download-panel" id="examDownloadPanel" aria-label="Examination timetable downloads" hidden>
+    <section class="exam-download-panel" id="examDownloadPanel" aria-label="Examination timetable downloads"{% if not demo_timetable %} hidden{% endif %}>
       <span class="exam-download-title">Examination timetables</span>
+      {% if demo_timetable %}
+      <a class="exam-download-button" id="demoTest1Download" href="{% url 'api_demo_exam_timetable_pdf' exam_type='test1' %}" download="DEMO_TEST01_BAE65_SAMPLE.pdf">Test 01</a>
+      <button type="button" class="exam-download-button" disabled aria-label="Test 02 preview is not available">Test 02</button>
+      <button type="button" class="exam-download-button" disabled aria-label="UE preview is not available">UE</button>
+      {% else %}
       <button type="button" class="exam-download-button" data-exam-download="test1" hidden>Test 1 <span class="exam-new-badge" data-exam-new="test1" hidden>NEW</span></button>
       <button type="button" class="exam-download-button" data-exam-download="test2" hidden>Test 2 <span class="exam-new-badge" data-exam-new="test2" hidden>NEW</span></button>
       <button type="button" class="exam-download-button" data-exam-download="ue" hidden>UE <span class="exam-new-badge" data-exam-new="ue" hidden>NEW</span></button>
       <span id="examDownloadStatus" role="status" aria-live="polite" hidden></span>
+      {% endif %}
     </section>
 
   </main>
@@ -3430,7 +3450,7 @@
       function renderExamDownloadButtons() {
         const panel = document.getElementById('examDownloadPanel');
         if (!panel) return;
-        let visibleCount = 0;
+        let visibleCount = panel.querySelector('#demoTest1Download') ? 1 : 0;
         document.querySelectorAll('[data-exam-download]').forEach(button => {
           const examType = button.dataset.examDownload;
           const source = state.examSources[examType];

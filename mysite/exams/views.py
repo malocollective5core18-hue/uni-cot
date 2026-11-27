@@ -16,10 +16,14 @@ from .models import FounderExamTimetableSource
 from .services import (
     ExamCohortAmbiguous,
     ExamCohortNotFound,
+    ExamGrid,
+    ExamGridCell,
+    ExamGridDay,
     ExamTimetableError,
+    build_exam_grid_pdf,
     build_exam_pdf,
     exam_sources_metadata,
-    extract_cohort_records,
+    extract_exam_timetable,
     inspect_exam_workbook,
     normalize_cohort,
 )
@@ -29,6 +33,65 @@ logger = logging.getLogger(__name__)
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 EXAM_TYPES = {key for key, _label in FounderExamTimetableSource.TYPE_CHOICES}
 EXAM_LABELS = dict(FounderExamTimetableSource.TYPE_CHOICES)
+
+
+def _demo_test1_timetable():
+    """Return the fixed BAE (65) Test 1 sample, independent of tenant storage."""
+    times = (
+        '07:00-08:00', '08:00-08:30', '08:30-09:30', '09:30-10:00',
+        '10:00-11:00', '11:00-11:30', '11:30-12:30', '12:30-13:00',
+        '13:00-14:00', '14:00-14:30', '14:30-15:30', '15:30-16:00',
+        '16:00-17:00', '17:00-17:30', '17:30-18:30',
+    )
+    empty = [ExamGridCell() for _ in times]
+
+    def sample_day(label, exams=()):
+        cells = list(empty)
+        for index, course, venue in exams:
+            cells[index] = ExamGridCell(course=course, venue=venue)
+        return ExamGridDay(label, tuple(cells))
+
+    return ExamGrid(
+        title='NATIONAL INSTITUTE OF TRANSPORT',
+        cohort='BAE (65)',
+        time_slots=times,
+        days=(
+            sample_day('Monday 05/01/2026', (
+                (6, 'AEU 08102 Engine Management', 'LR 02&03 BL 14 (72)+LR 04 B14 (30)'),
+                (8, 'AEU 08103 Engineering Management', 'LR 02&03 BL 14 (72)+LR 04 B14 (30)'),
+            )),
+            sample_day('Tuesday 06/01/2026', (
+                (2, 'GSU 08106T Law for Engineers', 'LR 02&03 BL 14 (72)+LR 04 B14 (30)'),
+                (6, 'AEU 08104 Environmental & Safety Engineering', 'LR 02&03 BL 14 (72)+LR 04 B14 (30)'),
+            )),
+            sample_day('Wednesday 07/01/2026'),
+            sample_day('Thursday 08/01/2026'),
+            sample_day('Friday 09/01/2026', (
+                (14, 'AEU 08101 Automobile Design & Development', 'LR 02&03 BL 14 (72)+LR 04 B14 (30)'),
+            )),
+            sample_day('Saturday 10/01/2026'),
+            sample_day('Sunday 11/01/2026'),
+            sample_day('Monday 12/01/2026'),
+            sample_day('Tuesday 13/01/2026'),
+        ),
+        subtitle='FIRST SEMESTER &nbsp;&nbsp;&nbsp; TEST I &nbsp;&nbsp;&nbsp; YEAR 2025/2026',
+    )
+
+
+@require_http_methods(['GET'])
+def api_demo_exam_timetable_pdf(request, exam_type):
+    """Return the fixed BAE (65) sample without tenant or database reads."""
+    if exam_type != 'test1':
+        return JsonResponse({'success': False, 'error': 'Only the Test 01 demo preview is available.'}, status=404)
+    try:
+        pdf_bytes = build_exam_grid_pdf(_demo_test1_timetable(), 'test1', 'SAMPLE PREVIEW')
+    except Exception:
+        logger.exception('Could not render the public Test 01 sample PDF')
+        return JsonResponse({'success': False, 'error': 'The Test 01 sample PDF is temporarily unavailable.'}, status=503)
+    response = HttpResponse(pdf_bytes, content_type='application/pdf')
+    response['Content-Disposition'] = 'attachment; filename="DEMO_TEST01_BAE65_SAMPLE.pdf"'
+    response['Cache-Control'] = 'public, max-age=3600'
+    return response
 
 
 def _delete_storage_file(storage, name):
@@ -176,8 +239,11 @@ def api_tenant_exam_timetable_pdf(request, exam_type):
             pdf_bytes = cached_pdf
         else:
             try:
-                records = extract_cohort_records(workbook_bytes, cohort)
-                pdf_bytes = build_exam_pdf(records, cohort, exam_type, version)
+                timetable = extract_exam_timetable(workbook_bytes, cohort)
+                if isinstance(timetable, ExamGrid):
+                    pdf_bytes = build_exam_grid_pdf(timetable, exam_type, version)
+                else:
+                    pdf_bytes = build_exam_pdf(timetable, cohort, exam_type, version)
             except ExamCohortNotFound as exc:
                 return JsonResponse({'success': False, 'error': str(exc)}, status=404)
             except ExamCohortAmbiguous as exc:

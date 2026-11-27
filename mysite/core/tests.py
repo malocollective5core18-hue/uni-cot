@@ -133,6 +133,10 @@ class TenantLivePollingTemplateTests(SimpleTestCase):
         self.assertIn('function reportTimetableFrameHeight()', rendered)
         self.assertIn('id="printTimetableBtn"', rendered)
         self.assertIn('id="cohortHeading">BAE (54) • Week 1</div>', rendered)
+        self.assertIn('body.timetable-reader .sb-title{display:block;-webkit-line-clamp:unset!important;overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere}', rendered)
+        self.assertIn('body.timetable-reader .sb-lecturer,body.timetable-reader .sb-venue{display:block!important;white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}', rendered)
+        self.assertIn('body.timetable-reader .table-scroll{display:block;flex:0 0 auto;min-height:auto;overflow:visible}', rendered)
+        self.assertNotIn('body.timetable-reader .table-scroll{display:block;flex:0 0 auto;min-height:auto;overflow-x:auto', rendered)
         self.assertIn('aria-label="Download timetable as PDF"', rendered)
         self.assertIn('⬇ Download PDF</button>', rendered)
         self.assertIn("resource: 'timetable-state'", rendered)
@@ -158,13 +162,26 @@ class TenantLivePollingTemplateTests(SimpleTestCase):
         self.assertIn('!tempHides(item)', rendered)
         self.assertIn('if (!REAL_TENANT || !window.TenantLive) return;', rendered)
         self.assertIn('NOT HELD', rendered)
-        self.assertIn('@page{size:A4 landscape;margin:10mm}', rendered)
+        self.assertIn('<title>Academic Timetable</title>', rendered)
+        self.assertIn('@page{size:A4 landscape;margin:0}', rendered)
+        self.assertIn('.timetable-status-notice,.exam-download-panel,.drawer-overlay', rendered)
+        self.assertIn('body{padding:6mm!important}', rendered)
+        self.assertIn('.schedule-block:not(.is-switched){border:1px solid #16875a!important;background:#def4e9!important}', rendered)
+        self.assertIn('.schedule-block.is-switched{border:1px solid #7041c2!important;background:#eee7fc!important}', rendered)
         self.assertIn('.schedule-block.is-obtained,.schedule-block.is-temporary,.schedule-block.is-hakipo,.schedule-block.conflict-venue{display:none!important}', rendered)
         self.assertIn('window.addEventListener(\'resize\', () => {', rendered)
         self.assertIn(
             '#scheduleModal { align-items: center !important; justify-content: center !important; padding: 12px !important; }',
             rendered,
         )
+
+    def test_public_system_timetable_popup_opens_browser_local_demo(self):
+        source = (settings.BASE_DIR / 'templates' / 'system_index.html').read_text()
+        popup_start = source.index('id="publicTimetablePopup"')
+        popup_end = source.index('</div>\n{% endif %}', popup_start)
+        popup = source[popup_start:popup_end]
+        self.assertIn("{% url 'timetable' %}?demo=1", popup)
+        self.assertIn('{{ tenant_base_path }}/timetable/', popup)
 
     def test_manager_cohort_label_is_hidden_only_when_its_period_badge_is_rendered(self):
         response = views.timetable(RequestFactory().get('/timetable/?demo=1'))
@@ -190,9 +207,26 @@ class TenantLivePollingTemplateTests(SimpleTestCase):
 
     def test_public_demo_timetable_exposes_manager_controls_and_local_saves(self):
         request = RequestFactory().get('/timetable/?demo=1')
-        response = views.timetable(request)
+        queries = []
+        def record_query(execute, sql, params, many, context):
+            queries.append(sql)
+            return execute(sql, params, many, context)
+        with connection.execute_wrapper(record_query):
+            response = views.timetable(request)
         self.assertEqual(response.status_code, 200)
         rendered = response.content.decode()
+        self.assertEqual(queries, [])
+        self.assertIn('id="examDownloadPanel"', rendered)
+        self.assertIn('id="demoTest1Download"', rendered)
+        self.assertIn('href="/service/api/demo/exam-pdf/test1/"', rendered)
+        self.assertIn('download="DEMO_TEST01_BAE65_SAMPLE.pdf"', rendered)
+        self.assertIn('Examination timetables', rendered)
+        panel = rendered[rendered.index('<section class="exam-download-panel"'):rendered.index('</section>', rendered.index('<section class="exam-download-panel"'))]
+        self.assertIn('>Test 01</a>', panel)
+        self.assertIn('>Test 02</button>', panel)
+        self.assertIn('>UE</button>', panel)
+        self.assertNotIn('SAMPLE</span>', panel)
+        self.assertNotIn('Synthetic preview only.', panel)
         self.assertIn('class="timetable-manager"', rendered)
         self.assertIn('body.timetable-manager .controls-bar > .control-pill{display:none!important}', rendered)
         self.assertIn('body.timetable-manager .controls-bar{display:flex;justify-content:flex-end}', rendered)

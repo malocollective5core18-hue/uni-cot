@@ -36,6 +36,28 @@ class ExamRecord:
     venue: str
 
 
+@dataclass(frozen=True)
+class ExamGridCell:
+    course: str = ''
+    venue: str = ''
+    blocked: bool = False
+
+
+@dataclass(frozen=True)
+class ExamGridDay:
+    label: str
+    cells: tuple[ExamGridCell, ...]
+
+
+@dataclass(frozen=True)
+class ExamGrid:
+    title: str
+    cohort: str
+    time_slots: tuple[str, ...]
+    days: tuple[ExamGridDay, ...]
+    subtitle: str = ''
+
+
 HEADER_ALIASES = {
     'cohort': {'cohort', 'cohort code', 'class', 'class group', 'programme', 'program', 'programme group', 'program group', 'student group'},
     'date': {'date', 'exam date', 'date of exam', 'examination date', 'date of examination', 'paper date'},
@@ -95,7 +117,7 @@ def _header_field(value):
     return None
 
 
-def _load_exam_workbook(file_bytes):
+def _load_exam_workbook(file_bytes, *, read_only=False):
     try:
         with ZipFile(BytesIO(file_bytes)) as archive:
             names = set(archive.namelist())
@@ -103,7 +125,7 @@ def _load_exam_workbook(file_bytes):
                 raise ExamTimetableError('Upload a valid .xlsx examination workbook.')
             if sum(item.file_size for item in archive.infolist()) > 120 * 1024 * 1024:
                 raise ExamTimetableError('The expanded workbook is too large to process safely.')
-        workbook = load_workbook(BytesIO(file_bytes), read_only=False, data_only=True)
+        workbook = load_workbook(BytesIO(file_bytes), read_only=read_only, data_only=True)
     except ExamTimetableError:
         raise
     except (BadZipFile, OSError, ValueError, KeyError) as exc:
@@ -115,6 +137,8 @@ def _load_exam_workbook(file_bytes):
 
 def inspect_exam_workbook(file_bytes):
     """Reject workbooks without both an exam table and a supported cohort key."""
+    if _find_grid_sections(file_bytes):
+        return
     workbook = _load_exam_workbook(file_bytes)
     supported_table = any(
         'cohort' in columns or _sheet_cohort(sheet.title)
@@ -126,6 +150,101 @@ def inspect_exam_workbook(file_bytes):
             'No supported examination table and cohort key were found. Include columns for cohort, date, '
             'course code or course name, and exam time, or name each worksheet for its cohort.'
         )
+
+
+def _grid_times(row):
+    """Return a full row of time labels only when it looks like a timetable header."""
+    times = tuple(_cell_text(value) for value in row[1:])
+    if sum(bool(TIME_RANGE.match(value)) for value in times) < 4:
+        return ()
+    return times
+
+
+def _is_exam_day(value):
+    return bool(re.match(
+        r'^(?:MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY|'
+        r'MON|TUE|WED|THU|FRI|SAT|SUN)\b',
+        _cell_text(value), re.I,
+    ))
+
+
+def _find_grid_sections(file_bytes):
+    """Read timetable-shaped workbooks without expanding their many Excel merges."""
+    workbook = _load_exam_workbook(file_bytes, read_only=True)
+    sections = []
+    try:
+        for sheet in workbook.worksheets:
+            rows = list(sheet.iter_rows(values_only=True))
+            headers = [(index, _grid_times(row)) for index, row in enumerate(rows)]
+            headers = [(index, times) for index, times in headers if times]
+            for header_position, (header_index, columns) in enumerate(headers):
+                if header_index < 1:
+                    continue
+                cohort_row = rows[header_index - 1]
+                cohort = _cell_text(cohort_row[1] if len(cohort_row) > 1 else '')
+                if not cohort:
+                    cohort = _sheet_cohort(sheet.title)
+                    if re.fullmatch(r'SHEET\s*\d*', cohort):
+                        cohort = ''
+                if not normalize_cohort(cohort):
+                    continue
+                title = ''
+                if header_index >= 2:
+                    title_row = rows[header_index - 2]
+                    title = _cell_text(title_row[0] if title_row else '')
+                end_index = headers[header_position + 1][0] if header_position + 1 < len(headers) else len(rows)
+                days = []
+                row_index = header_index + 1
+                while row_index < end_index:
+                    row = rows[row_index]
+                    day_label = _cell_text(row[0] if row else '')
+                    if not _is_exam_day(day_label):
+                        row_index += 1
+                        continue
+                    detail_row = rows[row_index + 1] if row_index + 1 < end_index else ()
+                    if detail_row and _is_exam_day(detail_row[0] if detail_row else ''):
+                        detail_row = ()
+                    cells = []
+                    for column_index in range(len(columns)):
+                        source_column = column_index + 1
+                        value = _cell_text(row[source_column] if source_column < len(row) else '')
+                        upper_value = value.upper()
+                        blocked = upper_value in {'-X-', 'X'}
+                        course = '' if not value or upper_value in {'---', '-X-', 'X'} else value
+                        venue_value = _cell_text(
+                            detail_row[source_column] if source_column < len(detail_row) else ''
+                        )
+                        cells.append(ExamGridCell(course=course, venue=venue_value if course else '', blocked=blocked))
+                    days.append(ExamGridDay(day_label, tuple(cells)))
+                    row_index += 2 if detail_row else 1
+                if days and any(cell.course for day in days for cell in day.cells):
+                    sections.append({
+                        'cohort': cohort,
+                        'title': title,
+                        'time_slots': columns,
+                        'days': tuple(days),
+                    })
+    finally:
+        workbook.close()
+    return sections
+
+
+def extract_exam_timetable(file_bytes, cohort):
+    """Extract either the workbook's timetable grid or its row-oriented exam table."""
+    sections = _find_grid_sections(file_bytes)
+    if sections:
+        selected_label = _resolve_target(cohort, [section['cohort'] for section in sections])
+        matches = [section for section in sections if normalize_cohort(section['cohort']) == selected_label]
+        if len(matches) != 1:
+            raise ExamCohortAmbiguous(
+                f'The cohort {cohort} appears in multiple examination timetable sections.'
+            )
+        section = matches[0]
+        return ExamGrid(
+            title=section['title'], cohort=section['cohort'],
+            time_slots=section['time_slots'], days=section['days'],
+        )
+    return extract_cohort_records(file_bytes, cohort)
 
 
 def _expanded_rows(sheet):
@@ -303,13 +422,13 @@ def _column_text(row, columns, field):
 
 
 def build_exam_pdf(records, cohort, exam_type, version):
-    """Render a paginated, landscape PDF with a repeated table header."""
+    """Render a paginated, portrait A4 PDF with a repeated table header."""
     if not records:
         raise ExamTimetableError('No examination records are available for this cohort.')
     try:
         from reportlab.lib import colors
         from reportlab.lib.enums import TA_LEFT
-        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import mm
         from reportlab.platypus import LongTable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, TableStyle
@@ -317,12 +436,12 @@ def build_exam_pdf(records, cohort, exam_type, version):
         raise RuntimeError('PDF generation is unavailable because ReportLab is not installed.') from exc
 
     exam_labels = {'test1': 'Test 1', 'test2': 'Test 2', 'ue': 'UE'}
-    page_size = landscape(A4)
+    page_size = A4
     output = BytesIO()
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('ExamTitle', parent=styles['Title'], fontName='Helvetica-Bold', fontSize=20, leading=24, textColor=colors.HexColor('#123047'), alignment=TA_LEFT, spaceAfter=3)
-    subtitle_style = ParagraphStyle('ExamSubtitle', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=14, textColor=colors.HexColor('#496276'))
-    cell_style = ParagraphStyle('ExamCell', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, wordWrap='CJK')
+    title_style = ParagraphStyle('ExamTitle', parent=styles['Title'], fontName='Helvetica-Bold', fontSize=17, leading=20, textColor=colors.HexColor('#123047'), alignment=TA_LEFT, spaceAfter=3)
+    subtitle_style = ParagraphStyle('ExamSubtitle', parent=styles['Normal'], fontName='Helvetica', fontSize=9, leading=12, textColor=colors.HexColor('#496276'))
+    cell_style = ParagraphStyle('ExamCell', parent=styles['Normal'], fontName='Helvetica', fontSize=7.5, leading=9, wordWrap='CJK')
     header_style = ParagraphStyle('ExamHeader', parent=cell_style, fontName='Helvetica-Bold', textColor=colors.white)
     document = SimpleDocTemplate(
         output, pagesize=page_size, leftMargin=12 * mm, rightMargin=12 * mm,
@@ -348,7 +467,7 @@ def build_exam_pdf(records, cohort, exam_type, version):
             record.venue,
         ]
         data.append([Paragraph(_escape_pdf(value), cell_style) for value in values])
-    widths = [23 * mm, 22 * mm, 30 * mm, 31 * mm, 75 * mm, 66 * mm]
+    widths = [18 * mm, 15 * mm, 24 * mm, 28 * mm, 54 * mm, 47 * mm]
     table = LongTable(data, colWidths=widths, repeatRows=1, hAlign='LEFT')
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#123047')),
@@ -372,6 +491,172 @@ def build_exam_pdf(records, cohort, exam_type, version):
 
     document.build(story, onFirstPage=draw_page, onLaterPages=draw_page)
     return output.getvalue()
+
+
+def build_exam_grid_pdf(timetable, exam_type, version):
+    """Render the complete compact timetable grid on landscape A4 pages."""
+    if not timetable.days or not timetable.time_slots:
+        raise ExamTimetableError('No examination timetable grid is available for this cohort.')
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import LongTable, Paragraph, SimpleDocTemplate, Spacer, TableStyle
+    except ImportError as exc:
+        raise RuntimeError('PDF generation is unavailable because ReportLab is not installed.') from exc
+
+    exam_labels = {'test1': 'Test 1', 'test2': 'Test 2', 'ue': 'UE'}
+    label = exam_labels.get(exam_type, 'Examination')
+    visible_slots = tuple(range(len(timetable.time_slots)))
+    cell_font_size = 6
+    page_size = landscape(A4)
+    output = BytesIO()
+    margin = 5 * mm
+    document = SimpleDocTemplate(
+        output, pagesize=page_size, leftMargin=margin, rightMargin=margin,
+        topMargin=margin, bottomMargin=margin,
+        title=f'{timetable.cohort} {label} examination timetable', author='UNI-COT',
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'ExamGridTitle', parent=styles['Title'], fontName='Helvetica-Bold',
+        fontSize=11.5, leading=13, textColor=colors.HexColor('#123047'),
+        alignment=TA_LEFT, spaceAfter=2,
+    )
+    sub_style = ParagraphStyle(
+        'ExamGridSubtitle', parent=styles['Normal'], fontName='Helvetica',
+        fontSize=7, leading=8, textColor=colors.HexColor('#334155'), spaceAfter=2,
+    )
+    sample_heading_style = ParagraphStyle(
+        'ExamGridSampleHeading', parent=sub_style, fontName='Helvetica-Bold',
+        fontSize=8, leading=9, textColor=colors.HexColor('#164e63'), spaceAfter=2,
+    )
+    header_style = ParagraphStyle(
+        'ExamGridHeader', parent=styles['Normal'], fontName='Helvetica-Bold',
+        fontSize=cell_font_size, leading=cell_font_size + 1, textColor=colors.HexColor('#123047'), alignment=TA_LEFT,
+    )
+    day_style = ParagraphStyle(
+        'ExamGridDay', parent=header_style, fontSize=cell_font_size + 0.5, leading=cell_font_size + 1.5,
+    )
+    cell_style = ParagraphStyle(
+        'ExamGridCell', parent=styles['Normal'], fontName='Helvetica',
+        fontSize=cell_font_size, leading=cell_font_size + 1.4, textColor=colors.HexColor('#10232e'), wordWrap='CJK',
+    )
+
+    version_label = 'Sample preview' if version == 'SAMPLE PREVIEW' else f'Source version: {version}'
+    content_width = page_size[0] - document.leftMargin - document.rightMargin
+    day_width = 18 * mm
+    story = []
+    office_title, office_subtitle = _office_exam_heading(timetable.title, exam_type)
+
+    if office_title:
+        story.append(Paragraph(_escape_pdf(office_title), title_style))
+    else:
+        story.append(Paragraph(f'{label} Examination Timetable', title_style))
+    subtitle = timetable.subtitle or office_subtitle
+    if subtitle:
+        story.append(Paragraph(subtitle, sample_heading_style))
+    story.append(Paragraph(
+        f'{label} &nbsp; • &nbsp; Cohort: {_escape_pdf(timetable.cohort)}'
+        f' &nbsp; • &nbsp; {_escape_pdf(version_label)}', sub_style,
+    ))
+    table_data = [[Paragraph('DAY / DATE', header_style)]]
+    for slot_index in visible_slots:
+        slot = timetable.time_slots[slot_index]
+        start_end = TIME_RANGE.match(slot)
+        display = f'{start_end.group(1)}<br/>{start_end.group(2)}' if start_end else _escape_pdf(slot)
+        table_data[0].append(Paragraph(display, header_style))
+    for day in timetable.days:
+        row = [Paragraph(_compact_day_label(day.label), day_style)]
+        for slot_index in visible_slots:
+            cell = day.cells[slot_index] if slot_index < len(day.cells) else ExamGridCell()
+            if cell.course:
+                text = f'<b>{_escape_pdf(cell.course)}</b>'
+                if cell.venue:
+                    text += f'<br/>{_escape_pdf(cell.venue)}'
+                row.append(Paragraph(text, cell_style))
+            else:
+                row.append('')
+        table_data.append(row)
+
+    durations = [_time_slot_minutes(timetable.time_slots[index]) for index in visible_slots]
+    duration_total = sum(durations) or len(durations)
+    slot_widths = [(content_width - day_width) * duration / duration_total for duration in durations]
+    table = LongTable(
+        table_data, colWidths=[day_width, *slot_widths],
+        repeatRows=1,
+        hAlign='LEFT', splitByRow=1,
+    )
+    commands = [
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e8eef2')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#123047')),
+        ('BACKGROUND', (0, 1), (0, -1), colors.HexColor('#edf3f7')),
+        ('GRID', (0, 0), (-1, -1), 0.35, colors.HexColor('#a6b4c0')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 2),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]
+    for day_index, day in enumerate(timetable.days, start=1):
+        for column_index, slot_index in enumerate(visible_slots, start=1):
+            cell = day.cells[slot_index] if slot_index < len(day.cells) else ExamGridCell()
+            if cell.course:
+                commands.append(('BACKGROUND', (column_index, day_index), (column_index, day_index), colors.HexColor('#def4e9')))
+                commands.append(('BOX', (column_index, day_index), (column_index, day_index), 0.65, colors.HexColor('#16875a')))
+            elif cell.blocked:
+                commands.append(('BACKGROUND', (column_index, day_index), (column_index, day_index), colors.HexColor('#e5e7eb')))
+    table.setStyle(TableStyle(commands))
+    story.extend((Spacer(1, 1 * mm), table))
+
+    def draw_page(canvas, doc):
+        canvas.saveState()
+        canvas.setFont('Helvetica', 7)
+        canvas.setFillColor(colors.HexColor('#64748b'))
+        canvas.drawRightString(page_size[0] - margin, 2.5 * mm, f'Page {doc.page}')
+        canvas.restoreState()
+
+    document.build(story, onFirstPage=draw_page, onLaterPages=draw_page)
+    return output.getvalue()
+
+
+def _office_exam_heading(title, exam_type):
+    """Split standard source workbook headings into a clean office title and line."""
+    source_title = _cell_text(title)
+    semester = re.search(r'\b(FIRST|SECOND|THIRD|1ST|2ND|3RD)\s+SEMESTER\b', source_title, re.I)
+    year = re.search(r'\b(?:ACADEMIC\s+)?YEAR\s+(\d{4})[_/-](\d{4})\b', source_title, re.I)
+    if not semester or not year:
+        return source_title, ''
+
+    institution = source_title[:semester.start()].strip(' -:|')
+    if not institution:
+        return source_title, ''
+    test = re.search(r'\bTEST\s*(IV|III|II|I|\d+)\b', source_title, re.I)
+    exam_label = f'TEST {test.group(1).upper()}' if test else {'ue': 'UE'}.get(exam_type, 'EXAMINATION')
+    semester_label = f'{semester.group(1).upper()} SEMESTER'
+    academic_year = f'YEAR {year.group(1)}/{year.group(2)}'
+    subtitle = f'{_escape_pdf(semester_label)} &nbsp;&nbsp;&nbsp; {_escape_pdf(exam_label)} &nbsp;&nbsp;&nbsp; {_escape_pdf(academic_year)}'
+    return institution, subtitle
+
+
+def _compact_day_label(value):
+    match = re.match(r'^(\w+)\s+(\d{1,2})/(\d{1,2})/(\d{4})$', _cell_text(value))
+    if not match:
+        return _escape_pdf(value)
+    day, date_day, month, year = match.groups()
+    return f'{_escape_pdf(day[:3])}<br/>{date_day}/{month}/{year}'
+
+
+def _time_slot_minutes(value):
+    match = TIME_RANGE.match(_cell_text(value))
+    if not match:
+        return 60
+    start = _parse_time(match.group(1), 0)
+    end = _parse_time(match.group(2), 0)
+    minutes = (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute)
+    return minutes if minutes > 0 else 60
 
 
 def _escape_pdf(value):

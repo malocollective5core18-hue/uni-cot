@@ -1,5 +1,37 @@
 # Remediation Log
 
+## Keep the Test 01 demo button in the exam panel and verify multi-week source data (2026-11-27)
+
+- Finding: The demo download existed in a separate panel called “Demo examination timetable,” while the existing “Examination timetables” panel remained hidden. The supplied Test 1 workbook contains exam dates and per-cohort grid data that are independent of recurring class scheduling.
+- Change: Moved the demo Test 01 link into the same `examDownloadPanel` used for tenant exam downloads, with the `SAMPLE` badge and synthetic-data notice retained. Extended grid parsing regression coverage to 21 consecutive dated rows across three weeks. Documented that exam dates come from the exam source workbook and are not derived from class timetable state.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `mysite/exams/tests.py`, `docs/EXAM_TIMETABLES.md`, `docs/REMEDIATION_LOG.md`.
+- Before/after evidence: The real workbook has 200 cohort sections, each with 15 time columns and nine dated rows from 5–13 January 2026 (crossing into a second week). Course and venue assignments vary per cohort (0–12 occupied course cells per section). The 34 focused exam and timetable-template tests pass, including a three-week fixture and no-query demo view check. The live local demo renders the button inside `examDownloadPanel`; its route returned HTTP 200 and a dated, nine-row synthetic PDF. `.venv/bin/python -m compileall -q .`, `manage.py check`, `makemigrations --check --dry-run`, and `git diff --check` pass. `check --deploy` reports five existing warnings. The full suite found 134 tests but could not create `test_unicott_test`: PostgreSQL rejected the test role's `CREATE DATABASE` request. No production database was contacted.
+- Remaining risk: The supplied Test 1 workbook is for 2025/2026, while the referenced recurring timetable is labeled 2026/2027; confirm that the exam source year is intended before publishing it. Test 2 and UE source layouts may have different section/date patterns and need their own representative workbooks. The full database-backed suite requires local test-role permission to create its isolated test database.
+
+## Add a public Test 01 download to the timetable demo (2026-11-27)
+
+- Finding: The `/system/` public demo did not expose an exam download button; tenant downloads correctly required a tenant and selected that tenant's cohort.
+- Change: Added a Test 01 download link to the demo iframe and a separate public sample-PDF route. The route renders synthetic timetable data only, does not read database state or founder uploads, and labels the PDF and page as a sample. The demo panel says the sample is not an institution's published timetable; normal tenant buttons remain on their existing tenant-scoped route.
+- Files touched: `templates/timetable.html`, `mysite/core/urls.py`, `mysite/exams/views.py`, `mysite/exams/services.py`, `mysite/exams/tests.py`, `mysite/core/tests.py`, `docs/EXAM_TIMETABLES.md`, `docs/REMEDIATION_LOG.md`.
+- Before/after evidence: The public demo previously contained no Test 01 link. It now links to `/service/api/demo/exam-pdf/test1/`; 22 focused template/API tests verify the link, PDF response, demo labeling, unsupported demo exam type rejection, and zero database queries. The generated synthetic preview is one-page A4 PDF. `.venv/bin/python -m compileall -q .`, `manage.py check`, `makemigrations --check --dry-run`, and `git diff --check` pass. `check --deploy` reports five existing security warnings. Migration-history connectivity could not be checked. Full tests found 134 cases but could not create their PostgreSQL test database because PostgreSQL is unreachable in this environment.
+- Remaining risk: The preview contains synthetic demo data by design. The route and changed template have not yet been deployed to the public service.
+
+## Support cohort downloads from grid-format exam workbooks (2026-11-27)
+
+- Finding: Founder upload and tenant download controls already existed, but validation and PDF generation only accepted row-oriented workbooks. The supplied Test 1 workbook is a wide, cohort-sectioned day-by-time grid, so the upload was rejected and no user download could be produced.
+- Change: Added a read-only grid parser that recognizes time-header rows and cohort sections without expanding thousands of Excel merged cells. It selects only the cohort saved in the current tenant schema, pairs each day row with its venue row, and emits a compact A4 landscape PDF retaining the source timetable grid. Scheduled exam cells are green, unavailable cells gray, and the time/day headers use print colors. Existing row-table parsing and PDF output remain available. Added grid upload/download, stream-selection, tenant cohort separation, and zero-query assertions for the changed API paths.
+- Files touched: `mysite/exams/services.py`, `mysite/exams/views.py`, `mysite/exams/tests.py`, `docs/EXAM_TIMETABLES.md`.
+- Before/after evidence: The actual supplied Test 1 workbook now parses as 15 time columns, 9 dated rows, and 5 scheduled cells for BAE; the renderer produced a one-page A4 landscape PDF at `print_previews/test1-bae-preview.pdf`. All 24 focused exam service/API tests pass, including mock-based zero-query assertions. `.venv/bin/python -m compileall -q .`, `manage.py check`, `makemigrations --check --dry-run`, and `git diff --check` pass. `check --deploy` reports five existing security warnings. Migration drift is clear, but migration-history connectivity could not be checked. The full suite found 134 tests but could not create its PostgreSQL test database because the database is unreachable from this environment.
+- Remaining risk: Test 2 and UE workbooks were not present in Downloads, so their individual layouts have not been verified. The sample PDF was generated directly from the supplied workbook through the new code; deployment still requires uploading the corresponding source workbooks through the founder control panel.
+
+## Compact and color the existing timetable print layout (2026-11-27)
+
+- Finding: The timetable print view already uses the required weekly day/hour grid and lesson cards, but its 10mm margins and large card/header spacing leave excessive whitespace on the landscape page. The browser document title also appears in print headers as `uni-cot | Academic Timetable Console`.
+- Change: Kept the existing timetable grid and color-coded lesson cards. Set a zero-margin A4 landscape page with a 6mm internal print margin, tightened heading, grid-cell, and card spacing, and changed the HTML title to `Academic Timetable` so browser-generated print headers have no console branding. Added template regression assertions for the print title, compact page setup, and both regular/switch lesson colors.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Before/after evidence: Before, print CSS used a 10mm page margin, 44px minimum lesson cards, and an 18pt heading. After, it uses a zero-margin page with 6mm content padding, content-sized cards, and a 12pt heading while preserving the green and purple fills. `.venv/bin/python -m compileall -q .`, `manage.py check`, `manage.py check --deploy`, `makemigrations --check --dry-run`, and all 8 `TenantLivePollingTemplateTests` pass. `check --deploy` reports five existing deployment security warnings. Migration drift reports no changes but cannot check migration history because PostgreSQL is unreachable. Full tests discovered 134 tests but could not create the test database because PostgreSQL is unreachable in this execution environment. `git diff --check` passes.
+- Remaining risk: Actual printer/browser rendering was not verified. `@page` zero margin and the clean page title should remove browser-generated headers/footer, but if the browser still prints the URL/date/page count, turn off “Headers and footers” in its print dialog. Full database-backed tests remain unverified until the local PostgreSQL test target is available.
+
 ## Update selected timetable lesson venue safely (2026-11-24)
 
 - Finding: The regular `Change Venue` action opened the temporary-class creation flow. Selecting a room therefore added a yellow schedule entry and left the selected lesson unchanged. The public `/system/` demo correctly saves locally, but its UI did not clearly identify those edits as browser-only demo data.
@@ -926,3 +958,84 @@
 - Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
 - Evidence: Template regression assertions verify the week-only heading and compact PDF button dimensions.
 - Remaining risk: The PDF control invokes the browser print dialog; users must select Save as PDF.
+# Simplify public demo examination download panel (2026-11-27)
+
+- Finding: The public demo panel showed a synthetic disclaimer and SAMPLE badge, while Test 02 and UE were absent. The supplied Test 1 workbook contains BAE (65) and Bridge Course BAE (121); it does not contain BAE (54), so it cannot support the requested BAE (54) showcase.
+- Change: Kept the panel title and placed Test 01, Test 02, and UE buttons directly below it. Test 01 retains its fixed browser-demo PDF download; Test 02 and UE are disabled until sample workbooks are available. Removed the inline note and badge.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: Added template regression assertions for the three buttons and absence of the badge/note. `compileall`, `manage.py check`, `manage.py check --deploy`, and migration drift check completed; deploy check reports five existing security warnings. The targeted `core.tests` run could not connect to PostgreSQL, and `git diff --check` identified trailing whitespace, which was then cleaned up.
+- Remaining risk: The Test 01 demo PDF is still synthetic and does not show actual BAE (54) data. The supplied workbook has no BAE (54) section; Test 02 and UE source workbooks were not provided.
+
+## Use the supplied BAE (65) Test 1 timetable in the public demo (2026-11-27)
+
+- Finding: After confirming BAE (54) was absent from the supplied workbook, the user selected BAE (65) for the demo. The existing preview still contained invented courses, venues, and dates.
+- Change: Replaced the synthetic preview contents with the fixed BAE (65) section from the supplied Test 1 workbook, preserving its source dates, time grid, five course entries, and venues. The route continues to render this fixed sample without reading tenant or database data. The PDF filename identifies BAE (65) as a sample.
+- Files touched: `mysite/exams/views.py`, `mysite/exams/tests.py`, `mysite/core/tests.py`, `templates/timetable.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: `.venv/bin/python manage.py test exams.tests` passes (26 tests); `manage.py test core.tests.TenantLivePollingTemplateTests` passes (8 tests). Coverage asserts BAE (65) source dates/courses/venues, the zero-query PDF response, and all three panel buttons. `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass. `check --deploy` exits 0 with five existing security warnings. The full 134-test run could not connect to PostgreSQL to create the isolated test database.
+- Remaining risk: Test 02 and UE demo files are still unavailable; their buttons remain disabled. The public Test 1 demo now exposes the actual BAE (65) schedule from the supplied 2025/2026 workbook.
+- Remaining risk: Test 02 and UE demo files are still unavailable; their buttons remain disabled. The public Test 1 demo now exposes the actual BAE (65) schedule from the supplied 2025/2026 workbook.
+
+## Polish the Test 01 sample PDF heading and public demo popup (2026-11-27)
+
+- Finding: The sample PDF repeated a long spreadsheet title with underscores. The public system's normal-user popup loaded `/timetable/` without `?demo=1`, while the manager demo loaded `/timetable/?demo=1`; consequently the popup did not load the same browser-local demonstration state. For tenant URLs, readers remain subject to existing published-state checks.
+- Change: Rendered the PDF heading as `NATIONAL INSTITUTE OF TRANSPORT`, followed by a bold `FIRST SEMESTER / TEST I / YEAR 2025/2026` line. The public, non-tenant popup now opens the same `?demo=1` browser-local demo; tenant popup URLs continue to point at their own tenant timetable without demo mode.
+- Files touched: `mysite/exams/services.py`, `mysite/exams/views.py`, `mysite/exams/tests.py`, `templates/system_index.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: `manage.py test exams.tests` passes (26 tests), and `manage.py test core.tests.TenantLivePollingTemplateTests` passes (9 tests), including the demo popup URL assertion. `compileall`, `manage.py check`, `makemigrations --check --dry-run`, and `git diff --check` pass. `check --deploy` exits 0 with five existing warnings. The full 135-test suite could not connect to PostgreSQL to create its test database.
+- Remaining risk: A tenant reader correctly sees no timetable until its owner publishes a current source version; this change does not bypass that publication gate. Test 02 and UE samples remain unavailable.
+- Remaining risk: A tenant reader correctly sees no timetable until its owner publishes a current source version; this change does not bypass that publication gate. Test 02 and UE samples remain unavailable.
+
+## Show full timetable text in the read-only reader (2026-11-27)
+
+- Finding: The reader displayed ellipses because shared lesson styles clamp course titles to one or two lines and force codes, lecturers, and venues into single-line ellipses. The admin layout already expands lesson cards to their full text. Reader rows and iframe viewport were also height-constrained.
+- Change: Let read-only rows/cards grow to fit full lesson text, allow codes, titles, lecturers, and venues to wrap, and enable vertical page scrolling plus horizontal grid scrolling on narrow screens. The reader remains non-editable and continues using its existing tenant-scoped published-state API.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: `manage.py test core.tests.TenantLivePollingTemplateTests` passes (9 tests), including full-text reader styles and a zero-query template render. `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass. `check --deploy` exits 0 with five existing security warnings. The full 135-test suite could not connect to PostgreSQL to create its test database.
+- Remaining risk: Long lesson text can make a day row taller; narrow screens may scroll the grid horizontally.
+
+## Replace reader scrolling experiment with the admin table layout (2026-11-27)
+
+- Finding: The first reader text fix added horizontal grid scrolling, which did not match the admin timetable's page-level flow and non-scrolling table.
+- Change: Matched the admin's natural page/table/card sizing for readers. Reader lesson text wraps in full, rows grow as needed, and the table itself has no separate scroll area. Read-only permissions and tenant publication rules remain unchanged.
+- Files touched: `templates/timetable.html`, `mysite/core/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: `manage.py test core.tests.TenantLivePollingTemplateTests` passes (9 tests), including full-text wrapping and no-inner-scroll assertions. `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass. `check --deploy` exits 0 with five existing security warnings. The full 135-test suite could not connect to PostgreSQL to create its test database.
+- Remaining risk: Long course details can increase page height, matching the admin layout behavior.
+
+## Fit examination timetable PDFs to A4 and exclude downloads from class printouts (2026-11-27)
+
+- Finding: Grid exam PDFs placed up to 15 time columns on one landscape page, making the printed text too small and requiring horizontal panning on phones. The class timetable print stylesheet also included the examination download controls.
+- Change: Render exam PDFs on portrait A4 pages in groups of five time columns, repeating the timetable heading/date rows for each time band; converted row-table exam PDFs to portrait A4 with fitted column widths. Hide the exam download panel in class-timetable print media.
+- Files touched: `mysite/exams/services.py`, `mysite/exams/tests.py`, `mysite/core/tests.py`, `templates/timetable.html`, `docs/REMEDIATION_LOG.md`.
+- Evidence: `manage.py test exams.tests` passes (27 tests), including portrait A4 media-box and three-band page-count checks; `manage.py test core.tests.TenantLivePollingTemplateTests` passes (9 tests), including the print-panel exclusion assertion. `compileall`, `manage.py check`, migration drift check, and `git diff --check` pass. `check --deploy` exits 0 with five existing security warnings. The full 135-test suite could not connect to PostgreSQL to create its test database.
+- Remaining risk: Long exam schedules may span additional portrait pages; phone PDF readers still scroll vertically between pages, but no landscape horizontal panning is required.
+
+## Keep the full exam grid together on compact landscape A4 (2026-11-27)
+
+- Finding: Splitting one exam grid into separate time-band pages did not match the compact class timetable layout and made each page look like a partial timetable.
+- Change: Removed horizontal time-band pagination. Render all source time columns together in a compact landscape A4 grid, matching the class timetable's orientation; schedules that span many dates continue vertically with the full time grid intact. Keep row-oriented exam PDFs portrait A4. The class print view still excludes its examination download panel.
+- Files touched: `mysite/exams/services.py`, `mysite/exams/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: `manage.py test exams.tests` passes (27 tests), including checks that the real 15-slot BAE (65) sample and a three-week, 15-slot fixture fit as complete landscape A4 grids. `manage.py test core.tests.TenantLivePollingTemplateTests` passes (9 tests) and verifies the exam download panel is excluded from print. Compile, `manage.py check`, migration drift check, and `git diff --check` pass; deploy check reports five existing security warnings. The full 135-test suite could not connect to PostgreSQL to create its test database.
+- Remaining risk: Five-point text is dense on paper; users can view the PDF at page width on a phone but may zoom to read dense cells.
+
+## Add breathing room to exam grid cells (2026-11-27)
+
+- Finding: The compact landscape A4 grid's cell text and vertical padding were too tight.
+- Change: Increased exam cell text from 5.3pt to 5.5pt and top/bottom cell padding from 1.5pt to 3pt, retaining the full-width grid.
+- Files touched: `mysite/exams/services.py`, `mysite/exams/tests.py`, `docs/REMEDIATION_LOG.md`.
+- Evidence: `manage.py test exams.tests` passes (27 tests), including the assertion that the actual BAE (65) sample remains one landscape A4 page and multi-week timetables retain all rows. Compile, `manage.py check`, migration drift check, and `git diff --check` pass; `check --deploy` reports five existing security warnings.
+- Remaining risk: Dense entries can wrap to additional lines; the one-page fit is verified for the BAE (65) demo sample.
+
+## Preserve the full source time axis in the office exam PDF (2026-11-27)
+
+- Finding: Removing empty time columns changed the workbook grid and did not match the normal class timetable print layout.
+- Change: Restored every source time column, including empty periods, in the compact landscape A4 day/time grid, matching the regular class timetable print style. Kept office heading normalization, increased grid text to 6pt, and retained all original exam data.
+- Files touched: `mysite/exams/services.py`, `mysite/exams/tests.py`, `docs/EXAM_TIMETABLES.md`, `AI_MISSION_REVIEW_TIMETABLE_EXAMS.md`, `docs/REMEDIATION_LOG.md`.
+- Evidence: `manage.py test exams.tests` passes (29 tests), including full 15-slot BAE (65) source-axis and all-five-exams checks, office heading formatting, and one-page landscape A4 output. Regenerated and visually inspected `print_previews/test1-bae65-office-preview.pdf`; it is a single landscape A4 page with all 15 periods. Compile, `manage.py check`, migration drift check, and `git diff --check` pass; `check --deploy` reports five existing warnings. The full 135-test suite could not connect to PostgreSQL to create its isolated test database.
+- Remaining risk: The complete time axis is denser than a filtered grid; verify readability at actual A4 print size.
+
+## Keep the exam PDF aligned with the normal timetable print process (2026-11-27)
+
+- Finding: Filtering blank time periods or splitting the exam day into separate bands changed the source timetable structure. The demo description also called the BAE (65) source data synthetic.
+- Change: Keep the complete source time axis, including all 15 time columns, on one compact landscape A4 timetable grid using the same color and print process as the normal class schedule. Correct the demo description to identify the fixed BAE (65) workbook sample and remove a duplicate parser import.
+- Files touched: `mysite/exams/services.py`, `mysite/exams/views.py`, `mysite/exams/tests.py`, `templates/timetable.html`, `docs/EXAM_TIMETABLES.md`, `docs/REMEDIATION_LOG.md`, `AI_MISSION_REVIEW_TIMETABLE_EXAMS.md`.
+- Evidence: The 29-test exam suite passes, asserting 15 source periods, all five BAE (65) exam entries, and one landscape A4 page. A generated PDF preview is one landscape A4 page; source content and layout were visually inspected. Focused reader tests, Django checks, compile checks, and migration drift checks pass; deploy checks report five existing warnings. The full suite cannot create its PostgreSQL test database in this environment, so full tenant publication and browser-to-download E2E behavior is not verified here.
+- Remaining risk: Actual printer/device legibility still needs office acceptance at A4 size. The compact full-width grid uses small text. Test 02 and UE samples were not provided. Do not treat this as a production-readiness sign-off until the separate AI review verifies the tenant publication/download path and reports the PDF usability verdict.
